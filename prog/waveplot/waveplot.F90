@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !  DFTB+: general package for performing fast atomistic simulations                                !
-!  Copyright (C) 2018  DFTB+ developers group                                                      !
+!  Copyright (C) 2006 - 2020  DFTB+ developers group                                               !
 !                                                                                                  !
 !  See the LICENSE file for terms of usage and distribution.                                       !
 !--------------------------------------------------------------------------------------------------!
@@ -9,19 +9,19 @@
 
 !> Program for plotting molecular orbitals as cube files.
 program waveplot
-  use assert
-  use io
-  use InitWaveplot
-  use accuracy
-  use CharManip
-  use FileId
-  use TypeGeometry
-  use FileId
-  use GridCache
-  use MolecularOrbital
-  use SimpleAlgebra
-  use LinkedList
-  use Periodic
+  use dftbp_assert
+  use dftbp_io
+  use dftbp_initwaveplot
+  use dftbp_accuracy
+  use dftbp_charmanip
+  use dftbp_fileid
+  use dftbp_typegeometry
+  use dftbp_fileid
+  use dftbp_gridcache
+  use dftbp_molecularorbital
+  use dftbp_simplealgebra
+  use dftbp_linkedlist
+  use dftbp_periodic
   implicit none
 
   character(len=80) :: comments(2), fileName
@@ -44,8 +44,8 @@ program waveplot
   real(dp) :: mDist, dist
   real(dp), allocatable :: cellVec(:,:), rCellVec(:,:)
   integer :: i1, i2, i3, iCell
-  type(listRealR1) :: coordList
-  type(listInt) :: speciesList
+  type(TListRealR1) :: coordList
+  type(TListInt) :: speciesList
 
   ! Allocate resources
   call initProgramVariables()

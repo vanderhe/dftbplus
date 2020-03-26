@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !  DFTB+: general package for performing fast atomistic simulations                                !
-!  Copyright (C) 2018  DFTB+ developers group                                                      !
+!  Copyright (C) 2006 - 2020  DFTB+ developers group                                               !
 !                                                                                                  !
 !  See the LICENSE file for terms of usage and distribution.                                       !
 !--------------------------------------------------------------------------------------------------!
@@ -12,19 +12,19 @@
 !> code. A detailed description of the method can be found in Johnson's paper.
 !> see D.D. Johnson, PRB 38, 12807 (1988)
 !> In order to use the mixer you have to create and reset it.
-module broydenmixer
-  use assert
-  use accuracy
-  use message
-  use blasroutines, only : ger
-  use lapackroutines, only : matinv
+module dftbp_broydenmixer
+  use dftbp_assert
+  use dftbp_accuracy
+  use dftbp_message
+  use dftbp_blasroutines, only : ger
+  use dftbp_lapackroutines, only : matinv
   implicit none
 
   private
 
 
   !> Contains the necessary data for a Broyden mixer.
-  type OBroydenMixer
+  type TBroydenMixer
     private
 
     !> Actual iteration
@@ -68,7 +68,7 @@ module broydenmixer
 
     !> uu vectors
     real(dp), allocatable :: uu(:,:)
-  end type OBroydenMixer
+  end type TBroydenMixer
 
 
   !> Creates Broyden mixer
@@ -94,7 +94,7 @@ module broydenmixer
     module procedure BroydenMixer_getInverseJacobian
   end interface getInverseJacobian
 
-  public :: OBroydenMixer
+  public :: TBroydenMixer
   public :: init, reset, mix, getInverseJacobian
 
 contains
@@ -108,7 +108,7 @@ contains
       &maxWeight, weightFac)
 
     !> an initialized Broyden mixer on exit
-    type(OBroydenMixer), intent(out) :: self
+    type(TBroydenMixer), intent(out) :: self
 
     !> Maximum nr. of iterations (max. nr. of vectors to store)
     integer, intent(in) :: mIter
@@ -153,7 +153,7 @@ contains
   subroutine BroydenMixer_reset(self, nElem)
 
     !> Broyden mixer instance
-    type(OBroydenMixer), intent(inout) :: self
+    type(TBroydenMixer), intent(inout) :: self
 
     !> Length of the vectors to mix
     integer, intent(in) :: nElem
@@ -182,7 +182,7 @@ contains
   subroutine BroydenMixer_mix(self, qInpResult, qDiff)
 
     !> The Broyden mixer
-    type(OBroydenMixer), intent(inout) :: self
+    type(TBroydenMixer), intent(inout) :: self
 
     !> Input charges on entry, mixed charges on exit.
     real(dp), intent(inout) :: qInpResult(:)
@@ -348,7 +348,7 @@ contains
   subroutine BroydenMixer_getInverseJacobian(self, invJac)
 
     !> Broyden mixer
-    type(OBroydenMixer), intent(inout) :: self
+    type(TBroydenMixer), intent(inout) :: self
 
     !> Inverse of the Jacobian
     real(dp), intent(out) :: invJac(:,:)
@@ -399,4 +399,4 @@ contains
 
   end subroutine BroydenMixer_getInverseJacobian
 
-end module broydenmixer
+end module dftbp_broydenmixer

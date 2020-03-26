@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !  DFTB+: general package for performing fast atomistic simulations                                !
-!  Copyright (C) 2018  DFTB+ developers group                                                      !
+!  Copyright (C) 2006 - 2020  DFTB+ developers group                                               !
 !                                                                                                  !
 !  See the LICENSE file for terms of usage and distribution.                                       !
 !--------------------------------------------------------------------------------------------------!
@@ -21,24 +21,25 @@
 !>
 !> Todo: The generation of the reciprocal lattice vectors should not be done localy, but somewhere
 !> outside, since the Coulomb module does the same.
-module dispslaterkirkw
-  use assert
-  use accuracy
-  use simplealgebra, only : determinant33
-  use lapackroutines, only : matinv
-  use periodic, only: TNeighbourList, getNrOfNeighboursForAll, getLatticePoints
-  use constants, only : pi
-  use dispiface
-  use dispcommon
-  use message
+module dftbp_dispslaterkirkw
+  use dftbp_assert
+  use dftbp_accuracy
+  use dftbp_simplealgebra, only : determinant33
+  use dftbp_lapackroutines, only : matinv
+  use dftbp_periodic, only: TNeighbourList, getNrOfNeighboursForAll, getLatticePoints
+  use dftbp_constants, only : pi
+  use dftbp_dispiface
+  use dftbp_dispcommon
+  use dftbp_environment, only : TEnvironment
+  use dftbp_message
   implicit none
   private
 
-  public :: DispSlaKirkInp, DispSlaKirk, DispSlaKirk_init
+  public :: TDispSlaKirkInp, TDispSlaKirk, DispSlaKirk_init
 
 
   !> Contains the initialisation data for the Slater-Kirkwood module.
-  type :: DispSlaKirkInp
+  type :: TDispSlaKirkInp
 
     !> Atomic polarisabilities (nAtom)
     real(dp), allocatable :: polar(:)
@@ -50,11 +51,11 @@ module dispslaterkirkw
 
     !> Effective charges (nAtom)
     real(dp), allocatable :: charges(:)
-  end type DispSlaKirkInp
+  end type TDispSlaKirkInp
 
 
   !> Data for the Slater-Kirkwood type dispersion.
-  type, extends(DispersionIface) :: DispSlaKirk
+  type, extends(TDispersionIface) :: TDispSlaKirk
   private
 
   !> Atomic polarisabilities (nAtom)
@@ -123,7 +124,7 @@ contains
   !> real space cutoff
   procedure :: getRCutoff
 
-end type DispSlaKirk
+end type TDispSlaKirk
 
 !> Some magic constants for the damping function (see paper)
 integer, parameter :: nn_ = 7         ! N
@@ -137,10 +138,10 @@ contains
 subroutine DispSlaKirk_init(this, inp, latVecs)
 
   !> Initialized instance on exit.
-  type(DispSlaKirk), intent(out) :: this
+  type(TDispSlaKirk), intent(out) :: this
 
   !> Input parameters for Slater-Kirkwood.
-  type(DispSlaKirkInp), intent(in) :: inp
+  type(TDispSlaKirkInp), intent(in) :: inp
 
   !> Lattice vectors, if the system is periodic.
   real(dp), intent(in), optional :: latVecs(:,:)
@@ -217,10 +218,13 @@ end subroutine DispSlaKirk_init
 
 
 !> Notifies the objects about changed coordinates.
-subroutine updateCoords(this, neigh, img2CentCell, coords, species0)
+subroutine updateCoords(this, env, neigh, img2CentCell, coords, species0)
 
   !> The data object for dispersion
-  class(DispSlaKirk), intent(inout) :: this
+  class(TDispSlaKirk), intent(inout) :: this
+
+  !> Computational environment settings
+  type(TEnvironment), intent(in) :: env
 
   !> Updated neighbour list.
   type(TNeighbourList), intent(in) :: neigh
@@ -270,7 +274,7 @@ end subroutine updateCoords
 subroutine updateLatVecs(this, latVecs)
 
   !> The data object for dispersion
-  class(DispSlaKirk), intent(inout) :: this
+  class(TDispSlaKirk), intent(inout) :: this
 
   !> New lattice vectors
   real(dp), intent(in) :: latVecs(:,:)
@@ -301,7 +305,7 @@ end subroutine updateLatVecs
 subroutine getEnergies(this, energies)
 
   !> The data object for dispersion
-  class(DispSlaKirk), intent(inout) :: this
+  class(TDispSlaKirk), intent(inout) :: this
 
   !> Contains the atomic energy contributions on exit.
   real(dp), intent(out) :: energies(:)
@@ -318,7 +322,7 @@ end subroutine getEnergies
 subroutine addGradients(this, gradients)
 
   !> The data object for dispersion
-  class(DispSlaKirk), intent(inout) :: this
+  class(TDispSlaKirk), intent(inout) :: this
 
   !> The vector to increase by the gradients.
   real(dp), intent(inout) :: gradients(:,:)
@@ -338,7 +342,7 @@ end subroutine addGradients
 subroutine getStress(this, stress)
 
   !> The data object for dispersion
-  class(DispSlaKirk), intent(inout) :: this
+  class(TDispSlaKirk), intent(inout) :: this
 
   !> tensor from the dispersion
   real(dp), intent(out) :: stress(:,:)
@@ -352,7 +356,7 @@ end subroutine getStress
 function getRCutoff(this) result(cutoff)
 
   !> The data object for dispersion
-  class(DispSlaKirk), intent(inout) :: this
+  class(TDispSlaKirk), intent(inout) :: this
 
   !> Cutoff for the interaction
   real(dp) :: cutoff
@@ -467,4 +471,4 @@ function getDampCutoff_(r0, tol) result(xx)
 
 end function getDampCutoff_
 
-end module dispslaterkirkw
+end module dftbp_dispslaterkirkw

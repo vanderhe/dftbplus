@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !  DFTB+: general package for performing fast atomistic simulations                                !
-!  Copyright (C) 2018  DFTB+ developers group                                                      !
+!  Copyright (C) 2006 - 2020  DFTB+ developers group                                               !
 !                                                                                                  !
 !  See the LICENSE file for terms of usage and distribution.                                       !
 !--------------------------------------------------------------------------------------------------!
@@ -9,14 +9,14 @@
 
 !> Nose-Hoover Chain thermostat
 !> Based on Martyna et al. Molecular Physics 87 no. 5 1117-1157 (1996).
-module nhctherm
-  use assert
-  use accuracy
-  use mdcommon
-  use ranlux
-  use tempprofile
-  use energies
-  use message
+module dftbp_nhctherm
+  use dftbp_assert
+  use dftbp_accuracy
+  use dftbp_mdcommon
+  use dftbp_ranlux
+  use dftbp_tempprofile
+  use dftbp_energies
+  use dftbp_message
   implicit none
 
 
@@ -25,31 +25,31 @@ module nhctherm
 
   private
 
-  public :: ONHCThermostat
+  public :: TNHCThermostat
   public :: init, getInitVelocities, updateVelocities, state
 
 
   !> Data for the NHC thermostat
-  type ONHCThermostat
+  type TNHCThermostat
     private
 
     !> Nr. of atoms
     integer :: nAtom
 
     !> Random number generator
-    type(ORanlux), allocatable :: pRanlux
+    type(TRanlux), allocatable :: pRanlux
 
     !> Mass of the atoms
     real(dp), allocatable :: mass(:)
 
     !> Temperature generator
-    type(OTempProfile), pointer :: pTempProfile
+    type(TTempProfile), pointer :: pTempProfile
 
     !> coupling strength to friction term
     real(dp) :: couplingParameter
 
     !> MD Framework.
-    type(OMDCommon) :: pMDFrame
+    type(TMDCommon) :: pMDFrame
 
     !> MD timestep
     real(dp) :: deltaT
@@ -74,7 +74,7 @@ module nhctherm
 
     !> internal chain accelerations
     real(dp), allocatable :: gnose(:)
-  end type ONHCThermostat
+  end type TNHCThermostat
 
 
   !> initialise thermostat
@@ -109,22 +109,22 @@ contains
       & xnose, vnose, gnose)
 
     !> Initialised instance on exit.
-    type(ONHCThermostat), intent(out) :: self
+    type(TNHCThermostat), intent(out) :: self
 
     !> Random generator.
-    type(ORanlux), allocatable, intent(inout) :: pRanlux
+    type(TRanlux), allocatable, intent(inout) :: pRanlux
 
     !> Masses of the atoms.
     real(dp), intent(in) :: masses(:)
 
     !> Temperature profile object.
-    type(OTempProfile), pointer, intent(in) :: tempProfile
+    type(TTempProfile), pointer, intent(in) :: tempProfile
 
     !> Coupling parameter for the thermostat
     real(dp), intent(in) :: couplingParameter
 
     !> Molecular dynamics generic framework
-    type(OMDCommon), intent(in) :: pMDFrame
+    type(TMDCommon), intent(in) :: pMDFrame
 
     !> MD time step
     real(dp), intent(in) :: deltaT
@@ -205,7 +205,7 @@ contains
   subroutine NHC_getInitVelos(self, velocities)
 
     !> NHCThermostat instance.
-    type(ONHCThermostat), intent(inout) :: self
+    type(TNHCThermostat), intent(inout) :: self
 
     !> Contains the velocities on return.
     real(dp), intent(out) :: velocities(:,:)
@@ -230,7 +230,7 @@ contains
   subroutine NHC_updateVelos(self, velocities)
 
     !> NHCThermostat instance.
-    type(ONHCThermostat), intent(inout) :: self
+    type(TNHCThermostat), intent(inout) :: self
 
     !> Updated velocities on exit.
     real(dp), intent(inout) :: velocities(:,:)
@@ -311,7 +311,7 @@ contains
   subroutine NHC_state(self, fd)
 
     !> instance of thermostat
-    type(ONHCThermostat), intent(in) :: self
+    type(TNHCThermostat), intent(in) :: self
 
     !> filehandle to write out to
     integer,intent(in) :: fd
@@ -326,4 +326,4 @@ contains
 
   end subroutine NHC_state
 
-end module nhctherm
+end module dftbp_nhctherm

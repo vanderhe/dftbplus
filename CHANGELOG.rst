@@ -11,20 +11,84 @@ Unreleased
 Added
 -----
 
-- Ability to perform ground state MD with excitation energies
+- New algorithm for long-range corrected Hamiltonian
+
+- Support for meta-dynamics via the Plumed library.
+
+- Option to set mass of atoms in modes input file (syntax matches existing DFTB+
+  feature)
+
+- Use of processor groups with transport calculations
+  
+- Read input coordinates in XYZ format
+
+- Read input coordinates in POSCAR format
+
+- The DFT-D4 dispersion model (see DOIs: 10.1063/1.4993215 10.1063/1.5090222
+  10.26434/chemrxiv.10299428 )
+
+Changed
+-------
+
+- Input in GEN format now strictly follows the format described in the manual
+
+- New build system using CMake (the old makefile system has been retired)
+
+- Versioned format for transport contact shift files (backward compatible), also
+  enables the Fermi energy to be read directly from the contact file.
+
+Fixed
+-----
+
+- Correct update of block mulliken population for onsite correction with
+  range-separation hybrid DFTB.
+
+
+19.1 (2019-07-01)
+=================
+
+Added
+-----
+
+- Non-equilibrium Green's function transport.
+
+- Use of the ELSI library.
+ 
+- Ability to perform ground state MD with excitation energies.
+
+- Caching for transition charges in excited state.
+
+- DFTB+ can be compiled as a library and accessed via high level API (version
+  number is in the file api/mm/API_VERSION below the main directory).
+
+- Onsite corrected hamiltonian for ground state energies.
+
+- Range-separated hybrid DFTB.
+ 
+- GPU acceleration using the MAGMA library for eigensolution. WARNING: this is
+  currently an experimental feature, so should be used with care.
+
+- Labelling of atomic orbital choices in output.
+
+- Halogen X correction.
 
 
 Changed
 -------
 
+- Updated parser version to 7.
+
 
 Fixed
 -----
 
+- Orbital-resolved projected eigenstates (shell-resolved were correct)
+
+- Corrected Orbital to Shell naming conventions
 
 
-18.2
-====
+18.2 (2018-08-19)
+=================
 
 Added
 -----
