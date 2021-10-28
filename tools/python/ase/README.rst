@@ -1,0 +1,37 @@
+**********************************************************************
+dftbplus-ase: Interfacing DFTB+ with the Atomic Simulation Environment
+**********************************************************************
+
+dftbplus-ase provides an interface between the simulation package
+`DFTB+ <https://github.com/dftbplus/dftbplus>`_ and the Atomic Simulation
+Environment (`ASE <https://wiki.fysik.dtu.dk/ase/>`_).
+
+Installation
+============
+
+The package can be installed via conda-forge::
+
+  conda install dftbplus-ase
+
+Alternatively, the package can be downloaded and installed via pip into the
+active Python interpreter (preferably using a virtual python environment) by ::
+
+  pip install dftbplus-ase
+
+or into the user space issueing ::
+
+  pip install --user dftbplus-ase
+
+Documentation
+=============
+
+Consult following resources for documentation:
+
+* `Step-by-step instructions with selected examples (DFTB+ Recipes)
+  <http://dftbplus-recipes.readthedocs.io/>`_
+
+License
+=======
+
+dftbplus-ase is released under the BSD 2-clause license. See the included
+`LICENSE <LICENSE>`_ file for the detailed licensing conditions.

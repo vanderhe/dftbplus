@@ -1,0 +1,5 @@
+if (WITH_PYTHON)
+  add_subdirectory(api)
+  add_subdirectory(ase)
+  add_subdirectory(ptools)
+endif()

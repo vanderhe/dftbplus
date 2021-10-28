@@ -1,5 +1,5 @@
 if (WITH_PYTHON)
   add_subdirectory(dptools)
-  add_subdirectory(pythonapi)
+  add_subdirectory(python)
 endif()
 add_subdirectory(misc)
