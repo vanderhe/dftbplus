@@ -71,7 +71,7 @@ program waveplot
   real(dp) :: sumTotChrg, sumAtomicChrg, sumChrg
 
   !> Pointers to arrays holding the volumetric grid data
-  real(dp), pointer ::  pAtomicChrg(:,:,:), pSpeciesChrg(:,:,:,:)
+  real(dp), pointer ::  pAtomicChrg(:,:,:), pSpeciesChrg(:,:,:)
   real(dp), pointer :: pTotData(:,:,:), pBuffer(:,:,:), pCopyBuffers(:,:,:,:)
 
   integer :: jj, iL, iM
@@ -141,7 +141,6 @@ program waveplot
   allocate(speciesChrg(wp%option%nSpPoints(1), wp%option%nSpPoints(2), wp%option%nSpPoints(3),&
       & maxval(wp%internal%orbitalToSpecies)))
   speciesChrg(:,:,:,:) = 0.0_dp
-  pSpeciesChrg => speciesChrg
 
   ind = 1
 
@@ -154,7 +153,8 @@ program waveplot
     do iAng = wp%internal%molorb%iStos(iSpecies), wp%internal%molorb%iStos(iSpecies + 1) - 1
       iL = wp%internal%molorb%angMoms(iAng)
       do iM = - iL, iL
-        call TGridData_init(speciesGridsDat(ind), speciesGrids(iSpecies), pSpeciesChrg(:,:,:,ind),&
+        pSpeciesChrg => speciesChrg(:,:,:, ind)
+        call TGridData_init(speciesGridsDat(ind), speciesGrids(iSpecies), pSpeciesChrg,&
             & rwInterType='spline', gridInterType='trivial')
         call speciesGridsDat(ind)%tabulateBasis(wp%internal%molorb%rwfs(iAng)%rwf,&
             & speciesRty(iSpecies), iL, iM)
