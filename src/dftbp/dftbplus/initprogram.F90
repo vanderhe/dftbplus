@@ -5218,7 +5218,7 @@ contains
 
 
   !> Stop if linear response module can not be invoked due to unimplemented combinations of
-  !> features.
+  !! features.
   subroutine ensureLinRespConditions(tSccCalc, t3rd, tRealHS, tPeriodic, tCasidaForces, solvation,&
       & isRS_LinResp, nSpin, tSpin, tHelical, tSpinOrbit, isDftbU, tempElec, isOnsiteCorrected,&
       & input)
