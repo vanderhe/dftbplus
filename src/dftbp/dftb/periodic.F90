@@ -21,12 +21,13 @@ module dftbp_dftb_periodic
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_latpointiter, only : TLatPointIter, TLatPointIter_init
   use dftbp_type_linkedlist, only : TListRealR1, len, init, append, asArray, destruct
-  implicit none
 
+  implicit none
   private
+
   public :: getCellTranslations, getLatticePoints, foldCoordToUnitCell
   public :: reallocateHS, buildSquaredAtomIndex
-  public :: TNeighbourList, TNeighbourlist_init
+  public :: TNeighbourList, TNeighbourlist_init, TSymNeighbourList
   public :: updateNeighbourList, updateNeighbourListAndSpecies
   public :: getNrOfNeighbours, getNrOfNeighboursForAll
   public :: getSuperSampling
@@ -82,12 +83,43 @@ module dftbp_dftb_periodic
 
     !> initialised data
     logical :: initialized = .false.
+
   end type TNeighbourList
+
+
+  !> Contains neighbour list instance and symmetry specific entries
+  type TSymNeighbourList
+
+    !> Neighbour list instance
+    type(TNeighbourList), allocatable :: neighbourList
+
+    !> Number of all interacting atoms, including periodic images
+    integer :: nAllAtom
+
+    !> Coordinates of all interacting atoms, including periodic images
+    real(dp), allocatable :: coord(:,:)
+
+    !> Species of all interacting atoms, including periodic images
+    integer, allocatable :: species(:)
+
+    !> Mapping of all atoms onto atoms in the central cell
+    integer, allocatable :: img2CentCell(:)
+
+    !> Shift vector index for every interacting atom, including periodic images
+    integer, allocatable :: iCellVec(:)
+
+    !> Sparse array indexing for the start of atomic blocks in data structures
+    integer, allocatable :: iPair(:,:)
+
+    !> Total number of elements in a sparse structure (ignoring extra indices like spin)
+    integer :: sparseSize
+
+  end type TSymNeighbourList
 
 contains
 
 
-  !> Initializes a neighbourlist instance.
+  !> Initializes a TNeighbourList instance.
   subroutine TNeighbourlist_init(neighbourList, nAtom, nInitNeighbour)
 
     !> Neighbourlist data.
@@ -121,7 +153,7 @@ contains
   subroutine getCellTranslations(cellVec, rCellVec, latVec, recVec2p, cutoff)
 
     !> Returns cell translation vectors in relative coordinates.
-    real(dp), allocatable, intent(out) :: cellVec(:, :)
+    real(dp), allocatable, intent(out) :: cellVec(:,:)
 
     !> Returns cell translation vectors in absolute units.
     real(dp), allocatable, intent(out) :: rCellVec(:,:)
@@ -461,7 +493,7 @@ contains
     nAllAtom = 0
 
     ! Clean arrays.
-    !  (Every atom is the 0th neighbour of itself with zero distance square.)
+    ! (Every atom is the 0th neighbour of itself with zero distance square.)
     neigh%nNeighbour(:) = 0
     neigh%iNeighbour(:,:) = 0
     do ii = 1, nAtom
@@ -496,30 +528,30 @@ contains
           ! helical geometry
           if (size(helicalBoundConds,dim=1)==3) then
             ! an additional C rotation operation
-            call rotate3(rr,2.0_dp*pi*rCellVec(2, ii)/helicalBoundConds(3,1), zAxis)
+            call rotate3(rr, 2.0_dp * pi * rCellVec(2, ii) / helicalBoundConds(3, 1), zAxis)
           end if
           ! helical operation, note nint() not floor() as roundoff can cause problems for floor
           ! here.
-          call rotate3(rr,helicalBoundConds(2,1)*nint(rCellVec(1, ii)/helicalBoundConds(1,1)),&
+          call rotate3(rr, helicalBoundConds(2,1) * nint(rCellVec(1, ii) / helicalBoundConds(1,1)),&
               & zAxis)
         end if
         lpIAtom2: do iAtom2 = 1, iAtom2End
           !  If distance greater than cutoff -> skip
-          dist2 = sum((coord0(:, iAtom2) - rr(:))**2)
+          dist2 = sum((coord0(:, iAtom2) - rr)**2)
           if (dist2 > cutoff2) then
             cycle
           end if
           ! New interacting atom -> append
           ! We need that before checking for interaction with dummy atom or
           ! with itself to make sure that atoms in the central cell are
-          ! appended  exactly in the same order as found in the coord0 array.
+          ! appended exactly in the same order as found in the coord0 array.
           if (iAtom1 /= oldIAtom1) then
             nAllAtom = nAllAtom + 1
             if (nAllAtom > mAtom) then
               mAtom = incrmntOfArray(mAtom)
               call reallocateArrays1(img2CentCell, iCellVec, coord, mAtom)
             end if
-            coord(:, nAllAtom) = rr(:)
+            coord(:, nAllAtom) = rr
             img2CentCell(nAllAtom) = iAtom1
             iCellVec(nAllAtom) = ii
             oldIAtom1 = iAtom1
@@ -549,7 +581,7 @@ contains
       end do lpIAtom1
     end do lpCellVec
 
-    ! Sort neighbours for all atom by distance
+    ! Sort neighbours for all atoms by distance
     allocate(indx(maxNeighbour))
     do iAtom1 = 1, nAtom
       nn1 = neigh%nNeighbour(iAtom1)
@@ -565,7 +597,7 @@ contains
       do nn1 = 1, neigh%nNeighbour(iAtom1)
         if (neigh%neighDist2(nn1, iAtom1) < minNeighDist2) then
           iAtom2 = img2CentCell(neigh%iNeighbour(nn1, iAtom1))
-          write (strError, "(A,I0,A,I0,A)") "Atoms ",iAtom1, " and ", iAtom2, " too close together"
+          write (strError, "(A,I0,A,I0,A)") "Atoms ", iAtom1, " and ", iAtom2, " too close together"
           call error(strError)
         end if
       end do
@@ -584,7 +616,7 @@ contains
     type(TNeighbourList), intent(in) :: neigh
 
     !> Maximal neighbour distance to consider.
-    real(dp),            intent(in) :: cutoff
+    real(dp), intent(in) :: cutoff
 
     integer :: nAtom, iAtom
 
@@ -649,14 +681,14 @@ contains
     integer, allocatable, intent(inout) :: iCellVec(:)
 
     !> coordinates of all atoms (actual and image)
-    real(dp), allocatable, intent(inout) :: coord(:, :)
+    real(dp), allocatable, intent(inout) :: coord(:,:)
 
     !> maximum number of new atoms
     integer, intent(in) :: mNewAtom
 
     integer :: mAtom
     integer, allocatable :: tmpIntR1(:)
-    real(dp), allocatable :: tmpRealR2(:, :)
+    real(dp), allocatable :: tmpRealR2(:,:)
 
     mAtom = size(img2CentCell)
 
@@ -733,7 +765,7 @@ contains
     type(TOrbitals), intent(in) :: orb
 
     !> Sparse array indexing for the start of atomic blocks in data structures
-    integer, allocatable, intent(inout) :: iPair(:,:)
+    integer, intent(inout), allocatable :: iPair(:,:)
 
     !> Total number of elements in a sparse structure (ignoring extra indices like spin)
     integer, intent(out) :: sparseSize
@@ -749,7 +781,7 @@ contains
 
     if (mNeighbour > size(iPair, dim=1)) then
       deallocate(iPair)
-      allocate(iPair(0 : mNeighbour - 1, nAtom))
+      allocate(iPair(0:mNeighbour - 1, nAtom))
       iPair(:,:) = 0
     end if
     ind = 0

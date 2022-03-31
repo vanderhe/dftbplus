@@ -39,11 +39,11 @@ module dftbp_dftbplus_initprogram
   use dftbp_dftb_nonscc, only : TNonSccDiff, NonSccDiff_init, diffTypes
   use dftbp_dftb_onsitecorrection, only : Ons_getOrbitalEquiv, Ons_blockIndx
   use dftbp_dftb_orbitalequiv, only : OrbitalEquiv_merge, OrbitalEquiv_reduce
-  use dftbp_dftb_periodic, only : TNeighbourList, TNeighbourlist_init, buildSquaredAtomIndex,&
-      & getCellTranslations
+  use dftbp_dftb_periodic, only : TNeighbourList, TNeighbourlist_init, TSymNeighbourList,&
+      & buildSquaredAtomIndex, getCellTranslations
   use dftbp_dftb_pmlocalisation, only : TPipekMezey, initialise
   use dftbp_dftb_potentials, only : TPotentials, TPotentials_init
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, rangeSepTypes, RangeSepFunc_init
+  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, rangeSepTypes, TRangeSepFunc_init
   use dftbp_dftb_repulsive_chimesrep, only : TChimesRepInp, TChimesRep, TChimesRep_init
   use dftbp_dftb_repulsive_pairrepulsive, only : TPairRepulsiveItem
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
@@ -194,7 +194,8 @@ module dftbp_dftbplus_initprogram
   !> Interaction cutoff distances
   type :: TCutoffs
     real(dp) :: skCutOff
-    real(dp) :: lcCutOff
+    real(dp) :: camCutOff
+    real(dp) :: coulombTruncation
     real(dp) :: mCutOff
   end type TCutoffs
 
@@ -287,7 +288,7 @@ module dftbp_dftbplus_initprogram
     real(dp), allocatable :: invLatVec(:,:)
 
     !> cell volume
-    real(dp) :: CellVol
+    real(dp) :: cellVol
 
     !> reciprocal cell volume
     real(dp) :: recCellVol
@@ -301,16 +302,20 @@ module dftbp_dftbplus_initprogram
     !> index in cellVec for each atom
     integer, allocatable :: iCellVec(:)
 
-
     !> ADT for neighbour parameters
     type(TNeighbourList), allocatable :: neighbourList
+
+    !> ADT for neighbour parameters, symmetric version for CAM calculations
+    type(TSymNeighbourList) :: symNeighbourList
 
     !> nr. of neighbours for atoms out to max interaction distance (excluding Ewald terms)
     integer, allocatable :: nNeighbourSK(:)
 
-    !> Number of neighbours for each of the atoms for the exchange contributions in the long range
-    !> functional
-    integer, allocatable :: nNeighbourLC(:)
+    !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
+    integer, allocatable :: nNeighbourCam(:)
+
+    !> Symmetric neighbour list version of nNeighbourCam
+    integer, allocatable :: nNeighbourCamSym(:)
 
     !> H/S sparse matrices indexing array for atomic blocks
     integer, allocatable :: iSparseStart(:,:)
@@ -1694,11 +1699,17 @@ contains
     allocate(this%img2CentCell(this%nAllAtom))
     allocate(this%iCellVec(this%nAllAtom))
 
+    ! Copy symmetry-specific entries into symmetric neighbour list
+    allocate(this%symNeighbourList%coord(3, this%nAllAtom))
+    allocate(this%symNeighbourList%species(this%nAllAtom))
+    allocate(this%symNeighbourList%img2CentCell(this%nAllAtom))
+    allocate(this%symNeighbourList%iCellVec(this%nAllAtom))
+
     ! Check if multipolar contributions are required
     if (allocated(this%tblite)) then
       call this%tblite%getMultipoleInfo(this%nDipole, this%nQuadrupole)
     end if
-    call TMultipole_init(this%multipoleOut, this%nAtom, this%nDipole, this%nQuadrupole, &
+    call TMultipole_init(this%multipoleOut, this%nAtom, this%nDipole, this%nQuadrupole,&
         & this%nSpin)
     this%multipoleInp = this%multipoleOut
 
@@ -1709,9 +1720,10 @@ contains
     else
       allocate(this%chargePerShell(0,0,0))
     end if
-    call TIntegral_init(this%ints, this%nSpin, .not.allocated(this%reks), this%tImHam, &
+    call TIntegral_init(this%ints, this%nSpin, .not. allocated(this%reks), this%tImHam,&
         & this%nDipole, this%nQuadrupole)
     allocate(this%iSparseStart(0, this%nAtom))
+    allocate(this%symNeighbourList%iPair(0, this%nAtom))
 
     this%tempAtom = input%ctrl%tempAtom
     this%deltaT = input%ctrl%deltaT
@@ -2594,7 +2606,8 @@ contains
 
     if (this%isRangeSep) then
       call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
-      call getRangeSeparatedCutoff(input%ctrl%rangeSepInp%cutoffRed, this%cutOff)
+      call getRangeSeparatedCutoff(input%ctrl%rangeSepInp%cutoffRed, this%cutOff,&
+          & input%ctrl%rangeSepInp%coulombTruncation)
       call this%initRangeSeparated(this%nAtom, this%species0, hubbU, input%ctrl%rangeSepInp,&
           & this%tSpin, allocated(this%reks), this%rangeSep, this%deltaRhoIn, this%deltaRhoOut,&
           & this%deltaRhoDiff, this%deltaRhoInSqr, this%deltaRhoOutSqr, this%nMixElements)
@@ -2607,7 +2620,7 @@ contains
     @:ASSERT(.not. this%tReadShifts)
     @:ASSERT(.not. this%tWriteShifts)
 
-    this%tReadChrgAscii  = input%ctrl%tReadChrgAscii
+    this%tReadChrgAscii = input%ctrl%tReadChrgAscii
     this%tWriteChrgAscii = input%ctrl%tWriteChrgAscii
     this%tSkipChrgChecksum = input%ctrl%tSkipChrgChecksum .or. this%tNegf
 
@@ -2620,16 +2633,19 @@ contains
     else
       allocate(this%cellVec(3, 1))
       allocate(this%rCellVec(3, 1))
-      this%cellVec(:,1) = [0.0_dp, 0.0_dp, 0.0_dp]
-      this%rCellVec(:,1) = [0.0_dp, 0.0_dp, 0.0_dp]
+      this%cellVec(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+      this%rCellVec(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
     end if
 
-    ! Initialize neighbourlist.
+    ! Initialize neighbourlist(s)
     allocate(this%neighbourList)
     call TNeighbourlist_init(this%neighbourList, this%nAtom, nInitNeighbour)
     allocate(this%nNeighbourSK(this%nAtom))
     if (this%isRangeSep) then
-      allocate(this%nNeighbourLC(this%nAtom))
+      allocate(this%symNeighbourList%neighbourList)
+      call TNeighbourlist_init(this%symNeighbourList%neighbourList, this%nAtom, nInitNeighbour)
+      allocate(this%nNeighbourCam(this%nAtom))
+      allocate(this%nNeighbourCamSym(this%nAtom))
     end if
 
     ! Set various options
@@ -5174,8 +5190,15 @@ contains
     end if
 
     if (this%tPeriodic) then
-      call error("Range separated functionality only works with non-periodic structures at the&
-          & moment")
+      if (rangeSepInp%rangeSepAlg /= rangeSepTypes%neighbour) then
+        call error("Range separated functionality for periodic system currently only working for&
+            & the neighbour list based algorithm")
+      end if
+      if (size(this%kPoint, dim=2) /= 1) then
+        if (any(this%kPoint /= 0.0_dp)) then
+          call error("Range separated functionality only works with gamma point at the moment")
+        end if
+      end if
     end if
 
     if (this%tHelical) then
@@ -5367,7 +5390,7 @@ contains
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff(cutoffRed, cutOff)
+  subroutine getRangeSeparatedCutOff(cutoffRed, cutOff, coulombTruncation)
 
     !> Reduction in cut-off
     real(dp), intent(in) :: cutoffRed
@@ -5375,15 +5398,28 @@ contains
     !> Resulting cut-off
     type(TCutoffs), intent(inout) :: cutOff
 
-    cutOff%lcCutOff = 0.0_dp
+    !> Cut-off for 1/Rc
+    real(dp), intent(in) :: coulombTruncation
+
+    cutOff%camCutOff = 0.0_dp
+
     if (cutoffRed < 0.0_dp) then
       call error("Cutoff reduction for range-separated neighbours should be zero or positive.")
     end if
-    cutOff%lcCutOff = cutOff%skCutOff - cutoffRed
-    if (cutOff%lcCutOff < 0.0_dp) then
+
+    cutOff%camCutOff = cutOff%skCutOff - cutoffRed
+
+    if (cutOff%camCutOff < 0.0_dp) then
       call error("Screening cutoff for range-separated neighbours too short.")
     end if
-    cutOff%mCutoff = max(cutOff%mCutOff, cutoff%lcCutOff)
+
+    cutOff%mCutoff = max(cutOff%mCutOff, cutoff%camCutOff)
+    cutOff%coulombTruncation = coulombTruncation
+
+    ! vanderhe: I don't think we should enlarge the neighbourlist by the electrostatics, since the
+    ! summation over long-range gamma's is a completely separate neighbourlist with huge cutoff,
+    ! which must be generated on-the-fly due to its dependency on current real-space lattice shifts
+    ! cutOff%mCutoff = max(cutOff%mCutOff, cutoff%coulombTruncation)
 
   end subroutine getRangeSeparatedCutOff
 
@@ -5395,16 +5431,16 @@ contains
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
 
-    !> Number of atoms in the system
+    !> Number of atoms in the system, potentially including periodic images
     integer, intent(in) :: nAtom
 
-    !> species of atoms
+    !> Species of atoms in central cell
     integer, intent(in) :: species0(:)
 
     !> Hubbard values for species
     real(dp), intent(in) :: hubbU(:,:)
 
-    !> input for range separated calculation
+    !> Input for range separated calculation
     type(TRangeSepInp), intent(in) :: rangeSepInp
 
     !> Is this spin restricted (F) or unrestricted (T)
@@ -5435,9 +5471,9 @@ contains
     integer, intent(out) :: nMixElements
 
     allocate(rangeSep)
-    call RangeSepFunc_init(rangeSep, nAtom, species0, hubbU(1, :), rangeSepInp%screeningThreshold,&
-        & rangeSepInp%omega, rangeSepInp%camAlpha, rangeSepInp%camBeta, tSpin, isREKS,&
-        & rangeSepInp%rangeSepAlg)
+    call TRangeSepFunc_init(rangeSep, nAtom, species0, hubbU(1, :), rangeSepInp%screeningThreshold,&
+        & rangeSepInp%omega, rangeSepInp%camAlpha, rangeSepInp%camBeta,&
+        & rangeSepInp%coulombTruncation, tSpin, isREKS, rangeSepInp%rangeSepAlg)
     allocate(deltaRhoIn(this%nOrb * this%nOrb * this%nSpin))
     allocate(deltaRhoOut(this%nOrb * this%nOrb * this%nSpin))
     allocate(deltaRhoDiff(this%nOrb * this%nOrb * this%nSpin))

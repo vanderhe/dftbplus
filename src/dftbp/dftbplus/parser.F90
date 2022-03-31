@@ -1251,7 +1251,7 @@ contains
     !> Control structure to be filled
     type(TControl), intent(inout) :: ctrl
 
-    !> Geometry structure to be filled
+    !> Geometry structure
     type(TGeometry), intent(in) :: geo
 
     !> Slater-Koster structure to be filled
@@ -1472,8 +1472,8 @@ contains
       skInterMeth = skEqGridNew
     end if
 
-    call parseGlobalHybrids(node, ctrl%rangeSepInp)
-    call parseRangeSeparated(node, ctrl%rangeSepInp)
+    call parseGlobalHybrids(node, ctrl%rangeSepInp, geo)
+    call parseRangeSeparated(node, ctrl%rangeSepInp, geo)
 
     if (.not. allocated(ctrl%rangeSepInp)) then
       call getChild(node, "TruncateSKRange", child, requested=.false.)
@@ -7480,13 +7480,16 @@ contains
 
 
   !> Parses hybrid functional input.
-  subroutine parseGlobalHybrids(node, input)
+  subroutine parseGlobalHybrids(node, input, geo)
 
     !> Pointer to node
     type(fnode), intent(in), pointer :: node
 
     !> Parsed range-separated input, i.e. global hybrid information stored in rangesep type
     type(TRangeSepInp), intent(inout), allocatable :: input
+
+    !> Geometry structure
+    type(TGeometry), intent(in) :: geo
 
     !! auxiliary node pointers
     type(fnode), pointer :: child1, value1, child2, value2, child3
@@ -7513,13 +7516,42 @@ contains
       input%tHyb = .true.
       input%tLc = .false.
       input%tCam = .false.
-      call getChildValue(value1, "Screening", value2, "MatrixBased", child=child2)
+      call getChildValue(value1, "Screening", value2, "NeighbourBased", child=child2)
       call getNodeName(value2, buffer)
       select case(char(buffer))
+      case ("neighbourbased")
+        input%rangeSepAlg = rangeSepTypes%neighbour
+        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
+            & modifier=modifier, child=child3)
+        call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
+      case ("thresholded")
+        input%rangeSepAlg = rangeSepTypes%threshold
+        call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
+        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
+            & modifier=modifier, child=child3)
+        call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
@@ -7534,13 +7566,16 @@ contains
 
 
   !> Parses range-separation input.
-  subroutine parseRangeSeparated(node, input)
+  subroutine parseRangeSeparated(node, input, geo)
 
-    !> Pointer to node
+    !> Node to parse
     type(fnode), intent(in), pointer :: node
 
-    !> Parsed range-separated input
+    !> Range separated data structure to fill
     type(TRangeSepInp), intent(inout), allocatable :: input
+
+    !> Geometry structure
+    type(TGeometry), intent(in) :: geo
 
     !! auxiliary node pointers
     type(fnode), pointer :: child1, value1, child2, value2, child3
@@ -7574,16 +7609,34 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
         call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
@@ -7597,10 +7650,39 @@ contains
       call getChildValue(value1, "Screening", value2, "MatrixBased", child=child2)
       call getNodeName(value2, buffer)
       select case(char(buffer))
+      case ("neighbourbased")
+        input%rangeSepAlg = rangeSepTypes%neighbour
+        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
+            & modifier=modifier, child=child3)
+        call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
+      case ("thresholded")
+        input%rangeSepAlg = rangeSepTypes%threshold
+        call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
+        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
+            & modifier=modifier, child=child3)
+        call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
+        if (geo%tPeriodic) then
+          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+        end if
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")

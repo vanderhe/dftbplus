@@ -633,10 +633,10 @@ contains
 
   !> Driver of time dependent propagation to calculate with either spectrum or laser
   subroutine runDynamics(this, eigvecs, H0, speciesAll, q0, referenceN0, ints, filling,&
-      & neighbourList, nNeighbourSK, nNeighbourLC, iSquare, iSparseStart, img2CentCell, orb, coord,&
-      & spinW, repulsive, env, tDualSpinOrbit, xi, thirdOrd, solvation, rangeSep, qDepExtPot,&
-      & dftbU, iAtInCentralRegion, tFixEf, Ef, coordAll, onSiteElements, skHamCont, skOverCont,&
-      & latVec, invLatVec, iCellVec, rCellVec, cellVec, electronicSolver, eigvecsCplx,&
+      & neighbourList, nNeighbourSK, nNeighbourCam, iSquare, iSparseStart, img2CentCell, orb,&
+      & coord, spinW, repulsive, env, tDualSpinOrbit, xi, thirdOrd, solvation, rangeSep,&
+      & qDepExtPot, dftbU, iAtInCentralRegion, tFixEf, Ef, coordAll, onSiteElements, skHamCont,&
+      & skOverCont, latVec, invLatVec, iCellVec, rCellVec, cellVec, electronicSolver, eigvecsCplx,&
       & taggedWriter, refExtPot, errStatus)
 
     !> ElecDynamics instance
@@ -678,8 +678,8 @@ contains
     !> Number of neighbours for each of the atoms
     integer, intent(inout) :: nNeighbourSK(:)
 
-    !> Number of neighbours for each of the atoms with the range separated hybrid
-    integer, intent(inout), allocatable :: nNeighbourLC(:)
+    !> Number of neighbours for each of the atoms of CAM functional
+    integer, intent(inout), allocatable :: nNeighbourCam(:)
 
     !> index array for location of atomic blocks in large sparse arrays
     integer, allocatable, intent(inout) :: iSparseStart(:,:)
@@ -781,7 +781,7 @@ contains
         ! Make sure only last component enters autotest
         tWriteAutotest = tWriteAutotest .and. (iPol == size(this%polDirs))
         call doDynamics(this, eigvecs, H0, q0, referenceN0, ints, filling, neighbourList,&
-            & nNeighbourSK, nNeighbourLC, iSquare, iSparseStart, img2CentCell, orb, coord, spinW,&
+            & nNeighbourSK, nNeighbourCam, iSquare, iSparseStart, img2CentCell, orb, coord, spinW,&
             & repulsive, env, tDualSpinOrbit, xi, thirdOrd, solvation, rangeSep, qDepExtPot,&
             & dftbU, iAtInCentralRegion, tFixEf, Ef, tWriteAutotest,&
             & coordAll, onSiteElements, skHamCont, skOverCont, electronicSolver, speciesAll,&
@@ -791,7 +791,7 @@ contains
       end do
     else
       call doDynamics(this, eigvecs, H0, q0, referenceN0, ints, filling, neighbourList,&
-          & nNeighbourSK, nNeighbourLC, iSquare, iSparseStart, img2CentCell, orb, coord, spinW,&
+          & nNeighbourSK, nNeighbourCam, iSquare, iSparseStart, img2CentCell, orb, coord, spinW,&
           & repulsive, env, tDualSpinOrbit, xi, thirdOrd, solvation, rangeSep, qDepExtPot,&
           & dftbU, iAtInCentralRegion, tFixEf, Ef, tWriteAutotest,&
           & coordAll, onSiteElements, skHamCont, skOverCont, electronicSolver, speciesAll,&
@@ -804,7 +804,7 @@ contains
 
   !> Runs the electronic dynamics of the system
   subroutine doDynamics(this, eigvecsReal, H0, q0, referenceN0, ints, filling, neighbourList,&
-      & nNeighbourSK, nNeighbourLC, iSquare, iSparseStart, img2CentCell, orb, coord, spinW,&
+      & nNeighbourSK, nNeighbourCam, iSquare, iSparseStart, img2CentCell, orb, coord, spinW,&
       & repulsive, env, tDualSpinOrbit, xi, thirdOrd, solvation, rangeSep, qDepExtPot, dftbU,&
       & iAtInCentralRegion, tFixEf, Ef, tWriteAutotest, coordAll, onSiteElements, skHamCont,&
       & skOverCont, electronicSolver, speciesAll, eigvecsCplx, taggedWriter, refExtPot, latVec,&
@@ -846,8 +846,8 @@ contains
     !> Number of neighbours for each of the atoms
     integer, intent(inout) :: nNeighbourSK(:)
 
-    !> Number of neighbours for each of the atoms with the range separated hybrid
-    integer, intent(inout), allocatable :: nNeighbourLC(:)
+    !> Number of neighbours for each of the atoms of CAM functional
+    integer, intent(inout), allocatable :: nNeighbourCam(:)
 
     !> index array for location of atomic blocks in large sparse arrays
     integer, allocatable, intent(inout) :: iSparseStart(:,:)
@@ -1667,10 +1667,11 @@ contains
 
 
   !> Create all necessary matrices and instances for dynamics
-  subroutine initializeTDVariables(this, rho, H1, Ssqr, Sinv, H0, ham0, Dsqr, Qsqr, ints, eigvecsReal,&
-      & filling, orb, rhoPrim, potential, iNeighbour, nNeighbourSK, iSquare, iSparseStart,&
-      & img2CentCell, Eiginv, EiginvAdj, energy, ErhoPrim, skOverCont, qBlock, qNetAtom, isDftbU,&
-      & onSiteElements, eigvecsCplx, H1LC, bondWork, fdBondEnergy, fdBondPopul, lastBondPopul, time)
+  subroutine initializeTDVariables(this, rho, H1, Ssqr, Sinv, H0, ham0, Dsqr, Qsqr, ints,&
+      & eigvecsReal, filling, orb, rhoPrim, potential, iNeighbour, nNeighbourSK, iSquare,&
+      & iSparseStart, img2CentCell, Eiginv, EiginvAdj, energy, ErhoPrim, skOverCont, qBlock,&
+      & qNetAtom, isDftbU, onSiteElements, eigvecsCplx, H1LC, bondWork, fdBondEnergy, fdBondPopul,&
+      & lastBondPopul, time)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout) :: this

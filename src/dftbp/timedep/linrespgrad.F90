@@ -268,11 +268,11 @@ contains
     @:ASSERT(present(occNatural) .eqv. present(naturalOrbs))
 
     ! Should possibly not use allocation status but have a dedicated derived type variable?
-    if(allocated(rangeSep)) then
-       tRangeSep = .true.
-       allocate(lrGamma(this%nAtom, this%nAtom))
-       call rangeSep%getLrGamma(lrGamma)
-    endif
+    if (allocated(rangeSep)) then
+      tRangeSep = .true.
+      allocate(lrGamma(this%nAtom, this%nAtom))
+      call rangeSep%getLrGammaCluster(lrGamma)
+    end if
 
     ! Try to detect fractional occupations
     tFracOcc = .false.
@@ -2490,7 +2490,7 @@ contains
 
       ! Compute long-range gamma derivative
       gammaLongRangePrime(:,:,:) = 0._dp
-      call rangeSep%getSpecies(species)
+      call rangeSep%getCentralCellSpecies(species)
       do iAt1 = 1, nAtom
         do iAt2 = 1, nAtom
           if(iAt1 /= iAt2) then

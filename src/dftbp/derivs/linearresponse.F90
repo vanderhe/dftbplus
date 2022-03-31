@@ -15,7 +15,7 @@ module dftbp_derivs_linearresponse
   use dftbp_common_status, only : TStatus
   use dftbp_derivs_fermihelper, only : theta, deltamn, invDiff
   use dftbp_derivs_rotatedegen, only : TRotateDegen, TRotateDegen_init
-  use dftbp_dftb_periodic, only : TNeighbourList
+  use dftbp_dftb_periodic, only : TNeighbourList, TSymNeighbourList
   use dftbp_dftb_rangeseparated, only : TRangeSepFunc
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_densedescr, only : TDenseDescr
@@ -46,9 +46,10 @@ contains
 
   !> Calculate the derivative of density matrix from derivative of hamiltonian in static case at
   !> q=0, k=0
-  subroutine dRhoStaticReal(env, dHam, neighbourList, nNeighbourSK, iSparseStart, img2CentCell,&
-      & denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals, Ef, tempElec, orb,&
-      & dRhoSparse, dRhoSqr, rangeSep, over, nNeighbourLC, transform, species,&
+  subroutine dRhoStaticReal(env, dHam, neighbourList, symNeighbourList, nNeighbourSK, iSparseStart,&
+      & img2CentCell, denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals, Ef,&
+      & tempElec, orb, dRhoSparse, dRhoSqr, rangeSep, over, nNeighbourCam, nNeighbourCamSym,&
+      & transform, species,&
     #:if WITH_SCALAPACK
       & desc,&
     #:endif
@@ -62,6 +63,9 @@ contains
 
     !> list of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
+
+    !> List of neighbours for each atom (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
 
     !> Number of neighbours for each of the atoms
     integer, intent(in) :: nNeighbourSK(:)
@@ -114,9 +118,11 @@ contains
     !> sparse overlap matrix
     real(dp), intent(in) :: over(:)
 
-    !> Number of neighbours for each of the atoms for the exchange contributions in the long range
-    !> functional
-    integer, intent(inout), allocatable :: nNeighbourLC(:)
+    !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
+    integer, intent(in) :: nNeighbourCam(:)
+
+    !> Symmetric neighbour list version of nNeighbourCam
+    integer, intent(in) :: nNeighbourCamSym(:)
 
     !> Transformation structure for degenerate orbitals
     type(TRotateDegen), intent(inout) :: transform
@@ -299,8 +305,9 @@ contains
       end if
       call unpackHS(workLocal, over, neighbourList%iNeighbour, nNeighbourSK,&
           & denseDesc%iAtomStart, iSparseStart, img2CentCell)
-      call rangeSep%addCamHamiltonian(env, dRhoSqr(:,:,iS), over, neighbourList%iNeighbour,&
-          & nNeighbourLC, denseDesc%iAtomStart, iSparseStart, orb, dRho, workLocal)
+      call rangeSep%addCamHamiltonian(env, dRhoSqr(:,:,iS), over, symNeighbourList,&
+          & neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym, denseDesc%iAtomStart,&
+          & iSparseStart, orb, dRho, workLocal)
     end if
 
     ! form |c> H' <c|
@@ -640,8 +647,8 @@ contains
     complex(dp) :: workLocal(size(eigVecsCplx,dim=1), size(eigVecsCplx,dim=2))
     complex(dp) :: dRho(size(eigVecsCplx,dim=1), size(eigVecsCplx,dim=2))
     complex(dp), allocatable :: eigVecsTransformed(:,:)
-    logical :: isTransformed
     logical :: isHelical_
+    logical :: isTransformed
 
     if (present(isHelical)) then
       isHelical_ = isHelical
@@ -1153,8 +1160,8 @@ contains
     complex(dp) :: workLocal(size(eigVecsCplx,dim=1), size(eigVecsCplx,dim=2))
     complex(dp) :: dRho(size(eigVecsCplx,dim=1), size(eigVecsCplx,dim=2))
     complex(dp), allocatable :: eigVecsTransformed(:,:)
-    logical :: isTransformed
     logical :: isHelical_
+    logical :: isTransformed
 
     if (present(isHelical)) then
       isHelical_ = isHelical
