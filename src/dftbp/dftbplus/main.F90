@@ -975,9 +975,9 @@ contains
             & this%dftbEnergy(this%deltaDftb%iDeterminant), this%rangeSep, this%eigen,&
             & this%filling, this%rhoPrim, this%xi, this%orbitalL, this%HSqrReal, this%SSqrReal,&
             & this%eigvecsReal, this%iRhoPrim, this%HSqrCplx, this%SSqrCplx, this%eigvecsCplx,&
-            & this%rhoSqrReal, this%deltaRhoInSqr, this%deltaRhoOutSqr, this%qOutput,&
-            & this%nNeighbourCam, this%nNeighbourCamSym, this%tLargeDenseMatrices, this%deltaDftb,&
-            & errStatus)
+            & this%rhoSqrReal, this%deltaRhoInSqr, this%deltaRhoOutSqr, this%deltaRhoInSqrCplx,&
+            & this%deltaRhoOutSqrCplx, this%qOutput, this%nNeighbourCam, this%nNeighbourCamSym,&
+            & this%tLargeDenseMatrices, this%deltaDftb, errStatus)
         if (errStatus%hasError()) then
           call error(errStatus%message)
         end if
@@ -2250,8 +2250,8 @@ contains
       & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
       & iDistribFn, tempElec, nEl, parallelKS, Ef, mu, energy, rangeSep, eigen, filling, rhoPrim,&
       & xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx, eigvecsCplx,&
-      & rhoSqrReal, deltaRhoInSqr, deltaRhoOutSqr, qOutput, nNeighbourCam, nNeighbourCamSym,&
-      & tLargeDenseMatrices, deltaDftb, errStatus)
+      & rhoSqrReal, deltaRhoInSqr, deltaRhoOutSqr, deltaRhoInSqrCplx, deltaRhoOutSqrCplx, qOutput,&
+      & nNeighbourCam, nNeighbourCamSym, tLargeDenseMatrices, deltaDftb, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2412,6 +2412,12 @@ contains
     !> Change in density matrix after SCC step
     real(dp), pointer, intent(inout) :: deltaRhoOutSqr(:,:,:)
 
+    !> Change in complex density matrix during last rangesep SCC cycle
+    complex(dp), pointer, intent(inout) :: deltaRhoInSqrCplx(:,:,:)
+
+    !> Change in complex density matrix during this SCC step for rangesep
+    complex(dp), pointer, intent(inout) :: deltaRhoOutSqrCplx(:,:,:)
+
     !> Output electrons
     real(dp), intent(inout) :: qOutput(:,:,:)
 
@@ -2468,8 +2474,8 @@ contains
           & recVecs2p, tPeriodic, tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep,&
           & tFixEf, tMulliken, iDistribFn, tempElec, nEl, parallelKS, Ef, energy, rangeSep, eigen,&
           & filling, rhoPrim, xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx,&
-          & SSqrCplx, eigvecsCplx, rhoSqrReal, deltaRhoInSqr, deltaRhoOutSqr, qOutput,&
-          & nNeighbourCam, nNeighbourCamSym, deltaDftb, errStatus)
+          & SSqrCplx, eigvecsCplx, rhoSqrReal, deltaRhoInSqr, deltaRhoOutSqr, deltaRhoInSqrCplx,&
+          & deltaRhoOutSqrCplx, qOutput, nNeighbourCam, nNeighbourCamSym, deltaDftb, errStatus)
       @:PROPAGATE_ERROR(errStatus)
 
     case(electronicSolverTypes%omm, electronicSolverTypes%pexsi, electronicSolverTypes%ntpoly,&
@@ -2496,8 +2502,8 @@ contains
       & tPeriodic, tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf,&
       & tMulliken, iDistribFn, tempElec, nEl, parallelKS, Ef, energy, rangeSep, eigen, filling,&
       & rhoPrim, xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx,&
-      & eigvecsCplx, rhoSqrReal, deltaRhoInSqr, deltaRhoOutSqr, qOutput, nNeighbourCam,&
-      & nNeighbourCamSym, deltaDftb, errStatus)
+      & eigvecsCplx, rhoSqrReal, deltaRhoInSqr, deltaRhoOutSqr, deltaRhoInSqrCplx,&
+      & deltaRhoOutSqrCplx, qOutput, nNeighbourCam, nNeighbourCamSym, deltaDftb, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2652,6 +2658,12 @@ contains
     !> Change in density matrix during this SCC step for rangesep
     real(dp), pointer, intent(inout) :: deltaRhoOutSqr(:,:,:)
 
+    !> Change in complex density matrix during last rangesep SCC cycle
+    complex(dp), pointer, intent(in) :: deltaRhoInSqrCplx(:,:,:)
+
+    !> Change in complex density matrix during this SCC step for rangesep
+    complex(dp), pointer, intent(inout) :: deltaRhoOutSqrCplx(:,:,:)
+
     !> Output electrons
     real(dp), intent(inout) :: qOutput(:,:,:)
 
@@ -2681,9 +2693,10 @@ contains
         @:PROPAGATE_ERROR(errStatus)
       else
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, neighbourList,&
-            & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, electronicSolver,&
-            & parallelKS, tHelical, orb, species, coord, HSqrCplx, SSqrCplx, eigVecsCplx, eigen,&
-            & errStatus)
+            & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
+            & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species,&
+            & coord, rangeSep, deltaRhoInSqrCplx, qOutput, nNeighbourCam, nNeighbourCamSym,&
+            & HSqrCplx, SSqrCplx, eigVecsCplx, eigen, errStatus)
         @:PROPAGATE_ERROR(errStatus)
       end if
     else
@@ -2869,7 +2882,8 @@ contains
         call denseMulliken(deltaRhoInSqr, SSqrReal, denseDesc%iAtomStart, qOutput)
         if (tPeriodic) then
           call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
-              & symNeighbourList, nNeighbourCamSym, rCellVecs, latVecs, recVecs2p,&
+              & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
+              & nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, HSqrReal)
         else
           ! call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
@@ -2897,8 +2911,10 @@ contains
 
   !> Builds and diagonalises dense k-point dependent Hamiltonians.
   subroutine buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, neighbourList,&
-      & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, electronicSolver, parallelKS,&
-      & tHelical, orb, species, coord, HSqrCplx, SSqrCplx, eigvecsCplx, eigen, errStatus)
+      & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
+      & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord,&
+      & rangeSep, deltaRhoInSqrCplx, qOutput, nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx,&
+      & eigvecsCplx, eigen, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2912,8 +2928,11 @@ contains
     !> k-points
     real(dp), intent(in) :: kPoint(:,:)
 
-    !> list of neighbours for each atom
+    !> List of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
+
+    !> List of neighbours for each atom (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
 
     !> Number of neighbours for each of the atoms
     integer, intent(in) :: nNeighbourSK(:)
@@ -2924,8 +2943,17 @@ contains
     !> map from image atoms to the original unique atom
     integer, intent(in) :: img2CentCell(:)
 
+    !> Vectors to unit cells in absolute units
+    real(dp), intent(in) :: rCellVecs(:,:)
+
     !> Index for which unit cell atoms are associated with
     integer, intent(in) :: iCellVec(:)
+
+    !> Lattice vectors
+    real(dp), intent(in) :: latVecs(:,:)
+
+    !> Reciprocal lattice vectors in units of 2 pi
+    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> Vectors (in units of the lattice constants) to cells of the lattice
     real(dp), intent(in) :: cellVec(:,:)
@@ -2942,22 +2970,37 @@ contains
     !> Atomic orbital information
     type(TOrbitals), intent(in) :: orb
 
-    !> species of all atoms in the system
+    !> Species of all atoms in the system
     integer, intent(in) :: species(:)
 
-    !> atomic coordinates
+    !> Atomic coordinates
     real(dp), intent(in) :: coord(:,:)
 
-    !> dense hamiltonian matrix
+    !> Data for rangeseparated calculation
+    type(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+
+    !> Change in complex density matrix during last rangesep SCC cycle
+    complex(dp), intent(in), pointer :: deltaRhoInSqrCplx(:,:,:)
+
+    !> Output electrons
+    real(dp), intent(inout) :: qOutput(:,:,:)
+
+    !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
+    integer, intent(in), allocatable :: nNeighbourCam(:)
+
+    !> Symmetric neighbour list version of nNeighbourCam
+    integer, intent(in), allocatable :: nNeighbourCamSym(:)
+
+    !> Dense hamiltonian matrix
     complex(dp), intent(out) :: HSqrCplx(:,:)
 
-    !> dense overlap matrix
+    !> Dense overlap matrix
     complex(dp), intent(out) :: SSqrCplx(:,:)
 
     !> Complex eigenvectors
     complex(dp), intent(out) :: eigvecsCplx(:,:,:)
 
-    !> eigenvalues
+    !> Eigenvalues
     real(dp), intent(out) :: eigen(:,:,:)
 
     !> Status of operation
@@ -3009,7 +3052,18 @@ contains
             & iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart, img2CentCell)
       end if
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
-      call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:,iK,iSpin),&
+
+      ! Add CAM contribution
+      ! Assumes deltaRhoInSqr only used by rangeseparation.
+      ! Should this be used elsewhere, you need to pass isRangeSep.
+      if (allocated(rangeSep)) then
+        call denseMulliken(deltaRhoInSqrCplx, SSqrCplx, denseDesc%iAtomStart, qOutput)
+        ! call rangeSep%addCamHamiltonian(env, deltaRhoInSqrCplx(:,:, iSpin), ints%overlap,&
+        !     & symNeighbourList, nNeighbourCamSym, rCellVecs, latVecs, recVecs2p,&
+        !     & denseDesc%iAtomStart, orb, HSqrCplx)
+      end if
+
+      call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
           & errStatus)
       @:PROPAGATE_ERROR(errStatus)
       eigvecsCplx(:,:,iKS) = HSqrCplx
@@ -3017,6 +3071,7 @@ contains
     end do
 
   #:if WITH_SCALAPACK
+    ! Distribute all eigenvalues to all nodes via global summation
     call mpifx_allreduceip(env%mpi%interGroupComm, eigen, MPI_SUM)
   #:endif
 
@@ -3928,13 +3983,13 @@ contains
         if (nIneqDip > 0) then
           ! FIXME: Assumes we always mix all dipole moments
           nMix = nIneqOrb
-          multipoleInp%dipoleAtom(:, :, :) = reshape(qInpRed(nMix+1:nMix+nIneqDip), &
+          multipoleInp%dipoleAtom(:,:,:) = reshape(qInpRed(nMix+1:nMix+nIneqDip), &
               & shape(multipoleInp%dipoleAtom))
         end if
         if (nIneqQuad > 0) then
           ! FIXME: Assumes we always mix all quadrupole moments
           nMix = nIneqOrb + nIneqDip
-          multipoleInp%quadrupoleAtom(:, :, :) = reshape(qInpRed(nMix+1:nMix+nIneqQuad),&
+          multipoleInp%quadrupoleAtom(:,:,:) = reshape(qInpRed(nMix+1:nMix+nIneqQuad),&
               & shape(multipoleInp%quadrupoleAtom))
         end if
       end if
@@ -4068,7 +4123,7 @@ contains
 
         ! RangeSep: for spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices
-        if(nSpin == 2) then
+        if (nSpin == 2) then
           qInput(:,:,1) = qInput(:,:,1) + q0(:,:,1) * 0.5_dp
           qInput(:,:,2) = qInput(:,:,2) + q0(:,:,1) * 0.5_dp
         else
@@ -7297,7 +7352,8 @@ contains
         ! Add range-separated contribution to Hamiltonian
         if (reks%tPeriodic) then
           call rangeSep%addCamHamiltonian(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
-              & symNeighbourList, nNeighbourCamSym, rCellVecs, latVecs, recVecs2p,&
+              & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
+              & nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, reks%hamSqrL(:,:,1,iL))
         else
           ! call rangeSep%addCamHamiltonian(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&

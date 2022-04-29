@@ -240,7 +240,7 @@ contains
     @:ASSERT(all(shape(nNeighbourSK) == [nAtom]))
     @:ASSERT(size(iAtomStart) == nAtom + 1)
 
-    square(:, :) = 0.0_dp
+    square(:,:) = 0.0_dp
 
     do iAtom1 = 1, nAtom
       ii = iAtomStart(iAtom1)
@@ -1964,7 +1964,7 @@ contains
   subroutine blockSymmetrizeHS_real(square, iAtomStart)
 
     !> Square form matrix.
-    real(dp), intent(inout) :: square(:, :)
+    real(dp), intent(inout) :: square(:,:)
 
     !> Returns the offset array for each atom.
     integer, intent(in) :: iAtomStart(:)
@@ -2021,7 +2021,7 @@ contains
     real(dp), intent(inout) :: matrix(:,:)
     integer :: ii, matSize
 
-    matSize = size(matrix, dim = 1)
+    matSize = size(matrix, dim=1)
     do ii = 1, matSize - 1
       matrix(ii, ii + 1 : matSize) = matrix(ii + 1 : matSize, ii)
     end do

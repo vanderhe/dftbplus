@@ -374,17 +374,14 @@ module dftbp_dftbplus_initprogram
     !> Barostat coupling strength
     real(dp) :: BarostatStrength
 
-
     !> H and S are real
     logical :: tRealHS
-
 
     !> nr. of electrons
     real(dp), allocatable :: nEl(:)
 
     !> Nr. of all electrons if neutral
     real(dp) :: nEl0
-
 
     !> Spin W values
     real(dp), allocatable :: spinW(:,:,:)
@@ -451,7 +448,6 @@ module dftbp_dftbplus_initprogram
 
     !> Common Fermi level across spin channels
     logical :: tSpinSharedEf
-
 
     !> Geometry optimization needed?
     logical :: isGeoOpt
@@ -795,6 +791,21 @@ module dftbp_dftbplus_initprogram
     !> DeltaRho output from range separation in matrix form
     real(dp), pointer :: deltaRhoOutSqr(:,:,:) => null()
 
+    !> Complex deltaRho input for calculation of range separated Hamiltonian
+    complex(dp), allocatable :: deltaRhoInCplx(:)
+
+    !> Complex deltaRho output from calculation of range separated Hamiltonian
+    complex(dp), allocatable :: deltaRhoOutCplx(:)
+
+    !> Holds change in complex deltaRho between SCC steps for range separation
+    complex(dp), allocatable :: deltaRhoDiffCplx(:)
+
+    !> Complex deltaRho input for range separation in matrix form
+    complex(dp), pointer :: deltaRhoInSqrCplx(:,:,:) => null()
+
+    !> Complex deltaRho output from range separation in matrix form
+    complex(dp), pointer :: deltaRhoOutSqrCplx(:,:,:) => null()
+
     !> Linear response calculation with range-separated functional
     logical :: isRS_LinResp
 
@@ -810,10 +821,10 @@ module dftbp_dftbplus_initprogram
     !> Whether potential shifts are read from file
     logical :: tWriteShifts
 
-    !> should charges written to disc be in ascii or binary format?
+    !> Should charges written to disc be in ascii or binary format?
     logical :: tWriteChrgAscii
 
-    !> produce tagged output?
+    !> Produce tagged output?
     logical :: tWriteAutotest
 
     !> Produce detailed.xml
@@ -2610,7 +2621,9 @@ contains
           & input%ctrl%rangeSepInp%coulombTruncation)
       call this%initRangeSeparated(this%nAtom, this%species0, hubbU, input%ctrl%rangeSepInp,&
           & this%tSpin, allocated(this%reks), this%rangeSep, this%deltaRhoIn, this%deltaRhoOut,&
-          & this%deltaRhoDiff, this%deltaRhoInSqr, this%deltaRhoOutSqr, this%nMixElements)
+          & this%deltaRhoDiff, this%deltaRhoInSqr, this%deltaRhoOutSqr, this%deltaRhoInCplx,&
+          & this%deltaRhoOutCplx, this%deltaRhoDiffCplx, this%deltaRhoInSqrCplx,&
+          & this%deltaRhoOutSqrCplx, this%nMixElements, this%tRealHS)
     end if
 
     this%tReadShifts = input%ctrl%tReadShifts
@@ -5426,7 +5439,9 @@ contains
 
   !> Initialise range separated extension.
   subroutine initRangeSeparated(this, nAtom, species0, hubbU, rangeSepInp, tSpin, isREKS, rangeSep,&
-      & deltaRhoIn, deltaRhoOut, deltaRhoDiff, deltaRhoInSqr, deltaRhoOutSqr, nMixElements)
+      & deltaRhoIn, deltaRhoOut, deltaRhoDiff, deltaRhoInSqr, deltaRhoOutSqr, deltaRhoInCplx,&
+      & deltaRhoOutCplx, deltaRhoDiffCplx, deltaRhoInSqrCplx, deltaRhoOutSqrCplx, nMixElements,&
+      & tRealHS)
 
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
@@ -5467,23 +5482,55 @@ contains
     !> Change in output density matrix
     real(dp), pointer, intent(out) :: deltaRhoOutSqr(:,:,:)
 
+    !> Change in complex input density matrix flattened to 1D array
+    complex(dp), allocatable, target, intent(out) :: deltaRhoInCplx(:)
+
+    !> Change in complex output density matrix flattened to 1D array
+    complex(dp), allocatable, target, intent(out) :: deltaRhoOutCplx(:)
+
+    !> Change in complex density matrix between in and out
+    complex(dp), allocatable, intent(out) :: deltaRhoDiffCplx(:)
+
+    !> Change in complex input density matrix
+    complex(dp), pointer, intent(out) :: deltaRhoInSqrCplx(:,:,:)
+
+    !> Change in complex output density matrix
+    complex(dp), pointer, intent(out) :: deltaRhoOutSqrCplx(:,:,:)
+
     !> Number of mixer elements
     integer, intent(out) :: nMixElements
+
+    !> True, if Hamiltonian and overlap are real
+    logical, intent(in) :: tRealHS
 
     allocate(rangeSep)
     call TRangeSepFunc_init(rangeSep, nAtom, species0, hubbU(1, :), rangeSepInp%screeningThreshold,&
         & rangeSepInp%omega, rangeSepInp%camAlpha, rangeSepInp%camBeta,&
         & rangeSepInp%coulombTruncation, tSpin, isREKS, rangeSepInp%rangeSepAlg)
-    allocate(deltaRhoIn(this%nOrb * this%nOrb * this%nSpin))
-    allocate(deltaRhoOut(this%nOrb * this%nOrb * this%nSpin))
-    allocate(deltaRhoDiff(this%nOrb * this%nOrb * this%nSpin))
 
-    deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
-        & deltaRhoIn(1 : this%nOrb * this%nOrb * this%nSpin)
-    deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
-        & deltaRhoOut(1 : this%nOrb * this%nOrb * this%nSpin)
-    nMixElements = this%nOrb * this%nOrb * this%nSpin
-    deltaRhoInSqr(:,:,:) = 0.0_dp
+    if (tRealHS) then
+      allocate(deltaRhoIn(this%nOrb * this%nOrb * this%nSpin))
+      allocate(deltaRhoOut(this%nOrb * this%nOrb * this%nSpin))
+      allocate(deltaRhoDiff(this%nOrb * this%nOrb * this%nSpin))
+
+      deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
+          & deltaRhoIn(1 : this%nOrb * this%nOrb * this%nSpin)
+      deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
+          & deltaRhoOut(1 : this%nOrb * this%nOrb * this%nSpin)
+      nMixElements = this%nOrb * this%nOrb * this%nSpin
+      deltaRhoInSqr(:,:,:) = 0.0_dp
+    else
+      allocate(deltaRhoInCplx(this%nOrb * this%nOrb * this%nSpin * this%nKPoint))
+      allocate(deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin * this%nKPoint))
+      allocate(deltaRhoDiffCplx(this%nOrb * this%nOrb * this%nSpin * this%nKPoint))
+
+      deltaRhoInSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
+          & deltaRhoInCplx(1 : this%nOrb * this%nOrb * this%nSpin)
+      deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
+          & deltaRhoOutCplx(1 : this%nOrb * this%nOrb * this%nSpin * this%nKPoint)
+      nMixElements = this%nOrb * this%nOrb * this%nSpin * this%nKPoint
+      deltaRhoInSqrCplx(:,:,:) = 0.0_dp
+    end if
 
   end subroutine initRangeSeparated
 

@@ -30,6 +30,13 @@ module dftbp_dftb_populations
   end interface mulliken
 
 
+  !> Provides an interface to calculate Mulliken populations, using dense lower triangle matrices.
+  interface denseMulliken
+    module procedure denseMulliken_real
+    module procedure denseMulliken_cmplx
+  end interface denseMulliken
+
+
   !> Provides an interface to calculate Mulliken populations for anti-symmetric density matrices
   interface skewMulliken
     module procedure skewMullikenPerBlock
@@ -61,7 +68,7 @@ contains
     !> Density matrix in Packed format
     real(dp), intent(in) :: rho(:)
 
-    !> Information about the orbitals.
+    !> Information about the orbitals
     type(TOrbitals), intent(in) :: orb
 
     !> Number of neighbours of each real atom (central cell)
@@ -110,7 +117,7 @@ contains
     !> Density matrix in Packed format
     real(dp), intent(in) :: rho(:)
 
-    !> Information about the orbitals.
+    !> Information about the orbitals
     type(TOrbitals), intent(in) :: orb
 
     !> Number of neighbours of each real atom (central cell)
@@ -145,12 +152,11 @@ contains
         iAtom2 = iNeighbour(iNeigh, iAtom1)
         iAtom2f = img2CentCell(iAtom2)
         nOrb2 = orb%nOrbAtom(iAtom2f)
-        iOrig = iPair(iNeigh,iAtom1) + 1
+        iOrig = iPair(iNeigh, iAtom1) + 1
         mulTmp(1:nOrb1*nOrb2) = over(iOrig:iOrig+nOrb1*nOrb2-1) * rho(iOrig:iOrig+nOrb1*nOrb2-1)
         sqrTmp(1:nOrb2,1:nOrb1) = reshape(mulTmp(1:nOrb1*nOrb2), (/nOrb2,nOrb1/))
         qq(1:nOrb1,iAtom1) = qq(1:nOrb1,iAtom1) + sum(sqrTmp(1:nOrb2,1:nOrb1), dim=1)
-        ! Add contribution to the other triangle sum, using the symmetry
-        ! but only when off diagonal
+        ! Add contribution to the other triangle sum, using the symmetry, but only when off diagonal
         if (iAtom1 /= iAtom2f) then
           qq(1:nOrb2,iAtom2f) = qq(1:nOrb2,iAtom2f) + sum(sqrTmp(1:nOrb2,1:nOrb1), dim=2)
         end if
@@ -175,7 +181,7 @@ contains
     !> Density matrix in Packed format
     real(dp), intent(in) :: rho(:)
 
-    !> Information about the orbitals.
+    !> Information about the orbitals
     type(TOrbitals), intent(in) :: orb
 
     !> Number of neighbours of each real atom (central cell)
@@ -238,10 +244,10 @@ contains
     !> Overlap matrix in packed format
     real(dp), intent(in) :: over(:)
 
-    !> Density matrix in Packed format
+    !> Density matrix in packed format
     real(dp), intent(in) :: rho(:)
 
-    !> Information about the orbitals.
+    !> Information about the orbitals
     type(TOrbitals), intent(in) :: orb
 
     !> Number of neighbours of each real atom (central cell)
@@ -293,7 +299,7 @@ contains
 
 
   !> Mulliken analysis with dense lower triangle matrices.
-  subroutine denseMulliken(rhoSqr, overSqr, iSquare, qq)
+  subroutine denseMulliken_real(rhoSqr, overSqr, iSquare, qq)
 
     !> Square (lower triangular) spin polarized density matrix
     real(dp), intent(in) :: rhoSqr(:,:,:)
@@ -313,33 +319,85 @@ contains
 
     nAtom = size(qq, dim=2)
     nSpin = size(qq, dim=3)
+
     qq(:,:,:) = 0.0_dp
+
     do iSpin = 1, nSpin
-       do iAtom1 = 1, nAtom
-          iStart1 = iSquare(iAtom1)
-          iEnd1 = iSquare(iAtom1 + 1) - 1
-          nOrb1 = iEnd1 - iStart1 + 1
-          do iAtom2 = iAtom1, nAtom
-             iStart2 = iSquare(iAtom2)
-             iEnd2 = iSquare(iAtom2 + 1) - 1
-             nOrb2 = iEnd2 - iStart2 + 1
-             tmpSqr(1:nOrb2, 1:nOrb1) = &
-                  & rhoSqr(iStart2:iEnd2, iStart1:iEnd1, iSpin) &
-                  & * overSqr(iStart2:iEnd2, iStart1:iEnd1)
-             qq(1:nOrb1,iAtom1,iSpin) = qq(1:nOrb1,iAtom1,iSpin) &
-                  &+ sum(tmpSqr(1:nOrb2, 1:nOrb1), dim=1)
-             if (iAtom1 /= iAtom2) then
-                qq(1:nOrb2,iAtom2,iSpin) = qq(1:nOrb2, iAtom2, iSpin)&
-                     &+ sum(tmpSqr(1:nOrb2, 1:nOrb1), dim=2)
-             end if
-          end do
-       end do
+      do iAtom1 = 1, nAtom
+        iStart1 = iSquare(iAtom1)
+        iEnd1 = iSquare(iAtom1 + 1) - 1
+        nOrb1 = iEnd1 - iStart1 + 1
+        do iAtom2 = iAtom1, nAtom
+          iStart2 = iSquare(iAtom2)
+          iEnd2 = iSquare(iAtom2 + 1) - 1
+          nOrb2 = iEnd2 - iStart2 + 1
+          tmpSqr(1:nOrb2, 1:nOrb1) = &
+              & rhoSqr(iStart2:iEnd2, iStart1:iEnd1, iSpin)&
+              & * overSqr(iStart2:iEnd2, iStart1:iEnd1)
+          qq(1:nOrb1, iAtom1, iSpin) = qq(1:nOrb1, iAtom1, iSpin)&
+              & + sum(tmpSqr(1:nOrb2, 1:nOrb1), dim=1)
+          if (iAtom1 /= iAtom2) then
+            qq(1:nOrb2, iAtom2, iSpin) = qq(1:nOrb2, iAtom2, iSpin)&
+                & + sum(tmpSqr(1:nOrb2, 1:nOrb1), dim=2)
+          end if
+        end do
+      end do
     end do
 
-  end subroutine denseMulliken
+  end subroutine denseMulliken_real
 
 
-    !> Subtracts superposition of atomic densities from dense density matrix.
+  !> Mulliken analysis with dense lower triangle matrices.
+  !> Still wrong, wip...
+  subroutine denseMulliken_cmplx(rhoSqrCmplx, overSqrCmplx, iSquare, qq)
+
+    !> Square (lower triangular) spin polarized density matrix
+    complex(dp), intent(in) :: rhoSqrCmplx(:,:,:)
+
+    !> Square (lower triangular) overlap matrix
+    complex(dp), intent(in) :: overSqrCmplx(:,:)
+
+    !> Atom positions in the row/column of square matrices
+    integer, intent(in) :: iSquare(:)
+
+    !> Mulliken charges on output (mOrb, nAtom, nSpin)
+    real(dp), intent(out) :: qq(:,:,:)
+
+    complex(dp) :: tmpSqrCmplx(size(qq, dim=1), size(qq, dim=1))
+    integer :: iSpin, iAtom1, iAtom2, iStart1, iEnd1, iStart2, iEnd2
+    integer :: nAtom, nSpin, nOrb1, nOrb2
+
+    nAtom = size(qq, dim=2)
+    nSpin = size(qq, dim=3)
+
+    qq(:,:,:) = 0.0_dp
+
+    do iSpin = 1, nSpin
+      do iAtom1 = 1, nAtom
+        iStart1 = iSquare(iAtom1)
+        iEnd1 = iSquare(iAtom1 + 1) - 1
+        nOrb1 = iEnd1 - iStart1 + 1
+        do iAtom2 = iAtom1, nAtom
+          iStart2 = iSquare(iAtom2)
+          iEnd2 = iSquare(iAtom2 + 1) - 1
+          nOrb2 = iEnd2 - iStart2 + 1
+          tmpSqrCmplx(1:nOrb2, 1:nOrb1) = &
+              & rhoSqrCmplx(iStart2:iEnd2, iStart1:iEnd1, iSpin)&
+              & * overSqrCmplx(iStart2:iEnd2, iStart1:iEnd1)
+          qq(1:nOrb1, iAtom1, iSpin) = qq(1:nOrb1, iAtom1, iSpin)&
+              & + real(sum(tmpSqrCmplx(1:nOrb2, 1:nOrb1), dim=1), dp)
+          if (iAtom1 /= iAtom2) then
+            qq(1:nOrb2, iAtom2, iSpin) = qq(1:nOrb2, iAtom2, iSpin)&
+                & + real(sum(tmpSqrCmplx(1:nOrb2, 1:nOrb1), dim=2), dp)
+          end if
+        end do
+      end do
+    end do
+
+  end subroutine denseMulliken_cmplx
+
+
+  !> Subtracts superposition of atomic densities from dense density matrix.
   !> Works only for closed shell!
   subroutine denseSubtractDensityOfAtoms_nospin_real(q0, iSquare, rho)
 
@@ -356,16 +414,17 @@ contains
 
     nAtom = size(iSquare) - 1
     nSpin = size(rho, dim=3)
+
     do iSpin = 1, nSpin
-       do iAtom = 1, nAtom
-          iStart = iSquare(iAtom)
-          iEnd = iSquare(iAtom + 1) - 1
-          do iOrb = 1, iEnd - iStart + 1
-             rho(iStart+iOrb-1, iStart+iOrb-1, iSpin) = &
-                  & rho(iStart+iOrb-1, iStart+iOrb-1, iSpin)&
-                  & - q0(iOrb, iAtom, iSpin)
-          end do
-       end do
+      do iAtom = 1, nAtom
+        iStart = iSquare(iAtom)
+        iEnd = iSquare(iAtom + 1) - 1
+        do iOrb = 1, iEnd - iStart + 1
+          rho(iStart+iOrb-1, iStart+iOrb-1, iSpin) = &
+              & rho(iStart+iOrb-1, iStart+iOrb-1, iSpin)&
+              & - q0(iOrb, iAtom, iSpin)
+        end do
+      end do
     end do
 
   end subroutine denseSubtractDensityOfAtoms_nospin_real
@@ -390,19 +449,18 @@ contains
     !> Spin index
     integer, intent(in) :: iSpin
 
-    integer :: nAtom, iAtom, nSpin, iStart, iEnd, iOrb
+    integer :: nAtom, iAtom, iStart, iEnd, iOrb
 
     nAtom = size(iSquare) - 1
-    nSpin = size(rho, dim=3)
 
     do iAtom = 1, nAtom
-       iStart = iSquare(iAtom)
-       iEnd = iSquare(iAtom + 1) - 1
-       do iOrb = 1, iEnd - iStart + 1
-          rho(iStart+iOrb-1, iStart+iOrb-1, iSpin) = &
-               & rho(iStart+iOrb-1, iStart+iOrb-1, iSpin)&
-               & - q0(iOrb, iAtom, 1)*0.5_dp
-       end do
+      iStart = iSquare(iAtom)
+      iEnd = iSquare(iAtom + 1) - 1
+      do iOrb = 1, iEnd - iStart + 1
+        rho(iStart+iOrb-1, iStart+iOrb-1, iSpin) = &
+            & rho(iStart+iOrb-1, iStart+iOrb-1, iSpin)&
+            & - q0(iOrb, iAtom, 1)*0.5_dp
+      end do
     end do
 
 
@@ -426,6 +484,7 @@ contains
 
     nAtom = size(iSquare) - 1
     nSpin = size(rho, dim=3)
+
     do iSpin = 1, nSpin
       do iAtom = 1, nAtom
         iStart = iSquare(iAtom)
@@ -460,10 +519,9 @@ contains
     !> Spin index
     integer, intent(in) :: iSpin
 
-    integer :: nAtom, iAtom, nSpin, iStart, iEnd, iOrb
+    integer :: nAtom, iAtom, iStart, iEnd, iOrb
 
     nAtom = size(iSquare) - 1
-    nSpin = size(rho, dim=3)
 
     do iAtom = 1, nAtom
       iStart = iSquare(iAtom)
@@ -619,15 +677,15 @@ contains
       & nNeighbourSK, img2CentCell, iPair)
 
     !> Cumulative atomic multipole moments
-    real(dp), intent(inout) :: mpAtom(:, :, :)
+    real(dp), intent(inout) :: mpAtom(:,:,:)
 
     !> Multipole moment integral in packed format
-    real(dp), intent(in) :: mpintBra(:, :), mpintKet(:, :)
+    real(dp), intent(in) :: mpintBra(:,:), mpintKet(:,:)
 
     !> Density matrix in Packed format
-    real(dp), intent(in) :: rho(:, :)
+    real(dp), intent(in) :: rho(:,:)
 
-    !> Information about the orbitals.
+    !> Information about the orbitals
     type(TOrbitals), intent(in) :: orb
 
     !> Number of neighbours of each real atom (central cell)
@@ -647,7 +705,7 @@ contains
 
     nSpin = size(rho, dim=2)
     nAtom = size(orb%nOrbAtom)
-    mpAtom(:, :, :) = 0.0_dp
+    mpAtom(:,:,:) = 0.0_dp
 
     do iSpin = 1, nSpin
       do iAt1 = 1, nAtom
