@@ -2436,8 +2436,7 @@ contains
     !> Status of operation
     type(TStatus), intent(out) :: errStatus
 
-    integer :: nSpin, iKS, iSp, iK, nAtom
-    complex(dp), allocatable :: rhoSqrCplx(:,:)
+    integer :: nSpin, iKS, iSp, nAtom
     logical :: tImHam
 
     nSpin = size(ints%hamiltonian, dim=2)
@@ -3656,7 +3655,7 @@ contains
     type(TDftbDeterminants), intent(inout) :: deltaDftb
 
     real(dp) :: EbandTmp(2), TSTmp(2), E0Tmp(2), EfTmp(2), nElecFill(2), kWeightTmp(2)
-    integer :: nSpinHams, nKPoints, nLevels, iS, iK, iConfig
+    integer :: nSpinHams, nKPoints, nLevels, iS, iK
 
     nLevels = size(fillings, dim=1)
     nKPoints = size(fillings, dim=2)

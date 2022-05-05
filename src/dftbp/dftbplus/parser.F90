@@ -7525,10 +7525,14 @@ contains
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff,&
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+          call convertByMul(char(modifier), lengthUnits, child3, input%gSummationCutoff)
+          call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7536,22 +7540,10 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
-        if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
-        end if
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
-        if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
-        end if
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
@@ -7610,10 +7602,14 @@ contains
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff,&
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+          call convertByMul(char(modifier), lengthUnits, child3, input%gSummationCutoff)
+          call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7621,22 +7617,10 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
-        if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
-        end if
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
-        if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
-        end if
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
@@ -7656,10 +7640,14 @@ contains
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
+          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff,&
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
+          call convertByMul(char(modifier), lengthUnits, child3, input%gSummationCutoff)
+          call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
+              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
+              & child=child3)
+          call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7667,22 +7655,10 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
-        if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
-        end if
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
-        if (geo%tPeriodic) then
-          call getChildValue(value2, "CoulombTruncation", input%coulombTruncation,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%coulombTruncation)
-        end if
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")

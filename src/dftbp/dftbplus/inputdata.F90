@@ -126,8 +126,11 @@ module dftbp_dftbplus_inputdata
     !> Choice of range separation method
     integer :: rangeSepAlg
 
-    !> Truncation of 1/r for periodic systems
-    real(dp) :: coulombTruncation
+    !> Cutoff for real-space g-summation
+    real(dp) :: gSummationCutoff
+
+    !> Cutoff for truncated Gamma
+    real(dp) :: gammaCutoff
 
   end type TRangeSepInp
 

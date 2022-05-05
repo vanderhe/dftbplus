@@ -195,7 +195,8 @@ module dftbp_dftbplus_initprogram
   type :: TCutoffs
     real(dp) :: skCutOff
     real(dp) :: camCutOff
-    real(dp) :: coulombTruncation
+    real(dp) :: gSummationCutoff
+    real(dp) :: gammaCutoff
     real(dp) :: mCutOff
   end type TCutoffs
 
@@ -2617,8 +2618,8 @@ contains
 
     if (this%isRangeSep) then
       call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
-      call getRangeSeparatedCutoff(input%ctrl%rangeSepInp%cutoffRed, this%cutOff,&
-          & input%ctrl%rangeSepInp%coulombTruncation)
+      call getRangeSeparatedCutoff(this%cutOff, input%ctrl%rangeSepInp%cutoffRed,&
+          & input%ctrl%rangeSepInp%gSummationCutoff, input%ctrl%rangeSepInp%gammaCutoff)
       call this%initRangeSeparated(this%nAtom, this%species0, hubbU, input%ctrl%rangeSepInp,&
           & this%tSpin, allocated(this%reks), this%rangeSep, this%deltaRhoIn, this%deltaRhoOut,&
           & this%deltaRhoDiff, this%deltaRhoInSqr, this%deltaRhoOutSqr, this%deltaRhoInCplx,&
@@ -5403,18 +5404,19 @@ contains
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff(cutoffRed, cutOff, coulombTruncation)
+  subroutine getRangeSeparatedCutOff(cutOff, cutoffRed, gSummationCutoff, gammaCutoff)
 
-    !> Reduction in cut-off
-    real(dp), intent(in) :: cutoffRed
-
-    !> Resulting cut-off
+    !> Resulting cutoff
     type(TCutoffs), intent(inout) :: cutOff
 
-    !> Cut-off for 1/Rc
-    real(dp), intent(in) :: coulombTruncation
+    !> CAM-neighbour list cutoff reduction
+    real(dp), intent(in) :: cutoffRed
 
-    cutOff%camCutOff = 0.0_dp
+    !> Cutoff for real-space g-summation
+    real(dp), intent(in) :: gSummationCutoff
+
+    !> Cutoff for truncated Gamma
+    real(dp), intent(in) :: gammaCutoff
 
     if (cutoffRed < 0.0_dp) then
       call error("Cutoff reduction for range-separated neighbours should be zero or positive.")
@@ -5427,12 +5429,7 @@ contains
     end if
 
     cutOff%mCutoff = max(cutOff%mCutOff, cutoff%camCutOff)
-    cutOff%coulombTruncation = coulombTruncation
-
-    ! vanderhe: I don't think we should enlarge the neighbourlist by the electrostatics, since the
-    ! summation over long-range gamma's is a completely separate neighbourlist with huge cutoff,
-    ! which must be generated on-the-fly due to its dependency on current real-space lattice shifts
-    ! cutOff%mCutoff = max(cutOff%mCutOff, cutoff%coulombTruncation)
+    cutOff%gSummationCutoff = gSummationCutoff
 
   end subroutine getRangeSeparatedCutOff
 
@@ -5506,7 +5503,8 @@ contains
     allocate(rangeSep)
     call TRangeSepFunc_init(rangeSep, nAtom, species0, hubbU(1, :), rangeSepInp%screeningThreshold,&
         & rangeSepInp%omega, rangeSepInp%camAlpha, rangeSepInp%camBeta,&
-        & rangeSepInp%coulombTruncation, tSpin, isREKS, rangeSepInp%rangeSepAlg)
+        & rangeSepInp%gSummationCutoff, rangeSepInp%gammaCutoff, tSpin, isREKS,&
+        & rangeSepInp%rangeSepAlg)
 
     if (tRealHS) then
       allocate(deltaRhoIn(this%nOrb * this%nOrb * this%nSpin))
