@@ -11,7 +11,7 @@
 !> Contains range separated related routines.
 module dftbp_dftb_rangeseparated
 
-  use dftbp_common_accuracy, only : dp, tolSameDist, MinHubDiff
+  use dftbp_common_accuracy, only : dp, tolSameDist, MinHubDiff, mc
   use dftbp_common_environment, only : TEnvironment, globalTimers
   use dftbp_common_globalenv, only : stdOut
   use dftbp_dftb_nonscc, only : TNonSccDiff
@@ -24,6 +24,7 @@ module dftbp_dftb_rangeseparated
   use dftbp_dftb_periodic, only : TNeighbourList, TSymNeighbourList, getCellTranslations
   use dftbp_dftb_nonscc, only : buildS
   use dftbp_io_charmanip, only : i2c
+  use dftbp_io_formatout, only : writeXYZFormat
 
   implicit none
   private
@@ -962,7 +963,6 @@ contains
 
     call allocateAndInit(tmpHH, tmpDRho)
     call evaluateHamiltonian()
-    ! call symmetrizeHS(tmpHH)
 
     HH(:,:) = HH + this%camBeta * tmpHH
     this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHH, tmpDRho)
@@ -1015,70 +1015,6 @@ contains
           end do loopA
         end do loopB
       end do loopN
-
-      ! open(newunit=fd, file='lc-ham_11.dat')
-      ! write(fd, '(4F15.10)') tmpHH(1:4, 1:4)
-      ! close(fd)
-
-      open(newunit=fd, file='lc-ham_12.dat')
-      write(fd, '(4F15.10)') tmpHH(1:4, 5:8)
-      close(fd)
-
-      ! open(newunit=fd, file='lc-ham_13.dat')
-      ! write(fd, '(4F15.10)') tmpHH(1:4, 9:12)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_14.dat')
-      ! write(fd, '(4F15.10)') tmpHH(1:4, 13:16)
-      ! close(fd)
-
-      open(newunit=fd, file='lc-ham_21.dat')
-      write(fd, '(4F15.10)') tmpHH(5:8, 1:4)
-      close(fd)
-
-      ! open(newunit=fd, file='lc-ham_22.dat')
-      ! write(fd, '(4F15.10)') tmpHH(5:8, 5:8)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_23.dat')
-      ! write(fd, '(4F15.10)') tmpHH(5:8, 9:12)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_24.dat')
-      ! write(fd, '(4F15.10)') tmpHH(5:8, 13:16)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_31.dat')
-      ! write(fd, '(4F15.10)') tmpHH(9:12, 1:4)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_32.dat')
-      ! write(fd, '(4F15.10)') tmpHH(9:12, 5:8)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_33.dat')
-      ! write(fd, '(4F15.10)') tmpHH(9:12, 9:12)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_34.dat')
-      ! write(fd, '(4F15.10)') tmpHH(9:12, 13:16)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_41.dat')
-      ! write(fd, '(4F15.10)') tmpHH(13:16, 1:4)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_42.dat')
-      ! write(fd, '(4F15.10)') tmpHH(13:16, 5:8)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_43.dat')
-      ! write(fd, '(4F15.10)') tmpHH(13:16, 9:12)
-      ! close(fd)
-
-      ! open(newunit=fd, file='lc-ham_44.dat')
-      ! write(fd, '(4F15.10)') tmpHH(13:16, 13:16)
-      ! close(fd)
 
     end subroutine evaluateHamiltonian
 
@@ -2078,7 +2014,9 @@ contains
     real(dp), allocatable :: rCellVecsG(:,:)
 
     !! Temporary arrays for gemm operations
-    real(dp), allocatable :: pSamT_Pab(:,:), sPs(:,:)
+    real(dp), allocatable :: pSamT_Pab(:,:), pSamT_Pab_pSbn(:,:), Pab_Sbn(:,:)
+    real(dp), allocatable :: pSamT_Pab_gammaAB(:,:), tot(:,:)
+    real(dp), allocatable :: term1(:,:), term2(:,:), term3(:,:), term4(:,:)
 
     !! Index of \vec{g} summation
     integer :: iG
@@ -2113,8 +2051,8 @@ contains
 
     ! integer :: iNeighA
 
-    ! integer :: fd, ii, jj
-    ! real(dp) :: tmp
+    integer :: fd, ii, jj
+    real(dp) :: tmp
 
     allocate(tmpHSqr(size(HSqr, dim=1), size(HSqr, dim=2)))
     tmpHSqr(:,:) = 0.0_dp
@@ -2123,7 +2061,7 @@ contains
     call symmetrizeHS(tmpDeltaRhoSqr)
 
     ! get all cell translations within given cutoff
-    call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%coulombTruncation)
+    ! call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%coulombTruncation)
 
     nAtom0 = size(this%species0)
 
@@ -2138,7 +2076,7 @@ contains
         ! get real-space \vec{l} for gamma arguments
         rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
 
-        ! get 2D pointer to Sam overlap block
+        ! get 2D pointer to Sbn overlap block
         ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
         nOrbAt = descN(iNOrb)
         nOrbNeigh = descB(iNOrb)
@@ -2148,6 +2086,15 @@ contains
         loopM: do iAtM = 1, nAtom0
           iSpM = this%species0(iAtM)
           descM = getDescriptor(iAtM, iSquare)
+          ! \gamma_{\mu\nu}(\vec{0})
+          dist = norm2(this%coords(:, iAtM) - this%coords(:, iAtN))
+          gammaMN = getAnalyticalGammaValue(this, iSpM, iSpN, dist)
+          ! gammaMN = 1.0_dp
+          ! \gamma_{\mu\beta}(-\vec{l})
+          shift(:) = -rVecL
+          dist = norm2(this%coords(:, iAtM) - (this%coords(:, iAtBfold) + shift))
+          gammaMB = getAnalyticalGammaValue(this, iSpM, iSpB, dist)
+          ! gammaMB = 1.0_dp
           loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
             iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
             iAtAfold = symNeighbourList%img2CentCell(iAtA)
@@ -2155,6 +2102,18 @@ contains
             descA = getDescriptor(iAtAfold, iSquare)
             ! get real-space \vec{h} for gamma arguments
             rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
+
+            ! \gamma_{\alpha\nu}(\vec{h})
+            shift(:) = rVecH
+            dist = norm2(this%coords(:, iAtAfold) - (this%coords(:, iAtN) + shift))
+            gammaAN = getAnalyticalGammaValue(this, iSpA, iSpN, dist)
+            ! gammaAN = 1.0_dp
+
+            ! \gamma_{\alpha\beta}(\vec{h}-\vec{l})
+            shift(:) = rVecH - rVecL
+            dist = norm2(this%coords(:, iAtAfold) - (this%coords(:, iAtBfold) + shift))
+            gammaAB = getAnalyticalGammaValue(this, iSpA, iSpB, dist)
+            ! gammaAB = 1.0_dp
 
             ! get 2D pointer to Sam overlap block
             ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
@@ -2182,64 +2141,57 @@ contains
             ! loopG: do iG = 1, size(rCellVecsG, dim=2)
 
             !   ! \gamma_{\mu\nu}(\vec{g})
-            !   dist = norm2(this%coords(:, iAtM) - (this%coords(:, iAtN) + rCellVecsG(:, iG)))
+            !   shift(:) = rCellVecsG(:, iG)
+            !   dist = norm2(this%coords(:, iAtM) - (this%coords(:, iAtN) + shift))
             !   gammaMN = gammaMN + getTruncatedGammaValue(this, iSpM, iSpN, dist)
 
-            !   ! \gamma_{\mu\beta}(\vec{g} - \vec{l}) = \gamma_{\mu\beta'}(\vec{g})
-            !   dist = norm2(this%coords(:, iAtM) - (this%coords(:, iAtB) + rCellVecsG(:, iG)))
+            !   ! \gamma_{\mu\beta}(\vec{g} - \vec{l})
+            !   shift(:) = rCellVecsG(:, iG) - rVecL
+            !   dist = norm2(this%coords(:, iAtM) - (this%coords(:, iAtBfold) + shift))
             !   gammaMB = gammaMB + getTruncatedGammaValue(this, iSpM, iSpB, dist)
 
-            !   ! \gamma_{\alpha\nu}(\vec{g} - \vec{h}) = \gamma_{\alpha'\nu}(\vec{g})
-            !   dist = norm2(this%coords(:, iAtA) - (this%coords(:, iAtN) + rCellVecsG(:, iG)))
+            !   ! \gamma_{\alpha\nu}(\vec{g} + \vec{h})
+            !   shift(:) = rCellVecsG(:, iG) + rVecH
+            !   dist = norm2(this%coords(:, iAtAfold) - (this%coords(:, iAtN) + shift))
             !   gammaAN = gammaAN + getTruncatedGammaValue(this, iSpA, iSpN, dist)
 
-            !   ! \gamma_{\alpha\beta}(\vec{g}-\vec{l}-\vec{h}) = \gamma_{\alpha'\beta'}(\vec{g})
-            !   dist = norm2(this%coords(:, iAtA) - (this%coords(:, iAtB) + rCellVecsG(:, iG)))
+            !   ! \gamma_{\alpha\beta}(\vec{g}-\vec{l}+\vec{h})
+            !   shift(:) = rCellVecsG(:, iG) - rVecL + rVecH
+            !   dist = norm2(this%coords(:, iAtAfold) - (this%coords(:, iAtBfold) + shift))
             !   gammaAB = gammaAB + getTruncatedGammaValue(this, iSpA, iSpB, dist)
 
             ! end do loopG
 
-            ! ! sum up all four gamma's of a certain g-vector
-            ! gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
-
-            ! ############################FHIaims-approach########################################
-
-            ! \gamma_{\mu\nu}(\vec{0})
-            dist = norm2(this%coords(:, iAtM) - this%coords(:, iAtN))
-            ! gammaMN = getAnalyticalGammaValue(this, iSpM, iSpN, dist)
-            gammaMN = getTruncatedGammaValue(this, iSpM, iSpN, dist)
-
-            ! \gamma_{\mu\beta}(-\vec{l}) = \gamma_{\mu\beta'}(\vec{0})
-            shift(:) = -rVecL
-            dist = norm2(this%coords(:, iAtM) - (this%coords(:, iAtBfold) + shift))
-            ! gammaMB = getAnalyticalGammaValue(this, iSpM, iSpB, dist)
-            gammaMB = getTruncatedGammaValue(this, iSpM, iSpB, dist)
-
-            ! \gamma_{\alpha\nu}(-\vec{h}) = \gamma_{\alpha'\nu}(\vec{0})
-            shift(:) = -rVecH
-            dist = norm2(this%coords(:, iAtAfold) - (this%coords(:, iAtN) + shift))
-            ! gammaAN = getAnalyticalGammaValue(this, iSpA, iSpN, dist)
-            gammaAN = getTruncatedGammaValue(this, iSpA, iSpN, dist)
-
-            ! \gamma_{\alpha\beta}(-\vec{l} -\vec{h}) = \gamma_{\alpha'\beta'}(\vec{0})
-            shift(:) = - rVecL - rVecH
-            dist = norm2(this%coords(:, iAtAfold) - (this%coords(:, iAtBfold) + shift))
-            ! gammaAB = getAnalyticalGammaValue(this, iSpA, iSpB, dist)
-            gammaAB = getTruncatedGammaValue(this, iSpA, iSpB, dist)
-
-            ! sum up all four gamma's
-            gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
-
             allocate(pSamT_Pab(size(pSam, dim=1), size(Pab_2d, dim=1)))
+            allocate(Pab_Sbn(size(Pab_2d, dim=2), size(pSbn, dim=1)))
+            allocate(tot(descM(iEnd) - descM(iStart) + 1, descN(iEnd) - descN(iStart) + 1))
+
             call gemm(pSamT_Pab, pSam, Pab_2d, transA='T', transB='N')
-            allocate(sPs(size(pSamT_Pab, dim=2), size(pSbn, dim=1)))
-            call gemm(sPs, pSamT_Pab, pSbn, transA='N', transB='N')
+            call gemm(Pab_Sbn, Pab_2d, pSbn, transA='N', transB='N')
+
+            ! term #1
+            allocate(pSamT_Pab_pSbn(size(pSamT_Pab, dim=2), size(pSbn, dim=1)))
+            call gemm(pSamT_Pab_pSbn, pSamT_Pab, pSbn, transA='N', transB='N')
+            tot(:,:) = pSamT_Pab_pSbn * gammaMN
+            deallocate(pSamT_Pab_pSbn)
+
+            ! term #2
+            call gemm(tot, pSamT_Pab * gammaMB, pSbn, transA='N', transB='N', beta=1.0_dp)
             deallocate(pSamT_Pab)
+
+            ! term #3
+            call gemm(tot, pSam, Pab_Sbn * gammaAN, transA='T', transB='N', beta=1.0_dp)
+            deallocate(Pab_Sbn)
+
+            ! term #4
+            allocate(pSamT_Pab_gammaAB(size(pSam, dim=1), size(Pab_2d, dim=1)))
+            call gemm(pSamT_Pab_gammaAB, pSam, Pab_2d * gammaAB, transA='T', transB='N')
+            call gemm(tot, pSamT_Pab_gammaAB, pSbn, transA='N', transB='N', beta=1.0_dp)
+            deallocate(pSamT_Pab_gammaAB)
+
             tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-                & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd)) - gammaTot * sPs
-            deallocate(sPs)
-            ! this replaces former updateHamiltonianBlock call:
-            ! call updateHamiltonianBlock(descM, descN, pSam, pSbn, pPab)
+                & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd)) - tot
+            deallocate(tot)
 
           end do loopA
         end do loopM
@@ -2270,6 +2222,8 @@ contains
     !     close(fd)
     !   end do
     ! end do
+
+    ! print *, abs(this%coords - symNeighbourList%coord)
 
     HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
     this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)
