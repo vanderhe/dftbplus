@@ -2880,7 +2880,7 @@ contains
       if (allocated(rangeSep)) then
         call denseMulliken(deltaRhoInSqr, SSqrReal, denseDesc%iAtomStart, qOutput)
         if (tPeriodic) then
-          call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
+          call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
               & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
               & nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, HSqrReal)
@@ -7350,7 +7350,7 @@ contains
       do iL = 1, reks%Lmax
         ! Add range-separated contribution to Hamiltonian
         if (reks%tPeriodic) then
-          call rangeSep%addCamHamiltonian(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
+          call rangeSep%addCamHamiltonian(env, reks%deltaRhoSqrL(:,:,1,iL), reks%overSqr,&
               & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
               & nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, reks%hamSqrL(:,:,1,iL))

@@ -36,6 +36,22 @@ module dftbp_dftb_rangeseparated
   end interface getGammaPrimeValue
 
 
+  type :: TIntArray1D
+
+    !> onedimensional, integer data storage
+    integer, allocatable :: array(:)
+
+  end type TIntArray1D
+
+
+  type :: TRealArray1D
+
+    !> onedimensional, real data storage
+    real(dp), allocatable :: array(:)
+
+  end type TRealArray1D
+
+
   type :: TRangeSepTypesEnum
 
     !> Neighbour based
@@ -291,10 +307,13 @@ contains
     allocate(this%ddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
     do iSp2 = 1, nUniqueSpecies
       do iSp1 = 1, nUniqueSpecies
+        print *, 'Fine1', this%gammaDamping
         this%gammaAtDamping(iSp1, iSp2) = getAnalyticalGammaValue(this, iSp1, iSp2,&
             & this%gammaDamping)
+        print *, 'Fine2'
         this%dGammaAtDamping(iSp1, iSp2) = getdAnalyticalGammaDeriv(this, iSp1, iSp2,&
             & this%gammaDamping)
+        print *, 'Fine3'
         this%ddGammaAtDamping(iSp1, iSp2) = getddNumericalGammaDeriv(this, iSp1, iSp2,&
             & this%gammaDamping, 1e-08_dp)
       end do
@@ -523,9 +542,9 @@ contains
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian
   !! (periodic systems at the gamma point only).
-  subroutine addCamHamiltonian_gamma(this, env, densSqr, over, symNeighbourList, iNeighbour, iPair,&
-      & img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
-      & iSquare, orb, HH)
+  subroutine addCamHamiltonian_gamma(this, env, densSqr, squareOver, symNeighbourList, iNeighbour,&
+      & iPair, img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs,&
+      & recVecs2p, iSquare, orb, HH)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -533,13 +552,11 @@ contains
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
 
-    ! Neighbour based screening
-
     !> Square (unpacked) density matrix
     real(dp), intent(in) :: densSqr(:,:)
 
-    !> Sparse (packed) overlap matrix
-    real(dp), intent(in) :: over(:)
+    !> Square real overlap matrix
+    real(dp), intent(in) :: squareOver(:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -586,7 +603,7 @@ contains
     ! Add long-range contribution if needed.
     ! For pure Hyb, camBeta would be zero anyway, but we want to save as much time as possible.
     if (this%tLc .or. this%tCam) then
-      call addLrHamiltonian_gamma(this, densSqr, over, symNeighbourList, iNeighbour, iPair,&
+      call addLrHamiltonian_gamma(this, densSqr, squareOver, symNeighbourList, iNeighbour, iPair,&
           & img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
           & iSquare, orb, HH)
     end if
@@ -594,8 +611,8 @@ contains
     ! Add full-range Hartree-Fock contribution if needed.
     ! For pure LC, camAlpha would be zero anyway, but we want to save as much time as possible.
     if (this%tHyb .or. this%tCam) then
-      call addHartreeFockHamiltonian_gamma(this, densSqr, over, symNeighbourList, nNeighbourCamSym,&
-          & rCellVecs, latVecs, recVecs2p, iSquare, orb, HH)
+      call addHartreeFockHamiltonian_gamma(this, densSqr, squareOver, symNeighbourList,&
+          & nNeighbourCamSym, rCellVecs, latVecs, recVecs2p, iSquare, orb, HH)
     end if
 
     call env%globalTimer%stopTimer(globalTimers%rangeSeparatedH)
@@ -670,20 +687,18 @@ contains
 
 
   !> Interface routine for adding LC range-separated contributions to the Hamiltonian.
-  subroutine addLrHamiltonian_gamma(this, densSqr, over, symNeighbourList, iNeighbour, iPair,&
+  subroutine addLrHamiltonian_gamma(this, densSqr, squareOver, symNeighbourList, iNeighbour, iPair,&
       & img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
       & iSquare, orb, HH)
 
     !> Instance
     type(TRangeSepFunc), intent(inout) :: this
 
-    ! Neighbour based screening
-
     !> Square (unpacked) density matrix
     real(dp), intent(in), target :: densSqr(:,:)
 
-    !> Sparse (packed) overlap matrix
-    real(dp), intent(in) :: over(:)
+    !> Square real overlap matrix
+    real(dp), intent(in) :: squareOver(:,:)
 
     !> list of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -723,22 +738,14 @@ contains
     type(TOrbitals), intent(in) :: orb
 
     !> Square (unpacked) Hamiltonian to be updated.
-    real(dp), intent(inout), target :: HH(:,:)
-
-    !! Benchmarking times
-    real(dp) :: timeStart, timeEnd
+    real(dp), intent(inout) :: HH(:,:)
 
     select case(this%rsAlg)
     case (rangeSepTypes%threshold)
       call error('Thresholded algorithm not yet implemented for periodic systems.')
     case (rangeSepTypes%neighbour)
-      call cpu_time(timeStart)
-      ! call addLrHamiltonianNeighbour_gamma_nonsym(this, densSqr, over, iNeighbour, iPair,&
-      !     & nNeighbourCam, img2CentCell, iSquare, iCellVec, rCellVecs, latVecs, recVecs2p, orb, HH)
-      call addLrHamiltonianNeighbour_gamma_sym(this, densSqr, symNeighbourList, nNeighbourCamSym,&
-          & iCellVec, rCellVecs, latVecs, recVecs2p, iSquare, orb, HH)
-      call cpu_time(timeEnd)
-      ! print *, timeStart - timeStart
+      call addLrHamiltonianNeighbour_gamma_sym(this, squareOver, densSqr, symNeighbourList,&
+          & nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p, iSquare, orb, HH)
     case (rangeSepTypes%matrixBased)
       call error('Matrix based algorithm not yet implemented for periodic systems.')
     end select
@@ -1629,324 +1636,14 @@ contains
 
 
   !> Updates the Hamiltonian with the range separated contribution.
-  subroutine addLrHamiltonianNeighbour_gamma_nonsym(this, deltaRhoSqr, over, iNeighbour, iPair,&
-      & nNeighbourCam, img2CentCell, iSquare, iCellVec, rCellVecs, latVecs, recVecs2p, orb, HSqr)
-
-    !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
-
-    !> Square (unpacked) delta density matrix
-    real(dp), intent(in) :: deltaRhoSqr(:,:)
-
-    !> Sparse (packed) overlap matrix
-    real(dp), intent(in), target :: over(:)
-
-    !> Neighbour indices
-    integer, intent(in) :: iNeighbour(0:,:)
-
-    !> Position of each (neighbour, atom) pair in the sparse matrix. Shape: (0:maxNeighbour, nAtom0)
-    integer, intent(in) :: iPair(0:,:)
-
-    !> Nr. of neighbours for each atom
-    integer, intent(in) :: nNeighbourCam(:)
-
-    !> Map images of atoms to the central cell
-    integer, intent(in) :: img2CentCell(:)
-
-    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom0)
-    integer, intent(in) :: iSquare(:)
-
-    !> Shift vector index for every interacting atom, including periodic images
-    integer, intent(in) :: iCellVec(:)
-
-    !> Vectors to neighboring unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2pi
-    real(dp), intent(in) :: recVecs2p(:,:)
-
-    !> Orbital information.
-    type(TOrbitals), intent(in) :: orb
-
-    !> Square (unpacked) Hamiltonian to be updated
-    real(dp), intent(inout) :: HSqr(:,:)
-
-    !! Dense matrix descriptor indices
-    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
-
-    !! Atom blocks from sparse, real-space overlap matrices S_{\mu\alpha}, S_{\beta\nu}
-    real(dp), pointer :: pSam(:,:), pSbn(:,:)
-
-    !! Density matrix block from sparse matrix
-    real(dp), allocatable :: Pab(:)
-    real(dp), pointer :: pPab(:,:)
-
-    !!
-    integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
-
-    !! Temporary storage for deltaRhoSqr
-    real(dp), allocatable :: tmpDeltaRhoSqr(:,:)
-    real(dp), allocatable :: tmpHSqr(:,:)
-
-    !! Number of atoms in central cell
-    integer :: nAtom0
-
-    !! Real-space \vec{h} and \vec{l} vectors
-    real(dp) :: rVecH(3), rVecL(3)
-
-    !! Translation vectors to lattice cells in units of lattice constants
-    real(dp), allocatable :: cellVecsG(:,:)
-
-    !! Vectors to unit cells in absolute units
-    real(dp), allocatable :: rCellVecsG(:,:)
-
-    !! Distance between two atoms
-    real(dp) :: dist
-
-    !! \gamma_{\mu\nu}(\vec{g}), \gamma_{\mu\beta}(\vec{g} - \vec{l}),
-    !! \gamma_{\alpha\nu}(\vec{g} - \vec{h}), \gamma_{\alpha\beta}(\vec{g} - \vec{l} - \vec{h})
-    real(dp) :: gammaMN, gammaMB, gammaAN, gammaAB
-
-    !! sum of four Gamma's of above
-    real(dp) :: gammaTot
-
-    !! Species of atom where orbitals \alpha, \beta, \mu and \nu are located
-    integer :: iSpA, iSpB, iSpM, iSpN
-
-    !! Atom indices (central cell)
-    integer :: iAtM, iAtN
-
-    !! Neighbour indices (+corresponding atom indices)
-    integer :: iNeighN, iNeighM, iAtA, iAtB
-
-    !! Folded (to central cell) atom indices
-    integer :: iAtAfold, iAtBfold
-
-    allocate(tmpHSqr(size(HSqr, dim=1), size(HSqr, dim=2)))
-    tmpHSqr(:,:) = 0.0_dp
-    allocate(tmpDeltaRhoSqr(size(deltaRhoSqr, dim=1), size(deltaRhoSqr, dim=1)))
-    tmpDeltaRhoSqr(:,:) = deltaRhoSqr
-    call symmetrizeHS(tmpDeltaRhoSqr)
-
-    ! get all cell translations within given cutoff
-    call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
-
-    nAtom0 = size(this%species0)
-
-    loopM: do iAtM = 1, nAtom0
-      iSpM = this%species0(iAtM)
-      descM = getDescriptor(iAtM, iSquare)
-      loopA: do iNeighM = 0, nNeighbourCam(iAtM)
-        iAtA = iNeighbour(iNeighM, iAtM)
-        iAtAfold = img2CentCell(iAtA)
-        iSpA = this%species0(iAtAfold)
-        descA = getDescriptor(iAtAfold, iSquare)
-        ! get real-space \vec{h} for gamma arguments
-        rVecH(:) = rCellVecs(:, iCellVec(iAtA))
-
-        call copyOverlapBlock(iAtM, iNeighM, descM(iNOrb), descA(iNOrb), pSam)
-
-        loopN: do iAtN = 1, nAtom0
-          iSpN = this%species0(iAtN)
-          descN = getDescriptor(iAtN, iSquare)
-          loopB: do iNeighN = 0, nNeighbourCam(iAtN)
-            iAtB = iNeighbour(iNeighN, iAtN)
-            iAtBfold = img2CentCell(iAtB)
-            iSpB = this%species0(iAtBfold)
-            descB = getDescriptor(iAtBfold, iSquare)
-            ! get real-space \vec{l} for gamma arguments
-            rVecL(:) = rCellVecs(:, iCellVec(iAtB))
-
-            call copyDensityBlock(descA, descB, Pab, pPab)
-            call copyOverlapBlock(iAtN, iNeighN, descN(iNOrb), descB(iNOrb), pSbn)
-
-            ! TODO: Plot dP, S, gamma vs. distance between orbitals
-
-            ! ############################CP2K-approach###########################################
-
-            ! ! nullify gamma's of last iteration
-            ! gammaMN = 0.0_dp
-            ! gammaMB = 0.0_dp
-            ! gammaAN = 0.0_dp
-            ! gammaAB = 0.0_dp
-
-            ! loopG: do iG = 1, size(rCellVecsG, dim=2)
-
-            !   ! \gamma_{\mu\nu}(\vec{g})
-            !   dist = norm2(this%coords(:, iAtM) - (this%coords(:, iAtN) + rCellVecsG(:, iG)))
-            !   gammaMN = gammaMN + getTruncatedGammaValue(this, iSpM, iSpN, dist)
-
-            !   ! \gamma_{\mu\beta}(\vec{g} - \vec{l}) = \gamma_{\mu\beta'}(\vec{g})
-            !   dist = norm2(this%coords(:, iAtM) - (this%coords(:, iAtB) + rCellVecsG(:, iG)))
-            !   gammaMB = gammaMB + getTruncatedGammaValue(this, iSpM, iSpB, dist)
-
-            !   ! \gamma_{\alpha\nu}(\vec{g} - \vec{h}) = \gamma_{\alpha'\nu}(\vec{g})
-            !   dist = norm2(this%coords(:, iAtA) - (this%coords(:, iAtN) + rCellVecsG(:, iG)))
-            !   gammaAN = gammaAN + getTruncatedGammaValue(this, iSpA, iSpN, dist)
-
-            !   ! \gamma_{\alpha\beta}(\vec{g}-\vec{l}-\vec{h}) = \gamma_{\alpha'\beta'}(\vec{g})
-            !   dist = norm2(this%coords(:, iAtA) - (this%coords(:, iAtB) + rCellVecsG(:, iG)))
-            !   gammaAB = gammaAB + getTruncatedGammaValue(this, iSpA, iSpB, dist)
-
-            ! end do loopG
-
-            ! ! sum up all four gamma's of a certain g-vector
-            ! gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
-
-            ! ############################FHIaims-approach########################################
-
-            ! \gamma_{\mu\nu}(\vec{0})
-            dist = norm2(this%coords(:, iAtM) - this%coords(:, iAtN))
-            gammaMN = getAnalyticalGammaValue(this, iSpM, iSpN, dist)
-
-            ! \gamma_{\mu\beta}(-\vec{l}) = \gamma_{\mu\beta'}(\vec{0})
-            dist = norm2(this%coords(:, iAtM) - this%coords(:, iAtB))
-            gammaMB = getAnalyticalGammaValue(this, iSpM, iSpB, dist)
-
-            ! \gamma_{\alpha\nu}(-\vec{h}) = \gamma_{\alpha'\nu}(\vec{0})
-            dist = norm2(this%coords(:, iAtA) - this%coords(:, iAtN))
-            gammaAN = getAnalyticalGammaValue(this, iSpA, iSpN, dist)
-
-            ! \gamma_{\alpha\beta}(-\vec{l} -\vec{h}) = \gamma_{\alpha'\beta'}(\vec{0})
-            dist = norm2(this%coords(:, iAtA) - this%coords(:, iAtB))
-            gammaAB = getAnalyticalGammaValue(this, iSpA, iSpB, dist)
-
-            ! sum up all four gamma's
-            gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
-
-            ! if (iAtB >= iAtM) then
-            !   call updateHamiltonianBlock(descB, descM, pSma, pSbn, pPab)
-            ! end if
-            ! if (iAtA >= iAtN .and. iAtM /= iAtA) then
-            !   call copyDensityBlock(descM, descB, Pmb, pPmb)
-            !   call updateHamiltonianBlock(descA, descN, pSam, pSbn, pPmb)
-            ! end if
-            ! if (iAtM >= iAtB .and. iAtN /= iAtB) then
-            !   call updateHamiltonianBlock(descM, descB, pSma, pSnb, pPan)
-            ! end if
-            ! if (iAtA >= iAtB .and. iAtM /= iAtA .and. iAtN /= iAtB) then
-            !   call copyDensityBlock(descM, descN, Pmn, pPmn)
-            !   call updateHamiltonianBlock(descA, descB, pSam, pSnb, pPmn)
-            ! end if
-
-            ! call updateHamiltonianBlock(descM, descN, pSam, pSbn, pPab)
-
-          end do loopB
-        end do loopN
-      end do loopA
-    end do loopM
-
-    if (this%tSpin .or. this%tREKS) then
-      tmpHSqr(:,:) = 0.250_dp * tmpHSqr
-    else
-      tmpHSqr(:,:) = 0.125_dp * tmpHSqr
-    end if
-
-    call symmetrizeHS(tmpHSqr)
-
-    HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)
-
-
-  contains
-
-    !> Copies an atom block from sparse matrix.
-    subroutine copyOverlapBlock(iAt, iNeigh, iNOrbAt, iNOrbNeigh, pLocalBlock)
-
-      !> Atom for which this is a neighbour
-      integer, intent(in) :: iAt
-
-      !> Number of neighbour for this block
-      integer, intent(in) :: iNeigh
-
-      !> Number of orbitals on iAt
-      integer, intent(in) :: iNOrbAt
-
-      !> Number of orbitals on neighbour atom
-      integer, intent(in) :: iNOrbNeigh
-
-      !> Pointer to local block
-      real(dp), intent(out), pointer :: pLocalBlock(:,:)
-
-      integer :: ind
-
-      ind = iPair(iNeigh, iAt) + 1
-      pLocalBlock(1:iNOrbNeigh, 1:iNOrbAt) => over(ind:ind+iNOrbNeigh*iNOrbAt-1)
-
-    end subroutine copyOverlapBlock
-
-
-    !> Copies a density matrix block from sparse matrix.
-    pure subroutine copyDensityBlock(desc1, desc2, localBlock, pLocalBlock)
-
-      !> start, end and range of first block
-      integer, dimension(descLen), intent(in) :: desc1
-
-      !> start, end and range of second block
-      integer, dimension(descLen), intent(in) :: desc2
-
-      !> local block in 1D format
-      real(dp), dimension(:), target, intent(inout) :: localBlock
-
-      !> Pointer to local block
-      real(dp), dimension(:,:), pointer, intent(out) :: pLocalBlock
-
-      pLocalBlock(1:desc1(iNOrb), 1:desc2(iNOrb)) => localBlock(1:desc1(iNOrb) * desc2(iNOrb))
-      pLocalBlock(:,:) = tmpDeltaRhoSqr(desc1(iStart):desc1(iEnd), desc2(iStart):desc2(iEnd))
-
-    end subroutine copyDensityBlock
-
-
-    !> Transposes a block.
-    pure subroutine transposeBlock(orig, origT)
-
-      !> Original matrix block
-      real(dp), intent(in) :: orig(:,:)
-
-      !> Transposed matrix block
-      real(dp), intent(out), allocatable :: origT(:,:)
-
-      origT = transpose(orig)
-
-    end subroutine transposeBlock
-
-
-    !> Adds a contribution to a Hamiltonian block.
-    subroutine updateHamiltonianBlock(descM, descN, pSma, pSbN, pPab)
-
-      !> Start, end and range of row
-      integer, intent(in) :: descM(descLen)
-
-      !> Start, end and range of column
-      integer, intent(in) :: descN(descLen)
-
-      !> First overlap block
-      real(dp), intent(in), pointer :: pSma(:,:)
-
-      !> Second overlap block
-      real(dp), intent(in), pointer :: pSbN(:,:)
-
-      !> Density matrix block
-      real(dp), intent(in), pointer :: pPab(:,:)
-
-      tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-          & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-          & - gammaTot * matmul(matmul(pSma, pPab), pSbn)
-
-    end subroutine updateHamiltonianBlock
-
-  end subroutine addLrHamiltonianNeighbour_gamma_nonsym
-
-
-  !> Updates the Hamiltonian with the range separated contribution.
-  subroutine addLrHamiltonianNeighbour_gamma_sym(this, deltaRhoSqr, symNeighbourList,&
+  subroutine addLrHamiltonianNeighbour_gamma_sym(this, squareOver, deltaRhoSqr, symNeighbourList,&
       & nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p, iSquare, orb, HSqr)
 
     !> Instance
     type(TRangeSepFunc), intent(inout), target :: this
+
+    !> Square real overlap matrix
+    real(dp), intent(in) :: squareOver(:,:)
 
     !> Square (unpacked) delta density matrix
     real(dp), intent(in) :: deltaRhoSqr(:,:)
@@ -1990,9 +1687,11 @@ contains
     !!
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
 
-    !! Temporary storage for deltaRhoSqr
-    real(dp), allocatable :: tmpDeltaRhoSqr(:,:)
-    real(dp), allocatable :: tmpHSqr(:,:)
+    !! Temporary storages
+    real(dp), allocatable :: tmpDeltaRhoSqr(:,:), tmpDeltaDeltaRhoSqr(:,:), tmpHSqr(:,:)
+    real(dp), allocatable :: tmpSquareOver(:,:)
+    type(TRealArray1D), allocatable :: testSquareOver(:)
+    type(TIntArray1D), allocatable :: overlapIndices(:)
 
     !! Number of atoms in central cell
     integer :: nAtom0
@@ -2026,32 +1725,107 @@ contains
     !! Folded (to central cell) atom indices
     integer :: iAtAfold, iAtBfold
 
+    !! Sorted (according to max overlap estimates) neighbour indices
+    integer :: iNeighMsort, iNeighNsort
+
     !! Auxiliary variables for setting up 2D pointer to sparse overlap
     integer :: ind, nOrbAt, nOrbNeigh
 
-    allocate(tmpHSqr(size(HSqr, dim=1), size(HSqr, dim=2)))
+    !! Size of square matrices (e.g. Hamiltonian)
+    integer :: squareSize
+
+    !! Max estimate for difference of square delta rho to previous SCC iteration and products with
+    !! max overlap estimates
+    real(dp) :: pMax, pMaxSbn, pMaxSbnSam, maxEstimate, pSbnMax
+
+    integer :: nNeigh
+
+    squareSize = size(HSqr, dim=1)
+    nAtom0 = size(this%species0)
+
+    ! allocate delta Hamiltonian
+    allocate(tmpHSqr(squareSize, squareSize))
     tmpHSqr(:,:) = 0.0_dp
-    allocate(tmpDeltaRhoSqr(size(deltaRhoSqr, dim=1), size(deltaRhoSqr, dim=1)))
+
+    ! allocate, initialize and symmetrize square overlap
+    allocate(tmpSquareOver(squareSize, squareSize))
+    tmpSquareOver(:,:) = squareOver
+    call blockSymmetrizeHS(tmpSquareOver, iSquare)
+
+    allocate(tmpDeltaRhoSqr(squareSize, squareSize))
     tmpDeltaRhoSqr(:,:) = deltaRhoSqr
     call symmetrizeHS(tmpDeltaRhoSqr)
+
+    ! check and initialize screening
+    if (.not. this%tScreeningInited) then
+      allocate(this%hprev(squareSize, squareSize))
+      allocate(this%dRhoPrev(squareSize, squareSize))
+      this%hprev(:,:) = 0.0_dp
+      this%dRhoPrev(:,:) = tmpDeltaRhoSqr
+      this%tScreeningInited = .true.
+    end if
+
+    ! allocate and initialize difference of delta rho to previous SCC iteration
+    allocate(tmpDeltaDeltaRhoSqr(squareSize, squareSize))
+    tmpDeltaDeltaRhoSqr(:,:) = tmpDeltaRhoSqr - this%dRhoPrev
+    pMax = maxval(abs(tmpDeltaDeltaRhoSqr))
+    this%dRhoPrev(:,:) = tmpDeltaRhoSqr
+
+    ! allocate max estimates of square overlap blocks and index array for sorting
+    nNeigh = size(symNeighbourList%neighbourList%iNeighbour, dim=1)
+    allocate(testSquareOver(nAtom0))
+    allocate(overlapIndices(nAtom0))
+
+    do iAtN = 1, nAtom0
+      descN = getDescriptor(iAtN, iSquare)
+      allocate(testSquareOver(iAtN)%array(nNeighbourCamSym(iAtN) + 1))
+      do iNeighN = 0, nNeighbourCamSym(iAtN)
+        iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
+        iAtBfold = symNeighbourList%img2CentCell(iAtB)
+        descB = getDescriptor(iAtBfold, iSquare)
+        ! get 2D pointer to Sbn overlap block
+        ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
+        nOrbAt = descN(iNOrb)
+        nOrbNeigh = descB(iNOrb)
+        pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+        testSquareOver(iAtN)%array(iNeighN + 1) = maxval(abs(pSbn))
+      end do
+    end do
+
+    ! sort max square overlap estimates (descending)
+    ! this way we can exit the whole loop a.s.a. threshold has been undershot for the first time
+    do iAtN = 1, nAtom0
+      allocate(overlapIndices(iAtN)%array(nNeighbourCamSym(iAtN) + 1))
+      call index_heap_sort(overlapIndices(iAtN)%array, testSquareOver(iAtN)%array)
+      ! switch from ascending to descending
+      overlapIndices(iAtN)%array(:)&
+          & = overlapIndices(iAtN)%array(size(overlapIndices(iAtN)%array):1:-1)
+    end do
 
     ! get all cell translations within given cutoff
     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
 
-    nAtom0 = size(this%species0)
-
+    !$omp parallel do schedule(runtime) default(none)&
+    !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
+    !$omp& testSquareOver, rCellVecs, rCellVecsG, tmpDeltaRhoSqr, tmpHSqr)&
+    !$omp private(iAtN, iSpN, descN, iNeighN, iNeighNsort, iAtB, iAtBfold, iSpB, pSbnMax, rVecL,&
+    !$omp& ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM, iNeighMsort,&
+    !$omp& iAtA, iAtAfold, iSpA, descA, Pab, maxEstimate, rVecH, gammaAN, gammaAB, pSam, pSamT_Pab,&
+    !$omp& Pab_Sbn, tot, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB)
     loopN: do iAtN = 1, nAtom0
       iSpN = this%species0(iAtN)
       descN = getDescriptor(iAtN, iSquare)
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
-        iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
+        iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
+        iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
         iAtBfold = symNeighbourList%img2CentCell(iAtB)
         iSpB = this%species0(iAtBfold)
         descB = getDescriptor(iAtBfold, iSquare)
+        pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
         ! get real-space \vec{l} for gamma arguments
         rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
         ! get 2D pointer to Sbn overlap block
-        ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
+        ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
         nOrbAt = descN(iNOrb)
         nOrbNeigh = descB(iNOrb)
         pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
@@ -2064,10 +1838,15 @@ contains
           ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
           gammaMB = getGammaGSum(iAtM, iAtBfold, iSpM, iSpB, this%coords, rCellVecsG, -rVecL)
           loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
-            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
+            iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
+            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
             iAtAfold = symNeighbourList%img2CentCell(iAtA)
             iSpA = this%species0(iAtAfold)
             descA = getDescriptor(iAtAfold, iSquare)
+            ! get continuous 2D copy of Pab density matrix block
+            Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
+            maxEstimate = pSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1) * maxval(abs(Pab))
+            if (maxEstimate < this%pScreeningThreshold) cycle loopA
             ! get real-space \vec{h} for gamma arguments
             rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
             ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
@@ -2076,12 +1855,10 @@ contains
             gammaAB = getGammaGSum(iAtAfold, iAtBfold, iSpA, iSpB, this%coords, rCellVecsG,&
                 & rVecH - rVecL)
             ! get 2D pointer to Sam overlap block
-            ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
+            ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
             nOrbAt = descM(iNOrb)
             nOrbNeigh = descA(iNOrb)
             pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-            ! get continuous 2D copy of Pab density matrix block
-            Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
 
             allocate(pSamT_Pab(size(pSam, dim=1), size(Pab, dim=1)))
             allocate(Pab_Sbn(size(Pab, dim=2), size(pSbn, dim=1)))
@@ -3169,19 +2946,17 @@ contains
 
 
   !> Interface routine for the full-range Hartree-Fock contribution to the Hamiltonian.
-  subroutine addHartreeFockHamiltonian_gamma(this, densSqr, over, symNeighbourList,&
+  subroutine addHartreeFockHamiltonian_gamma(this, densSqr, squareOver, symNeighbourList,&
       & nNeighbourCamSym, rCellVecsLC, latVecs, recVecs2p, iSquare, orb, HH)
 
     !> Instance
     type(TRangeSepFunc), intent(inout) :: this
 
-    ! Neighbour based screening
-
     !> Square (unpacked) density matrix
     real(dp), intent(in), target :: densSqr(:,:)
 
-    !> Sparse (packed) overlap matrix.
-    real(dp), intent(in) :: over(:)
+    !> Square real overlap matrix
+    real(dp), intent(in) :: squareOver(:,:)
 
     !> list of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList

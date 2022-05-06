@@ -7533,6 +7533,11 @@ contains
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
           call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
+        else
+          ! dummy cutoff values
+          input%gammaCutoff = 1.0_dp
+          input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7540,10 +7545,16 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        ! dummy cutoff values
+        input%gammaCutoff = 1.0_dp
+        input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
+        ! dummy cutoff values
+        input%gammaCutoff = 1.0_dp
+        input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
@@ -7610,6 +7621,11 @@ contains
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
           call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
+        else
+          ! dummy cutoff values
+          input%gammaCutoff = 1.0_dp
+          input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7617,10 +7633,16 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        ! dummy cutoff values
+        input%gammaCutoff = 1.0_dp
+        input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
+        ! dummy cutoff values
+        input%gammaCutoff = 1.0_dp
+        input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
@@ -7648,6 +7670,11 @@ contains
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
           call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
+        else
+          ! dummy cutoff values
+          input%gammaCutoff = 1.0_dp
+          input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7655,10 +7682,16 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        ! dummy cutoff values
+        input%gammaCutoff = 1.0_dp
+        input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
+        ! dummy cutoff values
+        input%gammaCutoff = 1.0_dp
+        input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")

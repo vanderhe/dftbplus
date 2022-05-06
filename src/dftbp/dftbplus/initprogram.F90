@@ -3416,6 +3416,8 @@ contains
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "NeighbourBased"
         write(stdOut, "(2X,A,':',T30,E14.6,A)") "Spatially cutoff at",&
             & input%ctrl%rangeSepInp%cutoffRed * Bohr__AA," A"
+        write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
+            & input%ctrl%rangeSepInp%screeningThreshold
       case (rangeSepTypes%threshold)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "Thresholded"
         write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
@@ -5506,29 +5508,16 @@ contains
         & rangeSepInp%gSummationCutoff, rangeSepInp%gammaCutoff, tSpin, isREKS,&
         & rangeSepInp%rangeSepAlg)
 
-    if (tRealHS) then
-      allocate(deltaRhoIn(this%nOrb * this%nOrb * this%nSpin))
-      allocate(deltaRhoOut(this%nOrb * this%nOrb * this%nSpin))
-      allocate(deltaRhoDiff(this%nOrb * this%nOrb * this%nSpin))
+    allocate(deltaRhoIn(this%nOrb * this%nOrb * this%nSpin))
+    allocate(deltaRhoOut(this%nOrb * this%nOrb * this%nSpin))
+    allocate(deltaRhoDiff(this%nOrb * this%nOrb * this%nSpin))
 
-      deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
-          & deltaRhoIn(1 : this%nOrb * this%nOrb * this%nSpin)
-      deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
-          & deltaRhoOut(1 : this%nOrb * this%nOrb * this%nSpin)
-      nMixElements = this%nOrb * this%nOrb * this%nSpin
-      deltaRhoInSqr(:,:,:) = 0.0_dp
-    else
-      allocate(deltaRhoInCplx(this%nOrb * this%nOrb * this%nSpin * this%nKPoint))
-      allocate(deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin * this%nKPoint))
-      allocate(deltaRhoDiffCplx(this%nOrb * this%nOrb * this%nSpin * this%nKPoint))
-
-      deltaRhoInSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
-          & deltaRhoInCplx(1 : this%nOrb * this%nOrb * this%nSpin)
-      deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
-          & deltaRhoOutCplx(1 : this%nOrb * this%nOrb * this%nSpin * this%nKPoint)
-      nMixElements = this%nOrb * this%nOrb * this%nSpin * this%nKPoint
-      deltaRhoInSqrCplx(:,:,:) = 0.0_dp
-    end if
+    deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
+        & deltaRhoIn(1 : this%nOrb * this%nOrb * this%nSpin)
+    deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
+        & deltaRhoOut(1 : this%nOrb * this%nOrb * this%nSpin)
+    nMixElements = this%nOrb * this%nOrb * this%nSpin
+    deltaRhoInSqr(:,:,:) = 0.0_dp
 
   end subroutine initRangeSeparated
 
