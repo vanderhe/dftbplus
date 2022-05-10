@@ -23,6 +23,10 @@ module dftbp_dftb_rangeseparated
   use dftbp_dftb_periodic, only : TNeighbourList, TSymNeighbourList, getCellTranslations
   use dftbp_dftb_nonscc, only : buildS
 
+#:if WITH_OMP
+  use omp_lib, only : OMP_GET_NUM_THREADS, OMP_GET_THREAD_NUM
+#:endif
+
   implicit none
   private
 
@@ -307,13 +311,10 @@ contains
     allocate(this%ddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
     do iSp2 = 1, nUniqueSpecies
       do iSp1 = 1, nUniqueSpecies
-        print *, 'Fine1', this%gammaDamping
         this%gammaAtDamping(iSp1, iSp2) = getAnalyticalGammaValue(this, iSp1, iSp2,&
             & this%gammaDamping)
-        print *, 'Fine2'
         this%dGammaAtDamping(iSp1, iSp2) = getdAnalyticalGammaDeriv(this, iSp1, iSp2,&
             & this%gammaDamping)
-        print *, 'Fine3'
         this%ddGammaAtDamping(iSp1, iSp2) = getddNumericalGammaDeriv(this, iSp1, iSp2,&
             & this%gammaDamping, 1e-08_dp)
       end do
@@ -678,7 +679,6 @@ contains
       call addLrHamiltonianNeighbour_cluster_sym(this, densSqr, symNeighbourList, nNeighbourCamSym,&
           & iSquare, orb, HH)
       call cpu_time(timeEnd)
-      ! print *, timeEnd - timeStart
     case (rangeSepTypes%matrixBased)
       call addLrHamiltonianMatrix_cluster(this, iSquare, overlap, densSqr, HH)
     end select
@@ -1706,8 +1706,8 @@ contains
     real(dp), allocatable :: rCellVecsG(:,:)
 
     !! Temporary arrays for gemm operations
-    real(dp), allocatable :: pSamT_Pab(:,:), pSamT_Pab_pSbn(:,:), Pab_Sbn(:,:)
-    real(dp), allocatable :: pSamT_Pab_gammaAB(:,:), tot(:,:)
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab, pSamT_Pab_pSbn, Pab_Sbn
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB, tot
 
     !! \gamma_{\mu\nu}(\vec{g}), \gamma_{\mu\beta}(\vec{g} - \vec{l}),
     !! \gamma_{\alpha\nu}(\vec{g} - \vec{h}), \gamma_{\alpha\beta}(\vec{g} - \vec{l} - \vec{h})
@@ -1736,7 +1736,7 @@ contains
 
     !! Max estimate for difference of square delta rho to previous SCC iteration and products with
     !! max overlap estimates
-    real(dp) :: pMax, pMaxSbn, pMaxSbnSam, maxEstimate, pSbnMax
+    real(dp) :: pMax, pMaxSbn, pMaxSbnSam, maxEstimate, pSbnMax, pMaxpSbnMax
 
     integer :: nNeigh
 
@@ -1769,6 +1769,8 @@ contains
     allocate(tmpDeltaDeltaRhoSqr(squareSize, squareSize))
     tmpDeltaDeltaRhoSqr(:,:) = tmpDeltaRhoSqr - this%dRhoPrev
     pMax = maxval(abs(tmpDeltaDeltaRhoSqr))
+    ! old thresholding scheme, not as performant as delta-delta scheme
+    ! pMax = maxval(abs(tmpDeltaRhoSqr))
     this%dRhoPrev(:,:) = tmpDeltaRhoSqr
 
     ! allocate max estimates of square overlap blocks and index array for sorting
@@ -1807,23 +1809,26 @@ contains
 
     !$omp parallel do schedule(runtime) default(none)&
     !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
-    !$omp& testSquareOver, rCellVecs, rCellVecsG, tmpDeltaRhoSqr, tmpHSqr)&
+    !$omp& testSquareOver, rCellVecs, rCellVecsG, tmpDeltaDeltaRhoSqr, tmpHSqr, pMax)&
     !$omp private(iAtN, iSpN, descN, iNeighN, iNeighNsort, iAtB, iAtBfold, iSpB, pSbnMax, rVecL,&
     !$omp& ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM, iNeighMsort,&
     !$omp& iAtA, iAtAfold, iSpA, descA, Pab, maxEstimate, rVecH, gammaAN, gammaAB, pSam, pSamT_Pab,&
-    !$omp& Pab_Sbn, tot, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB)
+    !$omp& Pab_Sbn, tot, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB, pMaxpSbnMax)
     loopN: do iAtN = 1, nAtom0
       iSpN = this%species0(iAtN)
       descN = getDescriptor(iAtN, iSquare)
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
         iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
+        pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
+        pMaxpSbnMax = pMax * pSbnMax
+        if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
         iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
         iAtBfold = symNeighbourList%img2CentCell(iAtB)
         iSpB = this%species0(iAtBfold)
         descB = getDescriptor(iAtBfold, iSquare)
-        pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
         ! get real-space \vec{l} for gamma arguments
         rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
+        ! normVecL = norm2(rVecL)
         ! get 2D pointer to Sbn overlap block
         ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
         nOrbAt = descN(iNOrb)
@@ -1839,16 +1844,19 @@ contains
           gammaMB = getGammaGSum(iAtM, iAtBfold, iSpM, iSpB, this%coords, rCellVecsG, -rVecL)
           loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
             iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
+            ! maxEstimate = pSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1) * maxval(abs(Pab))
+            maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
+            if (maxEstimate < this%pScreeningThreshold) exit loopA
             iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
             iAtAfold = symNeighbourList%img2CentCell(iAtA)
             iSpA = this%species0(iAtAfold)
             descA = getDescriptor(iAtAfold, iSquare)
             ! get continuous 2D copy of Pab density matrix block
-            Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
-            maxEstimate = pSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1) * maxval(abs(Pab))
-            if (maxEstimate < this%pScreeningThreshold) cycle loopA
+            ! Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
+            Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
             ! get real-space \vec{h} for gamma arguments
             rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
+            ! normVecH = norm2(rVecH)
             ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
             gammaAN = getGammaGSum(iAtAfold, iAtN, iSpA, iSpN, this%coords, rCellVecsG, rVecH)
             ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
@@ -1860,36 +1868,32 @@ contains
             nOrbNeigh = descA(iNOrb)
             pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
 
-            allocate(pSamT_Pab(size(pSam, dim=1), size(Pab, dim=1)))
-            allocate(Pab_Sbn(size(Pab, dim=2), size(pSbn, dim=1)))
-            allocate(tot(descM(iEnd) - descM(iStart) + 1, descN(iEnd) - descN(iStart) + 1))
-
-            call gemm(pSamT_Pab, pSam, Pab, transA='T', transB='N')
-            call gemm(Pab_Sbn, Pab, pSbn, transA='N', transB='N')
+            call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab, transA='T', transB='N')
+            call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab, pSbn, transA='N', transB='N')
 
             ! term #1
-            allocate(pSamT_Pab_pSbn(size(pSamT_Pab, dim=2), size(pSbn, dim=1)))
-            call gemm(pSamT_Pab_pSbn, pSamT_Pab, pSbn, transA='N', transB='N')
-            tot(:,:) = pSamT_Pab_pSbn * gammaMN
-            deallocate(pSamT_Pab_pSbn)
+            call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
+                & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
+            tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+                & * gammaMN
 
             ! term #2
-            call gemm(tot, pSamT_Pab * gammaMB, pSbn, transA='N', transB='N', beta=1.0_dp)
-            deallocate(pSamT_Pab)
+            call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
+                & 1:descB(iNOrb)) * gammaMB, pSbn, transA='N', transB='N', beta=1.0_dp)
 
             ! term #3
-            call gemm(tot, pSam, Pab_Sbn * gammaAN, transA='T', transB='N', beta=1.0_dp)
-            deallocate(Pab_Sbn)
+            call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSam, Pab_Sbn(1:descA(iNOrb),&
+                & 1:descN(iNOrb)) * gammaAN, transA='T', transB='N', beta=1.0_dp)
 
             ! term #4
-            allocate(pSamT_Pab_gammaAB(size(pSam, dim=1), size(Pab, dim=1)))
-            call gemm(pSamT_Pab_gammaAB, pSam, Pab * gammaAB, transA='T', transB='N')
-            call gemm(tot, pSamT_Pab_gammaAB, pSbn, transA='N', transB='N', beta=1.0_dp)
-            deallocate(pSamT_Pab_gammaAB)
+            call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSam,&
+                & Pab * gammaAB, transA='T', transB='N')
+            call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
+                & 1:descB(iNOrb)), pSbn, transA='N', transB='N', beta=1.0_dp)
 
             tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-                & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd)) - tot
-            deallocate(tot)
+                & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+                & - tot(1:descM(iNOrb), 1:descN(iNOrb))
 
           end do loopA
         end do loopM
@@ -1902,8 +1906,13 @@ contains
       tmpHSqr(:,:) = 0.125_dp * tmpHSqr
     end if
 
-    HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)
+    this%hprev(:,:) = this%hprev + tmpHSqr
+    HSqr(:,:) = HSqr + this%camBeta * this%hprev
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)
+
+    ! using delta Hamiltonian, instead of delta-delta (which seems to be considerably faster)
+    ! HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
+    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)
 
 
   contains
@@ -2574,7 +2583,7 @@ contains
   end subroutine addCamGradients_cluster
 
 
-  !> Adds gradients due to long-range HF-contribution.
+  !> Adds gradients due to long-range HF-contribution (non-periodic version).
   subroutine addLrGradients_cluster(this, gradients, derivator, deltaRho, skOverCont, coords0,&
       & species0, orb, iSquare, ovrlapMat, iNeighbour, nNeighbourSK)
 
@@ -2717,7 +2726,7 @@ contains
       !> storage for density matrix
       real(dp), allocatable, intent(inout) :: tmpRho(:,:,:)
 
-      !> storage for derivative of gamma interaction
+      !> storage for derivative of gamma interaction, shape: [nCoords (x,y,z), nAtom0, nAtom0]
       real(dp), allocatable, intent(inout) :: gammaPrimeTmp(:,:,:)
 
       !> workspace for the derivatives
@@ -2757,6 +2766,192 @@ contains
     end subroutine allocateAndInit
 
   end subroutine addLrGradients_cluster
+
+
+  !> Adds gradients due to long-range HF-contribution (Gamma-point version).
+  subroutine addLrGradients_gamma(this, gradients, derivator, symNeighbourList, skOverCont, orb,&
+      & deltaRhoSqr, coords0, species0, iSquare, squareOver, nNeighbourSK)
+
+    !> Instance
+    type(TRangeSepFunc), intent(in) :: this
+
+    !> Energy gradients, shape: [3, nAtom0]
+    real(dp), intent(inout) :: gradients(:,:)
+
+    !> Differentiation object
+    class(TNonSccDiff), intent(in) :: derivator
+
+    !> List of neighbours for each atom (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
+
+    !> Sparse overlap part
+    type(TSlakoCont), intent(in) :: skOverCont
+
+    !> Orbital information for system
+    type(TOrbitals), intent(in) :: orb
+
+    !> Density matrix difference from reference q0, shape: [nAtom0, nAtom0, nSpin]
+    real(dp), intent(in) :: deltaRhoSqr(:,:,:)
+
+    !> Atomic coordinates in central cell, shape: [3, nAtom0]
+    real(dp), intent(in) :: coords0(:,:)
+
+    !> Species of atoms in central cell
+    integer, intent(in) :: species0(:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom0)
+    integer, intent(in) :: iSquare(:)
+
+    !> Square real overlap matrix
+    real(dp), intent(in) :: squareOver(:,:)
+
+    !> Number of atoms neighbouring each site where the overlap is non-zero
+    integer, intent(in) :: nNeighbourSK(:)
+
+    !!
+    integer :: nAtom0, iAtK, iNeighK, iAtB, iNeighB, iAtC, iAtA, kpa
+    real(dp) :: tmpgamma1, tmpgamma2
+    real(dp) :: tmpforce(3), tmpforce_r(3), tmpforce2, tmpmultvar1
+    integer :: nSpin, iSpin, mu, alpha, beta, ccc, kkk
+    real(dp) :: sPrimeTmp(orb%mOrb, orb%mOrb, 3)
+    real(dp) :: sPrimeTmp2(orb%mOrb, orb%mOrb, 3)
+    real(dp), allocatable :: gammaPrimeTmp(:,:,:), tmpOvr(:,:), tmpRho(:,:,:), tmpderiv(:,:)
+
+    nSpin = size(deltaRhoSqr, dim=3)
+    call allocateAndInit(tmpOvr, tmpRho, gammaPrimeTmp, tmpderiv)
+    nAtom0 = size(this%species0)
+    tmpderiv(:,:) = 0.0_dp
+    ! sum K
+    loopK: do iAtK = 1, nAtom0
+      ! C >= K
+      loopC: do iNeighK = 0, nNeighbourSK(iAtK)
+        iAtC = symNeighbourList%neighbourList%iNeighbour(iNeighK, iAtK)
+        ! evaluate the ovr_prime
+        sPrimeTmp2(:,:,:) = 0.0_dp
+        sPrimeTmp(:,:,:) = 0.0_dp
+        if (iAtK /= iAtC) then
+          call derivator%getFirstDeriv(sPrimeTmp, skOverCont, coords0, species0, iAtK, iAtC, orb)
+          call derivator%getFirstDeriv(sPrimeTmp2, skOverCont, coords0, species0, iAtC, iAtK, orb)
+        end if
+        loopB: do iAtB = 1, nAtom0
+          ! A > B
+          loopA: do iNeighB = 0, nNeighbourSK(iAtB)
+            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighB, iAtB)
+            tmpgamma1 = this%lrGammaEval0(iAtK, iAtB) + this%lrGammaEval0(iAtC, iAtB)
+            tmpgamma2 = tmpgamma1 + this%lrGammaEval0(iAtK, iAtA) + this%lrGammaEval0(iAtC, iAtA)
+            tmpforce(:) = 0.0_dp
+            tmpforce_r(:) = 0.0_dp
+            tmpforce2 = 0.0_dp
+            ccc = 0
+            do mu = iSquare(iAtC), iSquare(iAtC + 1) - 1
+              ccc = ccc + 1
+              kkk = 0
+              do kpa = iSquare(iAtK), iSquare(iAtK + 1) - 1
+                kkk = kkk + 1
+                tmpmultvar1 = 0.0_dp
+                do iSpin = 1, nSpin
+                  do alpha = iSquare(iAtA), iSquare(iAtA + 1) - 1
+                    do beta = iSquare(iAtB), iSquare(iAtB + 1) - 1
+                      tmpmultvar1 = tmpmultvar1 + tmpOvr(beta, alpha)&
+                          & * (tmpRho(beta, kpa, iSpin) * tmpRho(alpha, mu, iSpin)&
+                          & + tmpRho(alpha, kpa, iSpin) * tmpRho(beta, mu, iSpin))
+                    end do
+                  end do
+                end do
+                tmpforce(:) = tmpforce + tmpmultvar1 * sPrimeTmp(ccc, kkk, :)
+                tmpforce_r(:) = tmpforce_r + tmpmultvar1 * sPrimeTmp2(kkk, ccc, :)
+                tmpforce2 = tmpforce2 + tmpmultvar1 * tmpOvr(kpa, mu)
+              end do
+            end do
+
+            ! C /= K
+            if (iAtK /= iAtC) then
+              if (iAtB /= iAtA) then
+                tmpforce(:) = tmpforce * tmpgamma2
+                tmpforce_r(:) = tmpforce_r * tmpgamma2
+                tmpforce(:) = tmpforce + tmpforce2 * (gammaPrimeTmp(:, iAtK, iAtA)&
+                    & + gammaPrimeTmp(:, iAtK, iAtB))
+                tmpforce_r(:) = tmpforce_r + tmpforce2 * (gammaPrimeTmp(:, iAtC, iAtA)&
+                    & + gammaPrimeTmp(:, iAtC, iAtB))
+              else
+                tmpforce(:) = tmpforce * tmpgamma1
+                tmpforce_r(:) = tmpforce_r * tmpgamma1
+                tmpforce(:) = tmpforce + tmpforce2 * gammaPrimeTmp(:, iAtK, iAtA)
+                tmpforce_r(:) = tmpforce_r + tmpforce2 * gammaPrimeTmp(:, iAtC, iAtA)
+              end if
+            else
+              if (iAtB /= iAtA) then
+                tmpforce(:) = tmpforce + tmpforce2 * (gammaPrimeTmp(:, iAtK, iAtA)&
+                    & + gammaPrimeTmp(:, iAtK, iAtB))
+              else
+                tmpforce(:) = tmpforce + tmpforce2 * (gammaPrimeTmp(:, iAtK, iAtA))
+              end if
+            end if
+            tmpderiv(:, iAtK) = tmpderiv(:, iAtK) + tmpforce
+            tmpderiv(:, iAtC) = tmpderiv(:, iAtC) + tmpforce_r
+          end do loopA
+        end do loopB
+      end do loopC
+    end do loopK
+
+    if (this%tREKS) then
+      gradients(:,:) = gradients - 0.5_dp * this%camBeta * tmpderiv
+    else
+      gradients(:,:) = gradients - 0.25_dp * this%camBeta * nSpin * tmpderiv
+    end if
+
+
+  contains
+
+    !> Initialise the
+    subroutine allocateAndInit(tmpOvr, tmpRho, gammaPrimeTmp, tmpderiv)
+
+      !> Storage for the overlap
+      real(dp), allocatable, intent(inout) :: tmpOvr(:,:)
+
+      !> storage for density matrix
+      real(dp), allocatable, intent(inout) :: tmpRho(:,:,:)
+
+      !> storage for derivative of gamma interaction, shape: [nCoords (x,y,z), nAtom0, nAtom0]
+      real(dp), allocatable, intent(inout) :: gammaPrimeTmp(:,:,:)
+
+      !> workspace for the derivatives
+      real(dp), allocatable, intent(inout) :: tmpderiv(:,:)
+
+      !! Holds long-range gamma derivatives of a single interaction
+      real(dp) :: tmp(3)
+
+      !!
+      integer :: iSpin, iAt1, iAt2, nAtom0
+
+      nAtom0 = size(this%species0)
+
+      allocate(tmpOvr(size(squareOver, dim=1), size(squareOver, dim=1)))
+      allocate(tmpRho(size(deltaRhoSqr, dim=1), size(deltaRhoSqr, dim=1), size(deltaRhoSqr, dim=3)))
+      allocate(gammaPrimeTmp(3, nAtom0, nAtom0))
+      allocate(tmpderiv(3, size(gradients, dim=2)))
+      tmpOvr = squareOver
+      tmpRho = deltaRhoSqr
+
+      call symmetrizeHS(tmpOvr)
+
+      do iSpin = 1, size(deltaRhoSqr, dim=3)
+        call symmetrizeHS(tmpRho(:,:, iSpin))
+      end do
+
+      ! precompute the gamma derivatives
+      gammaPrimeTmp(:,:,:) = 0.0_dp
+      do iAt1 = 1, nAtom0
+        do iAt2 = 1, nAtom0
+          if (iAt1 /= iAt2) then
+            call getGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
+            gammaPrimeTmp(:, iAt1, iAt2) = tmp
+          end if
+        end do
+      end do
+    end subroutine allocateAndInit
+
+  end subroutine addLrGradients_gamma
 
 
   !> evaluate the LR-Energy contribution directly. Very slow, use addLrEnergy instead.

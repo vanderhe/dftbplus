@@ -2620,11 +2620,11 @@ contains
       call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
       call getRangeSeparatedCutoff(this%cutOff, input%ctrl%rangeSepInp%cutoffRed,&
           & input%ctrl%rangeSepInp%gSummationCutoff, input%ctrl%rangeSepInp%gammaCutoff)
-      call this%initRangeSeparated(this%nAtom, this%species0, hubbU, input%ctrl%rangeSepInp,&
-          & this%tSpin, allocated(this%reks), this%rangeSep, this%deltaRhoIn, this%deltaRhoOut,&
-          & this%deltaRhoDiff, this%deltaRhoInSqr, this%deltaRhoOutSqr, this%deltaRhoInCplx,&
-          & this%deltaRhoOutCplx, this%deltaRhoDiffCplx, this%deltaRhoInSqrCplx,&
-          & this%deltaRhoOutSqrCplx, this%nMixElements, this%tRealHS)
+      call this%initRangeSeparated(this%nAtom, this%species0, hubbU, this%cutOff,&
+          & input%ctrl%rangeSepInp, this%tSpin, allocated(this%reks), this%rangeSep,&
+          & this%deltaRhoIn, this%deltaRhoOut, this%deltaRhoDiff, this%deltaRhoInSqr,&
+          & this%deltaRhoOutSqr, this%deltaRhoInCplx, this%deltaRhoOutCplx, this%deltaRhoDiffCplx,&
+          & this%deltaRhoInSqrCplx, this%deltaRhoOutSqrCplx, this%nMixElements, this%tRealHS)
     end if
 
     this%tReadShifts = input%ctrl%tReadShifts
@@ -5437,10 +5437,10 @@ contains
 
 
   !> Initialise range separated extension.
-  subroutine initRangeSeparated(this, nAtom, species0, hubbU, rangeSepInp, tSpin, isREKS, rangeSep,&
-      & deltaRhoIn, deltaRhoOut, deltaRhoDiff, deltaRhoInSqr, deltaRhoOutSqr, deltaRhoInCplx,&
-      & deltaRhoOutCplx, deltaRhoDiffCplx, deltaRhoInSqrCplx, deltaRhoOutSqrCplx, nMixElements,&
-      & tRealHS)
+  subroutine initRangeSeparated(this, nAtom, species0, hubbU, cutOff, rangeSepInp, tSpin, isREKS,&
+      & rangeSep, deltaRhoIn, deltaRhoOut, deltaRhoDiff, deltaRhoInSqr, deltaRhoOutSqr,&
+      & deltaRhoInCplx, deltaRhoOutCplx, deltaRhoDiffCplx, deltaRhoInSqrCplx, deltaRhoOutSqrCplx,&
+      & nMixElements, tRealHS)
 
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
@@ -5453,6 +5453,9 @@ contains
 
     !> Hubbard values for species
     real(dp), intent(in) :: hubbU(:,:)
+
+    !> Cutoff collection
+    type(TCutoffs), intent(in) :: cutOff
 
     !> Input for range separated calculation
     type(TRangeSepInp), intent(in) :: rangeSepInp
@@ -5504,9 +5507,8 @@ contains
 
     allocate(rangeSep)
     call TRangeSepFunc_init(rangeSep, nAtom, species0, hubbU(1, :), rangeSepInp%screeningThreshold,&
-        & rangeSepInp%omega, rangeSepInp%camAlpha, rangeSepInp%camBeta,&
-        & rangeSepInp%gSummationCutoff, rangeSepInp%gammaCutoff, tSpin, isREKS,&
-        & rangeSepInp%rangeSepAlg)
+        & rangeSepInp%omega, rangeSepInp%camAlpha, rangeSepInp%camBeta, cutOff%gSummationCutoff,&
+        & rangeSepInp%gammaCutoff, tSpin, isREKS, rangeSepInp%rangeSepAlg)
 
     allocate(deltaRhoIn(this%nOrb * this%nOrb * this%nSpin))
     allocate(deltaRhoOut(this%nOrb * this%nOrb * this%nSpin))
