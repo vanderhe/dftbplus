@@ -1320,12 +1320,13 @@ contains
         call getGradients(env, this%scc, this%tblite, this%isExtField, this%isXlbomd,&
             & this%nonSccDeriv, this%rhoPrim, this%ERhoPrim, this%qOutput, this%q0,&
             & this%skHamCont, this%skOverCont, this%repulsive, this%neighbourList,&
-            & this%nNeighbourSk, this%species, this%img2CentCell, this%iSparseStart,&
-            & this%orb, this%potential, this%coord, this%derivs, this%groundDerivs,&
-            & this%tripletderivs, this%mixedderivs, this%iRhoPrim, this%thirdOrd,&
-            & this%solvation, this%qDepExtPot, this%chrgForces, this%dispersion,&
+            & this%symNeighbourList, this%nNeighbourSk, this%nNeighbourCamSym, this%rCellVec,&
+            & this%iCellVec, this%latVec, this%invLatVec, this%species, this%img2CentCell,&
+            & this%iSparseStart, this%orb, this%potential, this%coord, this%derivs,&
+            & this%groundDerivs, this%tripletderivs, this%mixedderivs, this%iRhoPrim,&
+            & this%thirdOrd, this%solvation, this%qDepExtPot, this%chrgForces, this%dispersion,&
             & this%rangeSep, this%SSqrReal, this%ints, this%denseDesc, this%deltaRhoOutSqr,&
-            & this%halogenXCorrection, this%tHelical, this%coord0, this%deltaDftb)
+            & this%halogenXCorrection, this%tHelical, this%coord0, this%deltaDftb, this%tPeriodic)
 
         if (this%tCasidaForces) then
           this%derivs(:,:) = this%derivs + this%excitedDerivs
@@ -5544,11 +5545,12 @@ contains
 
   !> Calculates the gradients
   subroutine getGradients(env, sccCalc, tblite, isExtField, isXlbomd, nonSccDeriv, rhoPrim,&
-      & ERhoPrim, qOutput, q0, skHamCont, skOverCont, repulsive, neighbourList, nNeighbourSK,&
-      & species, img2CentCell, iSparseStart, orb, potential, coord, derivs, groundDerivs,&
-      & tripletderivs, mixedderivs, iRhoPrim, thirdOrd, solvation, qDepExtPot, chrgForces,&
-      & dispersion, rangeSep, SSqrReal, ints, denseDesc, deltaRhoOutSqr, halogenXCorrection,&
-      & tHelical, coord0, deltaDftb)
+      & ERhoPrim, qOutput, q0, skHamCont, skOverCont, repulsive, neighbourList, symNeighbourList,&
+      & nNeighbourSK, nNeighbourCamSym, rCellVecs, iCellVec, latVecs, recVecs2p, species,&
+      & img2CentCell, iSparseStart, orb, potential, coord, derivs, groundDerivs, tripletderivs,&
+      & mixedderivs, iRhoPrim, thirdOrd, solvation, qDepExtPot, chrgForces, dispersion, rangeSep,&
+      & SSqrReal, ints, denseDesc, deltaRhoOutSqr, halogenXCorrection, tHelical, coord0, deltaDftb,&
+      & tPeriodic)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -5592,8 +5594,26 @@ contains
     !> list of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
 
+    !> List of neighbouring atoms (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
+
     !> Number of neighbours for each of the atoms
     integer, intent(in) :: nNeighbourSK(:)
+
+    !> Symmetric neighbour list version of nNeighbourCam
+    integer, intent(in) :: nNeighbourCamSym(:)
+
+    !> Vectors to unit cells in absolute units
+    real(dp), intent(in) :: rCellVecs(:,:)
+
+    !> Index of unit cell where an atom is located
+    integer, intent(in) :: iCellVec(:)
+
+    !> Lattice vectors
+    real(dp), intent(in) :: latVecs(:,:)
+
+    !> Reciprocal lattice vectors in units of 2 pi
+    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> species of all atoms in the system
     integer, intent(in) :: species(:)
@@ -5669,6 +5689,9 @@ contains
 
     !> Determinant derived type
     type(TDftbDeterminants), intent(in) :: deltaDftb
+
+    !> Is the geometry periodic
+    logical, intent(in) :: tPeriodic
 
     real(dp), allocatable :: tmpDerivs(:,:)
     real(dp), allocatable :: dQ(:,:,:)
@@ -5795,8 +5818,15 @@ contains
       if (size(deltaRhoOutSqr, dim=3) > 2) then
         call error("Range separated forces do not support non-colinear spin")
       else
-        call rangeSep%addCamGradients(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont, coord,&
-            & species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour, nNeighbourSK)
+        if (tPeriodic) then
+          call rangeSep%addCamGradients(SSqrReal, deltaRhoOutSqr, skOverCont, coord0,&
+              & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
+              & denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
+        else
+          call rangeSep%addCamGradients(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont, coord,&
+              & species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour,&
+              & nNeighbourSK)
+        end if
       end if
     end if
 
