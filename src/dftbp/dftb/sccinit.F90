@@ -21,7 +21,7 @@ module dftbp_dftb_sccinit
   public :: initQFromUsrChrg
 
   !> version number for restart format, please increment if you change the interface.
-  integer, parameter :: restartFormat = 6
+  integer, parameter :: restartFormat = 7
 
 contains
 
@@ -175,7 +175,7 @@ contains
   !> Should test of the input, if the number of orbital charges per atom match the number from the
   !> angular momentum.
   subroutine initQFromFile(qq, fileName, tReadAscii, orb, qBlock, qiBlock, deltaRho,&
-      & nAtInCentralRegion, magnetisation, nEl, multipoles)
+      & nAtInCentralRegion, magnetisation, nEl, coeffsAndShifts, multipoles)
 
     !> The charges per lm,atom,spin
     real(dp), intent(out) :: qq(:,:,:)
@@ -211,6 +211,11 @@ contains
     !> Nr. of electrons for each spin channel
     real(dp), intent(in), optional :: nEl
 
+    !> Coefficients of the lattice vectors in the linear combination for the super lattice vectors
+    !! (should be integer values) and shift of the grid along the three small reciprocal lattice
+    !! vectors (between 0.0 and 1.0)
+    real(dp), intent(inout), optional :: coeffsAndShifts(:,:)
+
     !> Atomic multipoles, if relevant
     type(TMultipole), intent(inout), optional :: multipoles
 
@@ -224,17 +229,17 @@ contains
     integer :: file
 
     !> total charge is present at the top of the file
-    real(dp) :: CheckSum(size(qq, dim=3))
+    real(dp) :: checkSum(size(qq, dim=3))
 
-    integer :: iOrb, iAtom, iSpin, ii, nAtomInFile, nDipole, nQuadrupole
+    integer :: iOrb, iAtom, iSpin, ii, jj, nAtomInFile, nDipole, nQuadrupole
     integer :: fileFormat
     real(dp) :: sumQ
 
-    !> present in the file itself
-    logical :: tBlockPresent, tiBlockPresent, tRhoPresent
+    !> Requested to be re-loaded
+    logical :: tBlock, tiBlock, tRho, tKpointInfo, isMultipolar
 
-    !> requested to be re-loaded
-    logical :: tBlock, tiBlock, tRho, isMultipolar
+    !> Present in the file itself
+    logical :: tBlockPresent, tiBlockPresent, tRhoPresent, tKpointInfoPresent
 
     character(len=120) :: error_string
 
@@ -244,6 +249,7 @@ contains
     tBlock = allocated(qBlock)
     tiBlock = allocated(qiBlock)
     tRho = allocated(deltaRho)
+    tKpointInfo = present(coeffsAndShifts)
 
     @:ASSERT(size(qq, dim=1) == orb%mOrb)
     @:ASSERT(nSpin == 1 .or. nSpin == 2 .or. nSpin == 4)
@@ -263,17 +269,21 @@ contains
       @:ASSERT(all(shape(qiBlock) == shape(qBlock)))
     end if
 
-    if (tRho) then
-      @:ASSERT(size(deltaRho) == orb%nOrb*orb%nOrb*nSpin)
+    if (tKpointInfo) then
+      @:ASSERT(all(shape(coeffsAndShifts) == [3, 4]))
     end if
+
+    ! if (tRho) then
+    !   @:ASSERT(size(deltaRho) == orb%nOrb*orb%nOrb*nSpin)
+    ! end if
 
   #:endblock DEBUG_CODE
 
     if (tReadAscii) then
-      open(newunit=file, file=trim(fileName)//'.dat', status='old', action='READ', iostat=iErr)
+      open(newunit=file, file=trim(fileName)//'.dat', status='old', action='read', iostat=iErr)
     else
-      open(newunit=file, file=trim(fileName)//'.bin', status='old', action='READ',&
-          & form='unformatted',iostat=iErr)
+      open(newunit=file, file=trim(fileName)//'.bin', status='old', action='read',&
+          & form='unformatted', iostat=iErr)
     end if
     if (iErr /= 0) then
       write(error_string, *) "Failure to open external file of charge data"
@@ -282,37 +292,46 @@ contains
     rewind(file)
 
     if (tReadAscii) then
-      read(file, *, iostat=iErr)fileFormat
+      read(file, *, iostat=iErr) fileFormat
     else
-      read(file, iostat=iErr)fileFormat
+      read(file, iostat=iErr) fileFormat
     end if
     if (iErr /= 0) then
       call error("Error during reading external file of charge data")
     end if
     isMultipolar = .false.
+    tKpointInfo = .false.
     select case(fileFormat)
     case(4)
       if (tReadAscii) then
-        read(file, *, iostat=iErr)tBlockPresent, tiBlockPresent, tRhoPresent, iSpin, CheckSum
+        read(file, *, iostat=iErr)tBlockPresent, tiBlockPresent, tRhoPresent, iSpin, checkSum
       else
-        read(file, iostat=iErr)tBlockPresent, tiBlockPresent, tRhoPresent, iSpin, CheckSum
+        read(file, iostat=iErr)tBlockPresent, tiBlockPresent, tRhoPresent, iSpin, checkSum
       end if
       nAtomInFile = nAtom
     case(5)
       if (tReadAscii) then
         read(file, *, iostat=iErr)tBlockPresent, tiBlockPresent, tRhoPresent, nAtomInFile, iSpin,&
-            & CheckSum
+            & checkSum
       else
         read(file, iostat=iErr)tBlockPresent, tiBlockPresent, tRhoPresent, nAtomInFile, iSpin,&
-            & CheckSum
+            & checkSum
       end if
     case(6)
       if (tReadAscii) then
         read(file, *, iostat=iErr)tBlockPresent, tiBlockPresent, tRhoPresent, isMultipolar,&
-            & nAtomInFile, iSpin, CheckSum
+            & nAtomInFile, iSpin, checkSum
       else
         read(file, iostat=iErr)tBlockPresent, tiBlockPresent, tRhoPresent, isMultipolar,&
-            & nAtomInFile, iSpin, CheckSum
+            & nAtomInFile, iSpin, checkSum
+      end if
+    case(7)
+      if (tReadAscii) then
+        read(file, *, iostat=iErr) tBlockPresent, tiBlockPresent, tRhoPresent, tKpointInfoPresent,&
+            & isMultipolar, nAtomInFile, iSpin, checkSum
+      else
+        read(file, iostat=iErr) tBlockPresent, tiBlockPresent, tRhoPresent, tKpointInfoPresent,&
+            & isMultipolar, nAtomInFile, iSpin, checkSum
       end if
     case default
       call error("Incompatible file type for external charge data")
@@ -346,7 +365,7 @@ contains
       end do
     end do
 
-    if (any(abs(CheckSum(:) - sum(sum(qq(:,:nAtomInFile,:),dim=1),dim=1))>elecTolMax))then
+    if (any(abs(checkSum(:) - sum(sum(qq(:,:nAtomInFile,:),dim=1),dim=1)) > elecTolMax))then
       call error("Error during reading external file of charge data - internal checksum failure,&
           & probably a damaged file")
     end if
@@ -495,6 +514,20 @@ contains
 
     if (tRho) then
       deltaRho(:) = 0.0_dp
+      if (tKpointInfo) then
+        coeffsAndShifts(:,:) = 0.0_dp
+        if (tKpointInfoPresent) then
+          do jj = 1, size(coeffsAndShifts, dim=2)
+            do ii = 1, size(coeffsAndShifts, dim=1)
+              if (tReadAscii) then
+                read (file, *, iostat=iErr) coeffsAndShifts(ii, jj)
+              else
+                read (file, iostat=iErr) coeffsAndShifts(ii, jj)
+              end if
+            end do
+          end do
+        end if
+      end if
       if (tRhoPresent) then
         do ii = 1, size(deltaRho)
           if (tReadAscii) then
@@ -517,13 +550,13 @@ contains
 
   !> Write the current charges to an external file
   subroutine writeQToFile(qq, fileName, tWriteAscii, orb, qBlock, qiBlock, deltaRhoIn,&
-      & nAtInCentralRegion, multipoles)
+      & nAtInCentralRegion, coeffsAndShifts, multipoles)
 
     !> Array containing the charges
     real(dp), intent(in) :: qq(:,:,:)
 
     !> Name of the file to write the charges
-    character(*), intent(in) :: fileName
+    character(len=*), intent(in) :: fileName
 
     !> Write in a ascii format (T) or binary (F)
     logical, intent(in) :: tWriteAscii
@@ -544,13 +577,18 @@ contains
     !> elsewhere)
     integer, intent(in) :: nAtInCentralRegion
 
+    !> Coefficients of the lattice vectors in the linear combination for the super lattice vectors
+    !! (should be integer values) and shift of the grid along the three small reciprocal lattice
+    !! vectors (between 0.0 and 1.0)
+    real(dp), intent(in), optional :: coeffsAndShifts(:,:)
+
     !> Atomic multipoles, if relevant
     type(TMultipole), intent(in), optional :: multipoles
 
     character(len=120) :: error_string
 
     integer :: nAtom, nOrb, nSpin, nDipole, nQuadrupole
-    integer :: iAtom, iOrb, iSpin, ii
+    integer :: iAtom, iOrb, iSpin, ii, jj
     integer :: iErr, fd
     logical :: tqBlock, tqiBlock, tRho
 
@@ -560,6 +598,10 @@ contains
     @:ASSERT(nSpin == 1 .or. nSpin == 2 .or. nSpin ==4)
     @:ASSERT(size(qq, dim=1) >= orb%mOrb)
     @:ASSERT(size(qq, dim=2) >= nAtInCentralRegion)
+
+    if (present(coeffsAndShifts)) then
+      @:ASSERT(all(shape(coeffsAndShifts) == [3, 4]))
+    end if
 
     tqBlock = allocated(qBlock)
     tqiBlock = allocated(qiBlock)
@@ -576,9 +618,9 @@ contains
       @:ASSERT(all(shape(qiBlock) == shape(qBlock)))
     end if
 
-    if (tRho) then
-      @:ASSERT(size(deltaRhoIn) == orb%nOrb*orb%nOrb*nSpin)
-    end if
+    ! if (tRho) then
+    !   @:ASSERT(size(deltaRhoIn) == orb%nOrb*orb%nOrb*nSpin)
+    ! end if
 
   #:endblock DEBUG_CODE
 
@@ -597,11 +639,11 @@ contains
     end if
 
     if (tWriteAscii) then
-      write(fd, *, iostat=iErr) tqBlock, tqiBlock, tRho, present(multipoles), nAtom, nSpin,&
-          & sum(sum(qq(:,:nAtom,:), dim=1), dim=1)
+      write(fd, *, iostat=iErr) tqBlock, tqiBlock, tRho, present(coeffsAndShifts),&
+          & present(multipoles), nAtom, nSpin, sum(sum(qq(:,:nAtom,:), dim=1), dim=1)
     else
-      write(fd, iostat=iErr) tqBlock, tqiBlock, tRho, present(multipoles), nAtom,&
-          & nSpin, sum(sum(qq(:,:nAtom,:), dim=1), dim=1)
+      write(fd, iostat=iErr) tqBlock, tqiBlock, tRho, present(coeffsAndShifts),&
+          & present(multipoles), nAtom, nSpin, sum(sum(qq(:,:nAtom,:), dim=1), dim=1)
     end if
 
     if (iErr /= 0) then
@@ -695,9 +737,9 @@ contains
           nOrb = orb%nOrbAtom(iAtom)
           do ii = 1, nOrb
             if (tWriteAscii) then
-              write(fd, *, iostat=iErr) qBlock(1:nOrb, ii ,iAtom, iSpin)
+              write(fd, *, iostat=iErr) qBlock(1:nOrb, ii, iAtom, iSpin)
             else
-              write(fd, iostat=iErr) qBlock(1:nOrb, ii ,iAtom, iSpin)
+              write(fd, iostat=iErr) qBlock(1:nOrb, ii, iAtom, iSpin)
             end if
             if (iErr /= 0) then
               write(error_string, *) "Failure to write file for external block charges"
@@ -714,9 +756,9 @@ contains
           nOrb = orb%nOrbAtom(iAtom)
           do ii = 1, nOrb
             if (tWriteAscii) then
-              write(fd, *, iostat=iErr) qiBlock(1:nOrb, ii ,iAtom, iSpin)
+              write(fd, *, iostat=iErr) qiBlock(1:nOrb, ii, iAtom, iSpin)
             else
-              write(fd, iostat=iErr) qiBlock(1:nOrb, ii ,iAtom, iSpin)
+              write(fd, iostat=iErr) qiBlock(1:nOrb, ii, iAtom, iSpin)
             end if
             if (iErr /= 0) then
               write(error_string, *) "Failure to write file for external block imaginary charges"
@@ -728,6 +770,14 @@ contains
     end if
 
     if (tRho) then
+      ! Write k-point set information to file, if CAM calculation with k-points is present
+      if (present(coeffsAndShifts)) then
+        do jj = 1, size(coeffsAndShifts, dim=2)
+          do ii = 1, size(coeffsAndShifts, dim=1)
+            write(fd, iostat=iErr) coeffsAndShifts(ii, jj)
+          end do
+        end do
+      end if
       do ii = 1, size(deltaRhoIn)
         if (tWriteAscii) then
           write(fd, *, iostat=iErr) deltaRhoIn(ii)

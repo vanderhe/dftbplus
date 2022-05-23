@@ -3915,7 +3915,7 @@ contains
 
   !> Write out charges.
   subroutine writeCharges(fCharges, tWriteAscii, orb, qInput, qBlockIn, qiBlockIn, deltaRhoIn,&
-      & nAtInCentralRegion, multipoles)
+      & nAtInCentralRegion, coeffsAndShifts, multipoles)
 
     !> File name for charges to be written to
     character(*), intent(in) :: fCharges
@@ -3942,15 +3942,20 @@ contains
     !> elsewhere)
     integer, intent(in) :: nAtInCentralRegion
 
+    !> Coefficients of the lattice vectors in the linear combination for the super lattice vectors
+    !! (should be integer values) and shift of the grid along the three small reciprocal lattice
+    !! vectors (between 0.0 and 1.0)
+    real(dp), intent(in), optional :: coeffsAndShifts(:,:)
+
     !> Atomic multipoles, if relevant
     type(TMultipole), intent(in), optional :: multipoles
 
     call writeQToFile(qInput, fCharges, tWriteAscii, orb, qBlockIn, qiBlockIn, deltaRhoIn,&
-        & nAtInCentralRegion, multipoles)
+        & nAtInCentralRegion, coeffsAndShifts=coeffsAndShifts, multipoles=multipoles)
     if (tWriteAscii) then
-      write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges)//'.dat'
+      write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges) // '.dat'
     else
-      write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges)//'.bin'
+      write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges) // '.bin'
     end if
 
   end subroutine writeCharges

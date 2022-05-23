@@ -20,6 +20,7 @@ module dftbp_dftbplus_initprogram
   use dftbp_common_globalenv, only : stdOut, withMpi
   use dftbp_common_hamiltoniantypes, only : hamiltonianTypes
   use dftbp_common_status, only : TStatus
+  use dftbp_dftb_densitymatrix, only : TDensityMatrix
   use dftbp_derivs_numderivs2, only : TNumDerivs, create
   use dftbp_dftb_blockpothelper, only : appendBlockReduced
   use dftbp_dftb_boundarycond, only : boundaryConditions
@@ -193,11 +194,22 @@ module dftbp_dftbplus_initprogram
 
   !> Interaction cutoff distances
   type :: TCutoffs
+
+    !>
     real(dp) :: skCutOff
+
+    !>
     real(dp) :: camCutOff
+
+    !> Cutoff for real-space g-summation in CAM Hartree-Fock contributions
     real(dp) :: gSummationCutoff
+
+    !> Cutoff for truncated long-range Gamma integral
     real(dp) :: gammaCutoff
+
+    !> Max. of all cutoffs
     real(dp) :: mCutOff
+
   end type TCutoffs
 
 
@@ -777,35 +789,8 @@ module dftbp_dftbplus_initprogram
     !> Range Separation data
     type(TRangeSepFunc), allocatable :: rangeSep
 
-    !> DeltaRho input for calculation of range separated Hamiltonian
-    real(dp), allocatable :: deltaRhoIn(:)
-
-    !> DeltaRho output from calculation of range separated Hamiltonian
-    real(dp), allocatable :: deltaRhoOut(:)
-
-    !> Holds change in deltaRho between SCC steps for range separation
-    real(dp), allocatable :: deltaRhoDiff(:)
-
-    !> DeltaRho input for range separation in matrix form
-    real(dp), pointer :: deltaRhoInSqr(:,:,:) => null()
-
-    !> DeltaRho output from range separation in matrix form
-    real(dp), pointer :: deltaRhoOutSqr(:,:,:) => null()
-
-    !> Complex deltaRho input for calculation of range separated Hamiltonian
-    complex(dp), allocatable :: deltaRhoInCplx(:)
-
-    !> Complex deltaRho output from calculation of range separated Hamiltonian
-    complex(dp), allocatable :: deltaRhoOutCplx(:)
-
-    !> Holds change in complex deltaRho between SCC steps for range separation
-    complex(dp), allocatable :: deltaRhoDiffCplx(:)
-
-    !> Complex deltaRho input for range separation in matrix form
-    complex(dp), pointer :: deltaRhoInSqrCplx(:,:,:) => null()
-
-    !> Complex deltaRho output from range separation in matrix form
-    complex(dp), pointer :: deltaRhoOutSqrCplx(:,:,:) => null()
+    !> Holds real and complex delta density matrices and pointers
+    type(TDensityMatrix) :: densityMatrix
 
     !> Linear response calculation with range-separated functional
     logical :: isRS_LinResp
@@ -923,6 +908,9 @@ module dftbp_dftbplus_initprogram
 
     !> Square dense overlap storage for cases with k-points
     complex(dp), allocatable :: SSqrCplx(:,:)
+
+    !> Square dense overlap that actually stores all k-points
+    complex(dp), allocatable :: SSqrCplxKpts(:,:,:)
 
     !> Complex eigenvectors
     complex(dp), allocatable :: eigvecsCplx(:,:,:)
@@ -2616,17 +2604,6 @@ contains
       call error("Charge restart not currently supported for Delta DFTB")
     end if
 
-    if (this%isRangeSep) then
-      call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
-      call getRangeSeparatedCutoff(this%cutOff, input%ctrl%rangeSepInp%cutoffRed,&
-          & input%ctrl%rangeSepInp%gSummationCutoff, input%ctrl%rangeSepInp%gammaCutoff)
-      call this%initRangeSeparated(this%nAtom, this%species0, hubbU, this%cutOff,&
-          & input%ctrl%rangeSepInp, this%tSpin, allocated(this%reks), this%rangeSep,&
-          & this%deltaRhoIn, this%deltaRhoOut, this%deltaRhoDiff, this%deltaRhoInSqr,&
-          & this%deltaRhoOutSqr, this%deltaRhoInCplx, this%deltaRhoOutCplx, this%deltaRhoDiffCplx,&
-          & this%deltaRhoInSqrCplx, this%deltaRhoOutSqrCplx, this%nMixElements, this%tRealHS)
-    end if
-
     this%tReadShifts = input%ctrl%tReadShifts
     this%tWriteShifts = input%ctrl%tWriteShifts
 
@@ -2639,6 +2616,14 @@ contains
     this%tSkipChrgChecksum = input%ctrl%tSkipChrgChecksum .or. this%tNegf
 
     call this%initializeCharges(input%ctrl%initialSpins, input%ctrl%initialCharges)
+
+    if (this%isRangeSep) then
+      call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
+      call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic, this%tRealHS,&
+          & this%nKPoint, input%ctrl%rangeSepInp%cutoffRed, input%ctrl%rangeSepInp%gSummationCutoff)
+      call this%initRangeSeparated(hubbU, input%ctrl%rangeSepInp, allocated(this%reks),&
+          & input%ctrl%supercellFoldingDiag)
+    end if
 
     ! Initialise images (translations)
     if (this%tPeriodic .or. this%tHelical) then
@@ -3974,19 +3959,19 @@ contains
       if (this%tFixEf .or. this%tSkipChrgChecksum) then
         ! do not check charge or magnetisation from file
         call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-            & this%qiBlockIn, this%deltaRhoIn, this%nAtom, multipoles=this%multipoleInp)
+            & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom,&
+            & multipoles=this%multipoleInp)
       else
         ! check number of electrons in file
         if (this%nSpin /= 2) then
           call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-              & this%qiBlockIn, this%deltaRhoIn, this%nAtom, nEl = sum(this%nEl),&
+              & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom, nEl = sum(this%nEl),&
               & multipoles=this%multipoleInp)
         else
           ! check magnetisation in addition
           call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-              & this%qiBlockIn, this%deltaRhoIn, this%nAtom,&
-              & nEl = sum(this%nEl), magnetisation=this%nEl(1)-this%nEl(2),&
-              & multipoles=this%multipoleInp)
+              & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom, nEl=sum(this%nEl),&
+              & magnetisation=this%nEl(1)-this%nEl(2), multipoles=this%multipoleInp)
         end if
       end if
 
@@ -5210,11 +5195,6 @@ contains
         call error("Range separated functionality for periodic system currently only working for&
             & the neighbour list based algorithm")
       end if
-      if (size(this%kPoint, dim=2) /= 1) then
-        if (any(this%kPoint /= 0.0_dp)) then
-          call error("Range separated functionality only works with gamma point at the moment")
-        end if
-      end if
     end if
 
     if (this%tHelical) then
@@ -5406,19 +5386,29 @@ contains
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff(cutOff, cutoffRed, gSummationCutoff, gammaCutoff)
+  subroutine getRangeSeparatedCutOff(cutOff, latVecs, tPeriodic, tRealHS, nKpoint, cutoffRed,&
+      & gSummationCutoff)
 
     !> Resulting cutoff
     type(TCutoffs), intent(inout) :: cutOff
+
+    !> Lattice vectors
+    real(dp), intent(in) :: latVecs(:,:)
+
+    !> True, if geometry is periodic system
+    logical, intent(in) :: tPeriodic
+
+    !>
+    logical, intent(in) :: tRealHS
+
+    !> Total number of k-points
+    integer, intent(in) :: nKpoint
 
     !> CAM-neighbour list cutoff reduction
     real(dp), intent(in) :: cutoffRed
 
     !> Cutoff for real-space g-summation
     real(dp), intent(in) :: gSummationCutoff
-
-    !> Cutoff for truncated Gamma
-    real(dp), intent(in) :: gammaCutoff
 
     if (cutoffRed < 0.0_dp) then
       call error("Cutoff reduction for range-separated neighbours should be zero or positive.")
@@ -5433,93 +5423,81 @@ contains
     cutOff%mCutoff = max(cutOff%mCutOff, cutoff%camCutOff)
     cutOff%gSummationCutoff = gSummationCutoff
 
+    if (tRealHS .and. tPeriodic) then
+      cutOff%gammaCutoff = (3.0_dp * determinant33(latVecs) / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+    elseif ((.not. tRealHS) .and. tPeriodic) then
+      cutOff%gammaCutoff = (3.0_dp * determinant33(latVecs) * nKpoint&
+          & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+    else
+      ! dummy cutoff value
+      cutOff%gammaCutoff = 1.0_dp
+    end if
+
   end subroutine getRangeSeparatedCutOff
 
 
   !> Initialise range separated extension.
-  subroutine initRangeSeparated(this, nAtom, species0, hubbU, cutOff, rangeSepInp, tSpin, isREKS,&
-      & rangeSep, deltaRhoIn, deltaRhoOut, deltaRhoDiff, deltaRhoInSqr, deltaRhoOutSqr,&
-      & deltaRhoInCplx, deltaRhoOutCplx, deltaRhoDiffCplx, deltaRhoInSqrCplx, deltaRhoOutSqrCplx,&
-      & nMixElements, tRealHS)
+  subroutine initRangeSeparated(this, hubbU, rangeSepInp, isREKS, supercellFoldingDiag)
 
     !> Instance
-    class(TDftbPlusMain), intent(inout) :: this
-
-    !> Number of atoms in the system, potentially including periodic images
-    integer, intent(in) :: nAtom
-
-    !> Species of atoms in central cell
-    integer, intent(in) :: species0(:)
+    class(TDftbPlusMain), intent(inout), target :: this
 
     !> Hubbard values for species
     real(dp), intent(in) :: hubbU(:,:)
 
-    !> Cutoff collection
-    type(TCutoffs), intent(in) :: cutOff
-
     !> Input for range separated calculation
     type(TRangeSepInp), intent(in) :: rangeSepInp
-
-    !> Is this spin restricted (F) or unrestricted (T)
-    logical, intent(in) :: tSpin
 
     !> Is this DFTB/SSR formalism
     logical, intent(in) :: isREKS
 
-    !> Resulting settings for range separation
-    type(TRangeSepFunc), allocatable, intent(out) :: rangeSep
+    !> Diagonal entries of supercell folding matrix
+    integer, intent(in) :: supercellFoldingDiag(:)
 
-    !> Change in input density matrix flattened to 1D array
-    real(dp), allocatable, target, intent(out) :: deltaRhoIn(:)
+    allocate(this%rangeSep)
+    call TRangeSepFunc_init(this%rangeSep, this%nAtom, this%species0, hubbU(1, :),&
+        & rangeSepInp%screeningThreshold, rangeSepInp%omega, rangeSepInp%camAlpha,&
+        & rangeSepInp%camBeta, this%cutOff%gSummationCutoff, this%cutOff%gammaCutoff, this%tSpin,&
+        & isREKS, rangeSepInp%rangeSepAlg, supercellFoldingDiag, this%tRealHS)
 
-    !> Change in output density matrix flattened to 1D array
-    real(dp), allocatable, target, intent(out) :: deltaRhoOut(:)
+    if (this%tRealHS) then
+      this%nMixElements = this%nOrb * this%nOrb * this%nSpin
+    else
+      this%nMixElements = this%nOrb * this%nOrb * this%nSpin * size(this%rangeSep%bvKShifts, dim=2)
+    end if
 
-    !> Change in density matrix between in and out
-    real(dp), allocatable, intent(out) :: deltaRhoDiff(:)
+    allocate(this%densityMatrix%deltaRhoIn(this%nMixElements))
+    allocate(this%densityMatrix%deltaRhoOut(this%nMixElements))
+    allocate(this%densityMatrix%deltaRhoDiff(this%nMixElements))
+    this%densityMatrix%deltaRhoIn(:) = 0.0_dp
+    this%densityMatrix%deltaRhoOut(:) = 0.0_dp
+    this%densityMatrix%deltaRhoDiff(:) = 0.0_dp
 
-    !> Change in input density matrix
-    real(dp), pointer, intent(out) :: deltaRhoInSqr(:,:,:)
+    if (this%tRealHS) then
+      this%densityMatrix%deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
+          & => this%densityMatrix%deltaRhoIn(1:this%nMixElements)
+      this%densityMatrix%deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
+          & => this%densityMatrix%deltaRhoOut(1:this%nMixElements)
+    else
+      allocate(this%SSqrCplxKpts(this%nOrb, this%nOrb, this%nKpoint))
+      this%SSqrCplxKpts(:,:,:) = 0.0_dp
 
-    !> Change in output density matrix
-    real(dp), pointer, intent(out) :: deltaRhoOutSqr(:,:,:)
+      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin&
+          & * this%nKPoint))
+      this%densityMatrix%deltaRhoOutCplx(:) = 0.0_dp
+      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * this%nKPoint)&
+          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin&
+          & * this%nKPoint)
 
-    !> Change in complex input density matrix flattened to 1D array
-    complex(dp), allocatable, target, intent(out) :: deltaRhoInCplx(:)
-
-    !> Change in complex output density matrix flattened to 1D array
-    complex(dp), allocatable, target, intent(out) :: deltaRhoOutCplx(:)
-
-    !> Change in complex density matrix between in and out
-    complex(dp), allocatable, intent(out) :: deltaRhoDiffCplx(:)
-
-    !> Change in complex input density matrix
-    complex(dp), pointer, intent(out) :: deltaRhoInSqrCplx(:,:,:)
-
-    !> Change in complex output density matrix
-    complex(dp), pointer, intent(out) :: deltaRhoOutSqrCplx(:,:,:)
-
-    !> Number of mixer elements
-    integer, intent(out) :: nMixElements
-
-    !> True, if Hamiltonian and overlap are real
-    logical, intent(in) :: tRealHS
-
-    allocate(rangeSep)
-    call TRangeSepFunc_init(rangeSep, nAtom, species0, hubbU(1, :), rangeSepInp%screeningThreshold,&
-        & rangeSepInp%omega, rangeSepInp%camAlpha, rangeSepInp%camBeta, cutOff%gSummationCutoff,&
-        & rangeSepInp%gammaCutoff, tSpin, isREKS, rangeSepInp%rangeSepAlg)
-
-    allocate(deltaRhoIn(this%nOrb * this%nOrb * this%nSpin))
-    allocate(deltaRhoOut(this%nOrb * this%nOrb * this%nSpin))
-    allocate(deltaRhoDiff(this%nOrb * this%nOrb * this%nSpin))
-
-    deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
-        & deltaRhoIn(1 : this%nOrb * this%nOrb * this%nSpin)
-    deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin) =>&
-        & deltaRhoOut(1 : this%nOrb * this%nOrb * this%nSpin)
-    nMixElements = this%nOrb * this%nOrb * this%nSpin
-    deltaRhoInSqr(:,:,:) = 0.0_dp
+      this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
+          & 1:2 * this%rangeSep%coeffsDiag(1) + 1, 1:2 * this%rangeSep%coeffsDiag(2) + 1,&
+          & 1:2 * this%rangeSep%coeffsDiag(3) + 1, 1:this%nSpin)&
+          & => this%densityMatrix%deltaRhoIn(1:this%nMixElements)
+      this%densityMatrix%deltaRhoOutSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
+          & 1:2 * this%rangeSep%coeffsDiag(1) + 1, 1:2 * this%rangeSep%coeffsDiag(2) + 1,&
+          & 1:2 * this%rangeSep%coeffsDiag(3) + 1, 1:this%nSpin)&
+          & => this%densityMatrix%deltaRhoOut(1:this%nMixElements)
+    end if
 
   end subroutine initRangeSeparated
 

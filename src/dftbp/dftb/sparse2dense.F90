@@ -206,13 +206,13 @@ contains
       & img2CentCell)
 
     !> Square form matrix on exit.
-    real(dp), intent(out) :: square(:, :)
+    real(dp), intent(out) :: square(:,:)
 
     !> Sparse matrix
     real(dp), intent(in) :: orig(:)
 
     !> Neighbour list for each atom (First index from 0!)
-    integer, intent(in) :: iNeighbour(0:, :)
+    integer, intent(in) :: iNeighbour(0:,:)
 
     !> Nr. of neighbours for each atom (incl. itself).
     integer, intent(in) :: nNeighbourSK(:)
@@ -221,7 +221,7 @@ contains
     integer, intent(in) :: iAtomStart(:)
 
     !> indexing array for the sparse Hamiltonian
-    integer, intent(in) :: iSparseStart(0:, :)
+    integer, intent(in) :: iSparseStart(0:,:)
 
     !> Map from images of atoms to central cell atoms
     integer, intent(in) :: img2CentCell(:)
@@ -267,7 +267,7 @@ contains
       & cellVec, iAtomStart, iSparseStart, img2CentCell, orb, species, coord)
 
     !> Square form matrix on exit.
-    complex(dp), intent(out) :: square(:, :)
+    complex(dp), intent(out) :: square(:,:)
 
     !> Sparse matrix
     real(dp), intent(in) :: orig(:)
@@ -285,7 +285,7 @@ contains
     integer, intent(in) :: iCellVec(:)
 
     !> Relative coordinates of the cell translation vectors.
-    real(dp), intent(in) :: cellVec(:, :)
+    real(dp), intent(in) :: cellVec(:,:)
 
     !> Atom offset for the square Hamiltonian
     integer, intent(in) :: iAtomStart(:)

@@ -129,9 +129,6 @@ module dftbp_dftbplus_inputdata
     !> Cutoff for real-space g-summation
     real(dp) :: gSummationCutoff
 
-    !> Cutoff for truncated Gamma
-    real(dp) :: gammaCutoff
-
   end type TRangeSepInp
 
 
@@ -373,10 +370,12 @@ module dftbp_dftbplus_inputdata
     !> second derivative finite difference step
     real(dp) :: deriv2ndDelta    = 0.0_dp
 
-    integer :: nKPoint       = 0
+    integer :: nKPoint = 0
     real(dp), allocatable :: kPoint(:,:)
     real(dp), allocatable :: kWeight(:)
 
+    !> Diagonal entries of supercell folding matrix
+    integer :: supercellFoldingDiag(3)
 
     !> cell pressure if periodic
     real(dp) :: pressure       = 0.0_dp

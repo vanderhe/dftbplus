@@ -2791,12 +2791,21 @@ contains
     type(fnode), pointer :: value1, child
     type(string) :: buffer, modifier
     integer :: ind, ii, jj, kk
-    real(dp) :: coeffsAndShifts(3, 4)
+    real(dp), target :: coeffsAndShifts(3, 4)
     real(dp) :: rTmp3(3)
     type(TListIntR1) :: li1
     type(TListRealR1) :: lr1
     integer, allocatable :: tmpI1(:)
     real(dp), allocatable :: kpts(:,:)
+
+    !! Supercell folding coefficients
+    real(dp), pointer :: coeffs(:,:)
+
+    !! True, if k-points should be reduced by inversion
+    logical :: tReduceByInversion
+
+    !! True, if the supercell folding does not correspond to a MP-like scheme
+    logical :: tNotMonkhorstPack
 
     call getChildValue(node, "KPointsAndWeights", value1, child=child, &
         &modifier=modifier)
@@ -2819,13 +2828,36 @@ contains
         call detailedError(value1, "The components of the supercell matrix &
             &must be integers.")
       end if
-      if (.not.ctrl%tSpinOrbit) then
-        call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
-            & ctrl%kPoint, ctrl%kWeight, reduceByInversion=.true.)
-      else
-        call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
-            & ctrl%kPoint, ctrl%kWeight, reduceByInversion=.false.)
+      if (allocated(ctrl%rangeSepInp)) then
+        ! Check if k-point mesh is a Monkhorst-Pack sampling
+        tNotMonkhorstPack = .false.
+        coeffs => coeffsAndShifts(:, 1:3)
+        lpOuter: do jj = 1, size(coeffs, dim=2)
+          do ii = 1, size(coeffs, dim=1)
+            if (ii == jj) cycle
+            if (coeffs(ii, jj) > 1e-06_dp) then
+              tNotMonkhorstPack = .true.
+              exit lpOuter
+            end if
+          end do
+        end do lpOuter
+        if (tNotMonkhorstPack) then
+          call detailedError(value1, "Range-separated calculations with k-points require a&
+              & Monkhorst-Pack-like sampling, i.e. a uniform extension of the lattice.")
+        end if
+        do ii = 1, 3
+          ctrl%supercellFoldingDiag(ii) = coeffs(ii, ii)
+        end do
+        ! Check if shifts are zero
+        if (any(abs(coeffsAndShifts(:, 4)) > 1e-06_dp)) then
+          call detailedError(value1, "Range-separated calculations with k-points require a&
+              & Monkhorst-Pack-like sampling with zero shift.")
+        end if
       end if
+      ! tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))
+      tReduceByInversion = (.not. ctrl%tSpinOrbit)
+      call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
+          & ctrl%kPoint, ctrl%kWeight, reduceByInversion=tReduceByInversion)
       ctrl%nKPoint = size(ctrl%kPoint, dim=2)
 
     case ("klines")
@@ -7529,14 +7561,14 @@ contains
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
           call convertByMul(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
-              & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          ! call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
+          !     & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
+          !     & child=child3)
+          ! call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         else
           ! dummy cutoff values
-          input%gammaCutoff = 1.0_dp
+          ! input%gammaCutoff = 1.0_dp
           input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
@@ -7546,14 +7578,14 @@ contains
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
         ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
+        ! input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
         ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
+        ! input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
@@ -7617,14 +7649,14 @@ contains
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
           call convertByMul(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
-              & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          ! call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
+          !     & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
+          !     & child=child3)
+          ! call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
         else
           ! dummy cutoff values
-          input%gammaCutoff = 1.0_dp
+          ! input%gammaCutoff = 1.0_dp
           input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
@@ -7634,14 +7666,14 @@ contains
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
         ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
+        ! input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
         ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
+        ! input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
@@ -7666,14 +7698,14 @@ contains
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
           call convertByMul(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
-              & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
-              & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          ! call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
+          !     & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
+          !     & child=child3)
+          ! call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
         else
           ! dummy cutoff values
-          input%gammaCutoff = 1.0_dp
+          ! input%gammaCutoff = 1.0_dp
           input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
@@ -7683,14 +7715,14 @@ contains
             & modifier=modifier, child=child3)
         call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
         ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
+        ! input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
         ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
+        ! input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
