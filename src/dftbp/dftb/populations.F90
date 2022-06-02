@@ -222,8 +222,8 @@ contains
     !! Real-space overlap shift in relative coordinates
     real(dp) :: overShift(3)
 
-    !> Real-space overlap shift folded to BvK cell
-    integer :: bvKShift(3)
+    !> Real-space overlap shift folded to BvK cell and translated to density matrix indices
+    integer :: bvKIndex(3)
 
     !! Starting point for atomic block in sparse (packed) format
     integer :: iOrig
@@ -267,12 +267,12 @@ contains
           iOrig = iPair(iNeigh, iAtom1) + 1
           ! get real-space overlap shift (relative coordinates)
           overShift(:) = cellVecs(:, iCellVec(iAtom2))
-          bvKShift(:) = rangeSep%foldToBvK(overShift) + rangeSep%coeffsDiag + 1
+          bvKIndex(:) = rangeSep%foldToBvKIndex(overShift)
           iAt2SqrStart = iSquare(iAtom2f)
           iAt2SqrEnd = iSquare(iAtom2f + 1) - 1
           sqrTmp(1:nOrb2, 1:nOrb1) = reshape(over(iOrig:iOrig+nOrb1*nOrb2-1), [nOrb2, nOrb1])&
-              & * rho(iAt2SqrStart:iAt2SqrEnd, iAt1SqrStart:iAt1SqrEnd, bvKShift(1), bvKShift(2),&
-              & bvKShift(3), iSpin)
+              & * rho(iAt2SqrStart:iAt2SqrEnd, iAt1SqrStart:iAt1SqrEnd, bvKIndex(1), bvKIndex(2),&
+              & bvKIndex(3), iSpin)
           qq(1:nOrb1, iAtom1, iSpin) = qq(1:nOrb1, iAtom1, iSpin)&
               & + sum(sqrTmp(1:nOrb2, 1:nOrb1), dim=1)
           ! Add contribution to the other triangle sum using symmetry, but only when off-diagonal
@@ -553,8 +553,8 @@ contains
     !> Data for rangeseparated calculation
     type(TRangeSepFunc), intent(in) :: rangeSep
 
-    !! Integer BvK real-space shift in relative coordinates
-    integer :: bvKShift(3)
+    !! Integer BvK real-space shift translated to density matrix indices
+    integer :: bvKIndex(3)
 
     !! Number of atoms in central cell
     integer :: nAtom
@@ -576,13 +576,13 @@ contains
 
     do iSpin = 1, nSpin
       do iG = 1, size(rangeSep%bvKShifts, dim=2)
-        bvKShift(:) = nint(rangeSep%bvKShifts(:, iG)) + rangeSep%coeffsDiag + 1
+        bvKIndex(:) = rangeSep%foldToBvKIndex(rangeSep%bvKShifts(:, iG))
         do iAtom = 1, nAtom
           iStart = iSquare(iAtom)
           iEnd = iSquare(iAtom + 1) - 1
           do iOrb = 1, iEnd - iStart + 1
-            rho(iStart+iOrb-1, iStart+iOrb-1, bvKShift(1), bvKShift(2), bvKShift(3), iSpin)&
-                & = rho(iStart+iOrb-1, iStart+iOrb-1, bvKShift(1), bvKShift(2), bvKShift(3), iSpin)&
+            rho(iStart+iOrb-1, iStart+iOrb-1, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
+                & = rho(iStart+iOrb-1, iStart+iOrb-1, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
                 & - q0(iOrb, iAtom, iSpin)
           end do
         end do
@@ -682,8 +682,8 @@ contains
     !> Data for rangeseparated calculation
     type(TRangeSepFunc), intent(in) :: rangeSep
 
-    !! Integer BvK real-space shift in relative coordinates
-    integer :: bvKShift(3)
+    !! Integer BvK real-space shift translated to density matrix indices
+    integer :: bvKIndex(3)
 
     !! Number of atoms in central cell
     integer :: nAtom
@@ -700,13 +700,13 @@ contains
     nAtom = size(iSquare) - 1
 
     do iG = 1, size(rangeSep%bvKShifts, dim=2)
-      bvKShift(:) = nint(rangeSep%bvKShifts(:, iG)) + rangeSep%coeffsDiag + 1
+      bvKIndex(:) = rangeSep%foldToBvKIndex(rangeSep%bvKShifts(:, iG))
       do iAtom = 1, nAtom
         iStart = iSquare(iAtom)
         iEnd = iSquare(iAtom + 1) - 1
         do iOrb = 1, iEnd - iStart + 1
-          rho(iStart+iOrb-1, iStart+iOrb-1, bvKShift(1), bvKShift(2), bvKShift(3), iSpin)&
-              & = rho(iStart+iOrb-1, iStart+iOrb-1, bvKShift(1), bvKShift(2), bvKShift(3), iSpin)&
+          rho(iStart+iOrb-1, iStart+iOrb-1, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
+              & = rho(iStart+iOrb-1, iStart+iOrb-1, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
               & - 0.5_dp * q0(iOrb, iAtom, 1)
         end do
       end do

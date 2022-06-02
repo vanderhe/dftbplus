@@ -5490,12 +5490,12 @@ contains
           & * this%nKPoint)
 
       this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
-          & 1:2 * this%rangeSep%coeffsDiag(1) + 1, 1:2 * this%rangeSep%coeffsDiag(2) + 1,&
-          & 1:2 * this%rangeSep%coeffsDiag(3) + 1, 1:this%nSpin)&
+          & 1:this%rangeSep%coeffsDiag(1), 1:this%rangeSep%coeffsDiag(2),&
+          & 1:this%rangeSep%coeffsDiag(3), 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoIn(1:this%nMixElements)
       this%densityMatrix%deltaRhoOutSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
-          & 1:2 * this%rangeSep%coeffsDiag(1) + 1, 1:2 * this%rangeSep%coeffsDiag(2) + 1,&
-          & 1:2 * this%rangeSep%coeffsDiag(3) + 1, 1:this%nSpin)&
+          & 1:this%rangeSep%coeffsDiag(1), 1:this%rangeSep%coeffsDiag(2),&
+          & 1:this%rangeSep%coeffsDiag(3), 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoOut(1:this%nMixElements)
     end if
 

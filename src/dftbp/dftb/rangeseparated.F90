@@ -188,6 +188,7 @@ module dftbp_dftb_rangeseparated
     procedure :: updateCoords
 
     procedure :: foldToBvK => TRangeSepFunc_foldToBvK
+    procedure :: foldToBvKIndex => TRangeSepFunc_foldToBvKIndex
 
     procedure :: addCamHamiltonian_cluster
     procedure :: addCamHamiltonian_gamma
@@ -411,15 +412,15 @@ contains
       !! Auxiliary variables
       integer :: ii, jj, kk, ind
 
-      nBvKShifts = (2 * coeffsDiag(1) + 1) * (2 * coeffsDiag(2) + 1) * (2 * coeffsDiag(3) + 1)
+      nBvKShifts = coeffsDiag(1) * coeffsDiag(2) * coeffsDiag(3)
 
       allocate(bvKShifts(3, nBvKShifts))
 
       ind = 1
 
-      do kk = -coeffsDiag(3), coeffsDiag(3)
-        do jj = -coeffsDiag(2), coeffsDiag(2)
-          do ii = -coeffsDiag(1), coeffsDiag(1)
+      do kk = 0, coeffsDiag(3) - 1
+        do jj = 0, coeffsDiag(2) - 1
+          do ii = 0, coeffsDiag(1) - 1
             bvKShifts(1, ind) = real(ii, dp)
             bvKShifts(2, ind) = real(jj, dp)
             bvKShifts(3, ind) = real(kk, dp)
@@ -427,6 +428,23 @@ contains
           end do
         end do
       end do
+
+      ! nBvKShifts = (2 * coeffsDiag(1) + 1) * (2 * coeffsDiag(2) + 1) * (2 * coeffsDiag(3) + 1)
+
+      ! allocate(bvKShifts(3, nBvKShifts))
+
+      ! ind = 1
+
+      ! do kk = -coeffsDiag(3), coeffsDiag(3)
+      !   do jj = -coeffsDiag(2), coeffsDiag(2)
+      !     do ii = -coeffsDiag(1), coeffsDiag(1)
+      !       bvKShifts(1, ind) = real(ii, dp)
+      !       bvKShifts(2, ind) = real(jj, dp)
+      !       bvKShifts(3, ind) = real(kk, dp)
+      !       ind = ind + 1
+      !     end do
+      !   end do
+      ! end do
 
     end subroutine getBvKLatticeShifts
 
@@ -445,22 +463,32 @@ contains
     !> Corresponding BvK vector
     integer :: bvKShift(3)
 
-    ! !! Number of BvK cells in each direction
-    ! real(dp) :: nBvKCells(3)
+    bvKShift(:) = modulo(nint(vector) + this%coeffsDiag, this%coeffsDiag)
 
-    !! Iterates over BvK shifts (relative coordinates)
-    integer :: ii
-
-    ! nBvKCells(:) = 2.0_dp * real(this%coeffsDiag, dp) + 1.0_dp
-
-    do ii = 1, 3
-      ! bvKShift(ii) = nint(vector(ii) - nBvKCells(ii)&
-      !     & * floor((vector(ii) + real(this%coeffsDiag(ii), dp)) / nBvKCells(ii)))
-      bvKShift(ii) = modulo(nint(vector(ii)) + this%coeffsDiag(ii), 2 * this%coeffsDiag(ii) + 1)&
-          & - this%coeffsDiag(ii)
-    end do
+    ! do ii = 1, 3
+    !   bvKShift(ii) = modulo(nint(vector(ii)) + this%coeffsDiag(ii), 2 * this%coeffsDiag(ii) + 1)&
+    !       & - this%coeffsDiag(ii)
+    ! end do
 
   end function TRangeSepFunc_foldToBvK
+
+
+  !> Folds relative real-space vector back to BvK region and returns indices of density matrix.
+  pure function TRangeSepFunc_foldToBvKIndex(this, vector) result(bvKShift)
+
+    !> Class instance
+    class(TRangeSepFunc), intent(in) :: this
+
+    !> Vector (in relative coordinates) to fold back to BvK cell
+    real(dp), intent(in) :: vector(:)
+
+    !> Corresponding BvK vector
+    integer :: bvKShift(3)
+
+    ! additionally shift by 1, so that indices start at 1 and not at 0
+    bvKShift(:) = modulo(nint(vector) + this%coeffsDiag, this%coeffsDiag) + 1
+
+  end function TRangeSepFunc_foldToBvKIndex
 
 
   !> Updates the rangeSep module on coordinate change.
@@ -2202,7 +2230,7 @@ contains
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
 
     !! Temporary storages
-    real(dp), allocatable :: tmpDeltaRhoSqr(:,:,:,:,:,:), tmpDeltaDeltaRhoSqr(:,:,:,:,:)
+    real(dp), allocatable :: deltaDeltaRhoSqr(:,:,:,:,:)
     complex(dp), allocatable :: tmpHSqr(:,:)
     type(TRealArray1D), allocatable :: testSquareOver(:)
     type(TIntArray1D), allocatable :: overlapIndices(:)
@@ -2260,7 +2288,7 @@ contains
     integer :: nNeigh
 
     !! Integer BvK real-space shift in relative coordinates
-    integer :: bvKShift(3)
+    integer :: bvKShift(3), bvKIndex(3)
 
     !! Phase factor
     complex(dp) :: phase
@@ -2268,51 +2296,36 @@ contains
     !! Iterates over all BvK real-space vectors
     integer :: iG
 
-    !! Iterates over all spin channels
-    integer :: iSpin
-
-    !! Number of spin channels
-    integer :: nSpin
-
     !! Dummy array with zeros
     real(dp) :: zeros(3)
 
     zeros(:) = 0.0_dp
+    tot(:,:) = 0.0_dp
 
     squareSize = size(HSqr, dim=1)
     nAtom0 = size(this%species0)
-    nSpin = size(deltaRhoSqr, dim=6)
 
     ! allocate delta Hamiltonian
     allocate(tmpHSqr(squareSize, squareSize))
-    tmpHSqr(:,:) = 0.0_dp
-
-    tmpDeltaRhoSqr = deltaRhoSqr
-    do iSpin = 1, nSpin
-      do iG = 1, size(this%bvKShifts, dim=2)
-        bvKShift(:) = nint(this%bvKShifts(:, iG)) + this%coeffsDiag + 1
-        call symmetrizeHS(tmpDeltaRhoSqr(:,:, bvKShift(1), bvKShift(2), bvKShift(3), iSpin))
-      end do
-    end do
+    tmpHSqr(:,:) = cmplx(0, 0, dp)
 
     ! check and initialize screening
     if (.not. this%tScreeningInited) then
       allocate(this%hprevCplxHS(squareSize, squareSize, nKS))
-      this%hprevCplxHS(:,:,:) = 0.0_dp
-      this%dRhoPrevCplxHS = tmpDeltaRhoSqr
+      this%hprevCplxHS(:,:,:) = cmplx(0, 0, dp)
+      this%dRhoPrevCplxHS = deltaRhoSqr
       this%tScreeningInited = .true.
     end if
 
     ! allocate and initialize difference of delta rho to previous SCC iteration
-    tmpDeltaDeltaRhoSqr = tmpDeltaRhoSqr(:,:,:,:,:, iCurSpin)&
-        & - this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin)
-    pMax = maxval(abs(tmpDeltaDeltaRhoSqr))
-    ! old thresholding scheme, not as performant as delta-delta scheme
-    ! pMax = maxval(abs(tmpDeltaRhoSqr))
-    this%dRhoPrevCplxHS(:,:,:,:,:,:) = tmpDeltaRhoSqr
+    deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin) - this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin)
+    pMax = maxval(abs(deltaDeltaRhoSqr))
+    ! store deltaRho only one per SCC iteration
+    if (iKS == nKS .or. iCurSpin == 2) then
+      this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin) = deltaRhoSqr(:,:,:,:,:, iCurSpin)
+    end if
 
     ! allocate max estimates of square overlap blocks and index array for sorting
-    nNeigh = size(symNeighbourList%neighbourList%iNeighbour, dim=1)
     allocate(testSquareOver(nAtom0))
     allocate(overlapIndices(nAtom0))
 
@@ -2328,6 +2341,7 @@ contains
         nOrbAt = descN(iNOrb)
         nOrbNeigh = descB(iNOrb)
         pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+        ! pSbn = reshape(this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1), [nOrbNeigh, nOrbAt])
         testSquareOver(iAtN)%array(iNeighN + 1) = maxval(abs(pSbn))
       end do
     end do
@@ -2349,16 +2363,19 @@ contains
     ! call getCellTranslations(cellVecsGMN, rCellVecsGMN, latVecs, recVecs2p, this%gSummationCutoff)
     allocate(gammaMN(size(rCellVecsGMN, dim=2)))
 
-    !$omp parallel do schedule(dynamic) default(none) collapse(2)&
-    !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
-    !$omp& testSquareOver, cellVecs, rCellVecs, tmpDeltaDeltaRhoSqr, latVecs, recVecs2p,&
-    !$omp& tmpHSqr, pMax, kPoint, zeros)&
-    !$omp private(iAtN, iSpN, descN, iNeighN, iNeighNsort, iAtB, iAtBfold, iSpB, pSbnMax, vecL,&
-    !$omp& rVecL, ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM,&
-    !$omp& iNeighMsort, iAtA, iAtAfold, iSpA, descA, Pab, maxEstimate, vecH, rVecH, gammaAN,&
-    !$omp& gammaAB, pSam, pSamT_Pab, Pab_Sbn, tot, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB,&
-    !$omp& pMaxpSbnMax, bvKShift, phase, cellVecsGMN, rCellVecsGMN, cellVecsGMB, rCellVecsGMB,&
-    !$omp& cellVecsGAN, rCellVecsGAN, cellVecsGAB, rCellVecsGAB, iG, rNormVecL, rNormVecH)
+    ! print *, nNeighbourCamSym
+
+    ! !$omp parallel do schedule(dynamic) default(none) collapse(2)&
+    ! !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
+    ! !$omp& testSquareOver, cellVecs, rCellVecs, deltaDeltaRhoSqr, latVecs, recVecs2p,&
+    ! !$omp& tmpHSqr, pMax, kPoint, zeros, iCurSpin)&
+    ! !$omp private(iAtN, iSpN, descN, iNeighN, iNeighNsort, iAtB, iAtBfold, iSpB, pSbnMax, vecL,&
+    ! !$omp& rVecL, ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM,&
+    ! !$omp& iNeighMsort, iAtA, iAtAfold, iSpA, descA, Pab, maxEstimate, vecH, rVecH, gammaAN,&
+    ! !$omp& gammaAB, pSam, pSamT_Pab, Pab_Sbn, tot, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB,&
+    ! !$omp& pMaxpSbnMax, bvKShift, bvKIndex, phase, cellVecsGMN, rCellVecsGMN, cellVecsGMB,&
+    ! !$omp& rCellVecsGMB, cellVecsGAN, rCellVecsGAN, cellVecsGAB, rCellVecsGAB, iG, rNormVecL,&
+    ! !$omp& rNormVecH)
     loopM: do iAtM = 1, nAtom0
       loopN: do iAtN = 1, nAtom0
         iSpM = this%species0(iAtM)
@@ -2372,7 +2389,7 @@ contains
           iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
           pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
           pMaxpSbnMax = pMax * pSbnMax
-          if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
+          ! if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
           iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
           iAtBfold = symNeighbourList%img2CentCell(iAtB)
           iSpB = this%species0(iAtBfold)
@@ -2386,6 +2403,7 @@ contains
           nOrbAt = descN(iNOrb)
           nOrbNeigh = descB(iNOrb)
           pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+          ! pSbn = reshape(this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1), [nOrbNeigh, nOrbAt])
           ! pre-tabulate g-resolved \gamma_{\mu\beta}(\vec{g}-\vec{l})
           call getCellTranslations(cellVecsGMB, rCellVecsGMB, latVecs, recVecs2p, this%gammaCutoff&
               & + rNormVecL)
@@ -2396,15 +2414,14 @@ contains
               & rCellVecsGMB, -rVecL)
           loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
             iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
-            ! maxEstimate = pSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1) * maxval(abs(Pab))
             maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
-            if (maxEstimate < this%pScreeningThreshold) exit loopA
+            ! if (maxEstimate < this%pScreeningThreshold) exit loopA
             iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
             iAtAfold = symNeighbourList%img2CentCell(iAtA)
             iSpA = this%species0(iAtAfold)
             descA = getDescriptor(iAtAfold, iSquare)
             ! get continuous 2D copy of Pab density matrix block
-            Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:)
+            Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:)
             ! get real-space \vec{h} for gamma arguments
             rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
             vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
@@ -2430,15 +2447,17 @@ contains
             nOrbAt = descM(iNOrb)
             nOrbNeigh = descA(iNOrb)
             pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+            ! pSam = reshape(this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1), [nOrbNeigh, nOrbAt])
 
             loopG1: do iG = 1, size(rCellVecsGMN, dim=2)
-              bvKShift(:) = this%foldToBvK(cellVecsGMN(:, iG) + vecH - vecL) + this%coeffsDiag + 1
+              bvKShift(:) = this%foldToBvK(cellVecsGMN(:, iG) + vecH - vecL)
+              bvKIndex(:) = this%foldToBvKIndex(cellVecsGMN(:, iG) + vecH - vecL)
               phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
 
-              call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKShift(1),&
-                  & bvKShift(2), bvKShift(3)), transA='T', transB='N')
-              call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKShift(1), bvKShift(2),&
-                  & bvKShift(3)), pSbn, transA='N', transB='N')
+              call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKIndex(1),&
+                  & bvKIndex(2), bvKIndex(3)), transA='T', transB='N')
+              call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                  & bvKIndex(3)), pSbn, transA='N', transB='N')
 
               ! term #1
               call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
@@ -2453,13 +2472,14 @@ contains
             end do loopG1
 
             loopG2: do iG = 1, size(rCellVecsGMB, dim=2)
-              bvKShift(:) = this%foldToBvK(cellVecsGMB(:, iG) + vecH - vecL) + this%coeffsDiag + 1
+              bvKShift(:) = this%foldToBvK(cellVecsGMB(:, iG) + vecH - vecL)
+              bvKIndex(:) = this%foldToBvKIndex(cellVecsGMB(:, iG) + vecH - vecL)
               phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
 
-              call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKShift(1),&
-                  & bvKShift(2), bvKShift(3)), transA='T', transB='N')
-              call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKShift(1), bvKShift(2),&
-                  & bvKShift(3)), pSbn, transA='N', transB='N')
+              call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKIndex(1),&
+                  & bvKIndex(2), bvKIndex(3)), transA='T', transB='N')
+              call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                  & bvKIndex(3)), pSbn, transA='N', transB='N')
 
               ! term #2
               call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
@@ -2471,13 +2491,14 @@ contains
             end do loopG2
 
             loopG3: do iG = 1, size(rCellVecsGAN, dim=2)
-              bvKShift(:) = this%foldToBvK(cellVecsGAN(:, iG) + vecH - vecL) + this%coeffsDiag + 1
+              bvKShift(:) = this%foldToBvK(cellVecsGAN(:, iG) + vecH - vecL)
+              bvKIndex(:) = this%foldToBvKIndex(cellVecsGAN(:, iG) + vecH - vecL)
               phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
 
-              call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKShift(1),&
-                  & bvKShift(2), bvKShift(3)), transA='T', transB='N')
-              call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKShift(1), bvKShift(2),&
-                  & bvKShift(3)), pSbn, transA='N', transB='N')
+              call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKIndex(1),&
+                  & bvKIndex(2), bvKIndex(3)), transA='T', transB='N')
+              call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                  & bvKIndex(3)), pSbn, transA='N', transB='N')
 
               ! term #3
               call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSam, Pab_Sbn(1:descA(iNOrb),&
@@ -2489,17 +2510,18 @@ contains
             end do loopG3
 
             loopG4: do iG = 1, size(rCellVecsGAB, dim=2)
-              bvKShift(:) = this%foldToBvK(cellVecsGAB(:, iG) + vecH - vecL) + this%coeffsDiag + 1
+              bvKShift(:) = this%foldToBvK(cellVecsGAB(:, iG) + vecH - vecL)
+              bvKIndex(:) = this%foldToBvKIndex(cellVecsGAB(:, iG) + vecH - vecL)
               phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
 
-              call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKShift(1),&
-                  & bvKShift(2), bvKShift(3)), transA='T', transB='N')
-              call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKShift(1), bvKShift(2),&
-                  & bvKShift(3)), pSbn, transA='N', transB='N')
+              call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKIndex(1),&
+                  & bvKIndex(2), bvKIndex(3)), transA='T', transB='N')
+              call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                  & bvKIndex(3)), pSbn, transA='N', transB='N')
 
               ! term #4
               call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSam, Pab(:,:,&
-                  & bvKShift(1), bvKShift(2), bvKShift(3)) * gammaAB(iG), transA='T', transB='N')
+                  & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG), transA='T', transB='N')
               call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
                   & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
 
@@ -2522,10 +2544,14 @@ contains
       tmpHSqr(:,:) = 0.125_dp * tmpHSqr
     end if
 
+    ! HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
+    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx(this%camBeta * tmpHSqr,&
+    !     & deltaRhoSqr(:,:,:,:,:, iCurSpin), this%bvKShifts, this%coeffsDiag, kPoint)
+
     this%hprevCplxHS(:,:, iKS) = this%hprevCplxHS(:,:, iKS) + tmpHSqr
     HSqr(:,:) = HSqr + this%camBeta * this%hprevCplxHS(:,:, iKS)
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iKS),&
-        & tmpDeltaRhoSqr(:,:,:,:,:, iCurSpin), this%bvKShifts, this%coeffsDiag, kPoint)
+    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iKS),&
+    !     & deltaRhoSqr(:,:,:,:,:, iCurSpin), this%bvKShifts, this%coeffsDiag, kPoint)
 
   end subroutine addLrHamiltonianNeighbour_kpts_sym
 
@@ -2613,7 +2639,7 @@ contains
     complex(dp), intent(in) :: hamiltonian(:,:)
 
     !> Density matrix
-    real(dp), intent(in) :: densityMat(:,:,:,:,:)
+    real(dp), intent(in), pointer :: densityMat(:,:,:,:,:)
 
     !> K-point compatible BvK real-space shifts in relative coordinates
     real(dp), intent(in) :: bvKShifts(:,:)
@@ -2633,8 +2659,8 @@ contains
     !! \mu orbital index
     integer :: mu
 
-    !! Integer BvK real-space shift in relative coordinates
-    integer :: bvKShift(3)
+    !! Integer BvK real-space shift translated to density matrix indices
+    integer :: bvKIndex(3)
 
     !! Phase factor
     complex(dp) :: phase
@@ -2642,28 +2668,22 @@ contains
     !! Iterates over all BvK real-space vectors
     integer :: iG
 
-    energy = 0.0_dp
     recDensityMat(:,:) = 0.0_dp
 
     do iG = 1, size(bvKShifts, dim=2)
       phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, bvKShifts(:, iG)))
-      bvKShift(:) = nint(bvKShifts(:, iG)) + coeffsDiag + 1
-      ! print *, bvKShift(1), bvKShift(2), bvKShift(3)
-      ! print *, shape(densityMat)
-      ! print *, lbound(densityMat, dim=3), ubound(densityMat, dim=3)
-      ! print *, lbound(densityMat, dim=4), ubound(densityMat, dim=4)
-      ! print *, lbound(densityMat, dim=5), ubound(densityMat, dim=5)
-      ! print *, densityMat(:,:, 11, 3, 1)
+      bvKIndex(:) = nint(bvKShifts(:, iG)) + 1
       recDensityMat(:,:) = recDensityMat&
-          & + densityMat(:,:, bvKShift(1), bvKShift(2), bvKShift(3)) * phase
+          & + densityMat(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)) * phase
     end do
 
-    do mu = 1, size(hamiltonian, dim=2)
-      energy = energy + real(hamiltonian(mu, mu) * recDensityMat(mu, mu)&
-          & + 2.0_dp * sum(hamiltonian(mu + 1 :, mu) * recDensityMat(mu + 1 :, mu)))
-    end do
+    energy = 0.5_dp * real(sum(hamiltonian * recDensityMat), dp)
 
-    energy = 0.5_dp * energy
+    if (energy /= energy) then
+      print *, 'evaluateEnergy_cplx'
+      print '(18F7.3)', aimag(transpose(hamiltonian))
+      stop
+    end if
 
   end function evaluateEnergy_cplx
 

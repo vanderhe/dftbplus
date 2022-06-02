@@ -118,8 +118,8 @@ contains
     !! Phase factor
     complex(dp) :: phase
 
-    !! Integer BvK real-space shift in relative coordinates
-    integer :: bvKShift(3)
+    !! Integer BvK real-space shift translated to density matrix indices
+    integer :: bvKIndex(3)
 
     rhoSqrBvK(:,:,:,:,:,:) = 0.0_dp
 
@@ -128,15 +128,12 @@ contains
         iK = parallelKS%localKS(1, iKS)
         iSpin = parallelKS%localKS(2, iKS)
         phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoint(:, iK), bvKShifts(:, iG)))
-        bvKShift(:) = nint(bvKShifts(:, iG)) + coeffsDiag + 1
-        rhoSqrBvK(:,:, bvKShift(1), bvKShift(2), bvKShift(3), iSpin)&
-            & = rhoSqrBvK(:,:, bvKShift(1), bvKShift(2), bvKShift(3), iSpin)&
+        bvKIndex(:) = nint(bvKShifts(:, iG)) + 1
+        rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
+            & = rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
             & + kWeight(iK) * real(rhoSqrDual(:,:, iKS) * phase, dp)
       end do
     end do
-
-    ! Divide by the number of k-points
-    rhoSqrBvK(:,:,:,:,:,:) = rhoSqrBvK / size(kWeight)
 
   end subroutine transformDualSpaceToBvKRealSpace
 
@@ -175,8 +172,8 @@ contains
     !! Phase factor
     complex(dp) :: phase
 
-    !! Integer BvK real-space shift in relative coordinates
-    integer :: bvKShift(3)
+    !! Integer BvK real-space shift translated to density matrix indices
+    integer :: bvKIndex(3)
 
     rhoSqrDual(:,:,:) = 0.0_dp
 
@@ -185,9 +182,9 @@ contains
       iSpin = parallelKS%localKS(2, iKS)
       do iG = 1, size(bvKShifts, dim=2)
         phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint(:, iK), bvKShifts(:, iG)))
-        bvKShift(:) = nint(bvKShifts(:, iG)) + coeffsDiag + 1
+        bvKIndex(:) = nint(bvKShifts(:, iG)) + 1
         rhoSqrDual(:,:, iKS) = rhoSqrDual(:,:, iKS)&
-            & + rhoSqrBvK(:,:, bvKShift(1), bvKShift(2), bvKShift(3), iSpin) * phase
+            & + rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin) * phase
       end do
     end do
 
