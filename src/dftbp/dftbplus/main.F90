@@ -711,7 +711,7 @@ contains
           & this%symNeighbourList, this%nAllAtom, this%coord0Fold, this%coord,this%species,&
           & this%rCellVec, this%nNeighbourSk, this%nNeighbourCam, this%nNeighbourCamSym, this%ints,&
           & this%H0, this%rhoPrim, this%iRhoPrim, this%ERhoPrim, this%iSparseStart, this%cm5Cont,&
-          & errStatus)
+          & this%skOverCont, errStatus)
         @:PROPAGATE_ERROR(errStatus)
     end if
 
@@ -2039,7 +2039,7 @@ contains
     end if
 
     if (allocated(nNeighbourCamSym)) then
-      call updateNeighbourListAndSpecies(symNeighbourList%coord, symNeighbourList%species,&
+      call updateNeighbourListAndSpecies(env, symNeighbourList%coord, symNeighbourList%species,&
           & symNeighbourList%img2CentCell, symNeighbourList%iCellVec,&
           & symNeighbourList%neighbourList, symNeighbourList%nAllAtom, coord0Fold, species0,&
           & cutoff%camCutOff, rCellVec, symmetric=.true.)

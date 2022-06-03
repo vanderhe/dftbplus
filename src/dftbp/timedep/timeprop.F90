@@ -3178,7 +3178,7 @@ contains
     end if
 
     if (this%isRangeSep) then
-      call rangeSep%addLRGradients(derivs, this%derivator, real(deltaRho), skOverCont, coordAll,&
+      call rangeSep%addCamGradients(derivs, this%derivator, real(deltaRho), skOverCont, coordAll,&
           & this%speciesAll, orb, iSquare, real(sSqr(:,:,1)), neighbourList%iNeighbour,&
           & nNeighbourSK)
     end if
@@ -3403,7 +3403,7 @@ contains
       energy%eDisp = 0.0_dp
     end if
     if (allocated(rangeSep)) then
-      call rangeSep%addLREnergy(energy%Efock)
+      call rangeSep%addCamEnergy(energy%Efock)
     else
       energy%Efock = 0.0_dp
     end if

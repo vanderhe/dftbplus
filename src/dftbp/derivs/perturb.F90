@@ -394,15 +394,15 @@ contains
 
         dEiTmp(:,:,:) = 0.0_dp
         call response(env, parallelKS, dPotential, nAtom, orb, species, neighbourList,&
-            & nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over, iEqOrbitals, sccCalc,&
-            & sccTol, isSccConvRequired, maxSccIter, pChrgMixer, nMixElements, nIneqMixElements,&
-            & dqIn, dqOut(:,:,:,iCart), rangeSep, nNeighbourLC, sSqrReal, dRhoInSqr, dRhoOutSqr,&
-            & dRhoIn, dRhoOut, nSpin, maxFill, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs,&
-            & iEqBlockOnSite, dqBlockIn, dqBlockOut, eigVals, transform, dEiTmp, dEfdETmp, Ef,&
-            & this%isEfFixed, dHam, idHam, dRho, idRho, tempElec, tMetallic, neFermi, nFilled,&
-            & nEmpty, kPoint, kWeight, cellVec, iCellVec, eigVecsReal, eigVecsCplx, dPsiReal,&
-            & dPsiCmplx, coord, errStatus, omega(iOmega), dDipole=polarisability(:, iCart, iOmega),&
-            & eta=this%eta)
+            & symNeighbourList, nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over,&
+            & iEqOrbitals, sccCalc, sccTol, isSccConvRequired, maxSccIter, pChrgMixer,&
+            & nMixElements, nIneqMixElements, dqIn, dqOut(:,:,:,iCart), rangeSep, nNeighbourCam,&
+            & nNeighbourCamSym, sSqrReal, dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut, nSpin, maxFill,&
+            & spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite, dqBlockIn, dqBlockOut,&
+            & eigVals, transform, dEiTmp, dEfdETmp, Ef, this%isEfFixed, dHam, idHam, dRho, idRho,&
+            & tempElec, tMetallic, neFermi, nFilled, nEmpty, kPoint, kWeight, cellVec, iCellVec,&
+            & eigVecsReal, eigVecsCplx, dPsiReal, dPsiCmplx, coord, errStatus, omega(iOmega),&
+            & dDipole=polarisability(:, iCart, iOmega), eta=this%eta)
         @:PROPAGATE_ERROR(errStatus)
 
         if (allocated(dEfdE)) then
@@ -1207,10 +1207,10 @@ contains
             dRhoOutSqr(:,:,iS) = dRhoInSqr(:,:,iS)
           end if
 
-          call dRhoReal(env, dHam, neighbourList, nNeighbourSK, iSparseStart, img2CentCell,&
-              & denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals, Ef, tempElec,&
-              & orb, drho(:,iS), dRhoOutSqr, rangeSep, over, nNeighbourLC, transform(iKS),&
-              & species,&
+          call dRhoReal(env, dHam, neighbourList, symNeighbourList, nNeighbourSK, iSparseStart,&
+              & img2CentCell, denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals,&
+              & Ef, tempElec, orb, drho(:,iS), dRhoOutSqr, rangeSep, over, nNeighbourCam,&
+              & nNeighbourCamSym, transform(iKS), species,&
             #:if WITH_SCALAPACK
               & desc,&
             #:endif
@@ -1253,10 +1253,9 @@ contains
 
           iK = parallelKS%localKS(1, iKS)
 
-          call dRhoCmplx(env, dHam, neighbourList, symNeighbourList, nNeighbourSK, iSparseStart,&
-              & img2CentCell, denseDesc, parallelKS, nFilled, nEmpty, eigvecsCplx, eigVals, Ef,&
-              & tempElec, orb, dRho, kPoint, kWeight, iCellVec, cellVec, iKS, transform(iKS),&
-              & species, coord,&
+          call dRhoCmplx(env, dHam, neighbourList, nNeighbourSK, iSparseStart, img2CentCell,&
+              & denseDesc, parallelKS, nFilled, nEmpty, eigvecsCplx, eigVals, Ef, tempElec, orb,&
+              & dRho, kPoint, kWeight, iCellVec, cellVec, iKS, transform(iKS), species, coord,&
             #:if WITH_SCALAPACK
               & desc,&
             #:endif

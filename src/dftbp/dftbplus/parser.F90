@@ -7686,16 +7686,16 @@ contains
         input%rangeSepAlg = rangeSepTypes%neighbour
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
-        call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
           call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff,&
               & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
               & child=child3)
-          call convertByMul(char(modifier), lengthUnits, child3, input%gSummationCutoff)
+          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gSummationCutoff)
           ! call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
           !     & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
           !     & child=child3)
-          ! call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          ! call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         else
           ! dummy cutoff values
@@ -7707,7 +7707,7 @@ contains
         call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
-        call convertByMul(char(modifier), lengthUnits, child3, input%cutoffRed)
+        call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         ! dummy cutoff values
         ! input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
@@ -7783,7 +7783,7 @@ contains
           ! call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
           !     & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
           !     & child=child3)
-          ! call convertByMul(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          ! call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
         else
           ! dummy cutoff values
