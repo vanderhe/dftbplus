@@ -25,10 +25,10 @@ module dftbp_dftb_sparse2dense
 
   private
   public :: unpackHS, packHS, iPackHS, packErho, unpackDQ
-  public :: blockSymmetrizeHS, blockHermitianHS, blockAntiSymmetrizeHS, symmetrizeHS
-  public :: hermitianSquareMatrix
+  public :: blockSymmetrizeHS, blockHermitianHS, symmetrizeHS, hermitianSquareMatrix
   public :: packHSPauli, packHSPauliImag, unpackHPauli, unpackSPauli
   public :: unpackHelicalHS, packHelicalHS
+  public :: getSparseDescriptor
 
 #:if WITH_SCALAPACK
   public :: unpackHSRealBlacs, unpackHSCplxBlacs, unpackHPauliBlacs, unpackSPauliBlacs
@@ -104,16 +104,11 @@ module dftbp_dftb_sparse2dense
   end interface blockHermitianHS
 
 
-  !> Symmetrize the square matrix except the on-site blocks
-  interface blockAntiSymmetrizeHS
-    module procedure blockAntiSymmetrizeHS_real
-  end interface blockAntiSymmetrizeHS
-
-
   !> Symmetrize the square matrix including the on-site blocks
   interface symmetrizeHS
     module procedure symmetrizeHS_real
   end interface symmetrizeHS
+
 
 contains
 
@@ -309,7 +304,7 @@ contains
     integer :: nAtom, iOrig, ii, jj, iNeigh, iOldVec, iVec, iAtom1, iAtom2, iAtom2f
     integer :: nOrb1, nOrb2, iSh, iSp
     real(dp) :: kPoint2p(2), rotZ(orb%mOrb,orb%mOrb), theta, tmpSqr(orb%mOrb,orb%mOrb)
-    integer  :: lShellVals(orb%mShell)
+    integer :: lShellVals(orb%mShell)
 
     nAtom = size(iNeighbour, dim=2)
     square(:, :) = cmplx(0, 0, dp)
@@ -388,7 +383,7 @@ contains
 
     integer :: nAtom, iOrig, ii, jj, iNeigh, iAtom1, iAtom2, iAtom2f, nOrb1, nOrb2
     real(dp) :: rotZ(orb%mOrb,orb%mOrb), theta, tmpSqr(orb%mOrb,orb%mOrb)
-    integer  :: lShellVals(orb%mShell), iSh, iSp
+    integer :: lShellVals(orb%mShell), iSh, iSp
 
     nAtom = size(iNeighbour, dim=2)
     square(:, :) = 0.0_dp
@@ -1932,7 +1927,7 @@ contains
   end subroutine blockSymmetrizeHS_cmplx
 
 
-  !> Symmetrize a square matrix leaving the on-site atomic blocks alone.  (Complex version)
+  !> Symmetrize a square matrix leaving the on-site atomic blocks alone. (Complex version)
   subroutine blockHermitianHS_cmplx(square, iAtomStart)
 
     !> Square form matrix.
@@ -1948,14 +1943,23 @@ contains
 
     @:ASSERT(nAtom > 0)
     @:ASSERT(size(square, dim=1) == size(square, dim=2))
-    @:ASSERT((size(square, dim=1) == 2*mOrb) .or. (size(square, dim=1) == mOrb))
-    @:ASSERT(size(square, dim=1) == mOrb)
+    @:ASSERT((size(square, dim=1) == mOrb) .or. (size(square, dim=1) == 2*mOrb))
+    @:ASSERT(size(square, dim=1) == mOrb .or. size(square, dim=1) == 2*mOrb)
 
     do iAtom = 1, nAtom
       iStart = iAtomStart(iAtom)
       iEnd = iAtomStart(iAtom+1) - 1
       square(iStart:iEnd, iEnd+1:mOrb) = transpose(conjg(square(iEnd+1:mOrb, iStart:iEnd)))
     end do
+
+    if (size(square, dim=1) == 2*mOrb) then
+      ! 2 component matrix
+      do iAtom = 1, nAtom
+        iStart = iAtomStart(iAtom) + mOrb
+        iEnd = iAtomStart(iAtom+1) + mOrb - 1
+        square(iStart:iEnd, iEnd+1:) = transpose(conjg(square(iEnd+1:, iStart:iEnd)))
+      end do
+    end if
 
   end subroutine blockHermitianHS_cmplx
 
@@ -1985,33 +1989,6 @@ contains
     end do
 
   end subroutine blockSymmetrizeHS_real
-
-
-  !> Anti-symmetrize a square matrix leaving the on-site atomic blocks alone. (Real version)
-  subroutine blockAntiSymmetrizeHS_real(square, iAtomStart)
-
-    !> Square form matrix.
-    real(dp), intent(inout) :: square(:, :)
-
-    !> Contains the offset in the array for each atom.
-    integer, intent(in) :: iAtomStart(:)
-
-    integer :: nAtom, iAtom, iStart, iEnd, mOrb
-
-    nAtom = size(iAtomStart) - 1
-    mOrb = iAtomStart(nAtom+1) - 1
-
-    @:ASSERT(nAtom > 0)
-    @:ASSERT(size(square, dim=1) == size(square, dim=2))
-    @:ASSERT(size(square, dim=1) == mOrb)
-
-    do iAtom = 1, nAtom
-      iStart = iAtomStart(iAtom)
-      iEnd = iAtomStart(iAtom+1) - 1
-      square(iStart:iEnd, iEnd+1:mOrb) = -transpose(square(iEnd+1:mOrb, iStart:iEnd))
-    end do
-
-  end subroutine blockAntiSymmetrizeHS_real
 
 
   !> Copy lower triangle to upper for a square matrix. (Real version)
@@ -3034,7 +3011,7 @@ contains
 
     integer :: nAtom, iOrig, ii, jj, nOrb1, nOrb2, iNeigh, iAtom1, iAtom2, iAtom2f
     real(dp) :: rotZ(orb%mOrb,orb%mOrb), theta, tmpSqr(orb%mOrb,orb%mOrb)
-    integer  :: lShellVals(orb%mShell), iSh, iSp
+    integer :: lShellVals(orb%mShell), iSh, iSp
 
     nAtom = size(iNeighbour, dim=2)
     square(:, :) = 0.0_dp
@@ -3120,7 +3097,7 @@ contains
     complex(dp) :: phase, tmpSqr(orb%mOrb,orb%mOrb)
     integer :: nAtom, iOrig, nOrb1, nOrb2, ii, jj, iNeigh, iOldVec, iVec, iAtom1, iAtom2, iAtom2f
     real(dp) :: kPoint2p(2), rotZ(orb%mOrb,orb%mOrb), theta
-    integer  :: iSh, iSp, lShellVals(orb%mShell)
+    integer :: iSh, iSp, lShellVals(orb%mShell)
 
     nAtom = size(iNeighbour, dim=2)
     square(:, :) = cmplx(0, 0, dp)
@@ -3348,5 +3325,54 @@ contains
   end subroutine packRhoHelicalCplxBlacs
 
 #:endif
+
+
+  !> Calculate indexing array and number of elements in sparse arrays like the real space overlap
+  subroutine getSparseDescriptor(iNeighbour, nNeighbourSK, img2CentCell, orb, iPair, sparseSize)
+
+    !> Neighbours of each atom
+    integer, intent(in) :: iNeighbour(0:,:)
+
+    !> Number of neighbours of each atom
+    integer, intent(in) :: nNeighbourSK(:)
+
+    !> Indexing for mapping image atoms to central cell
+    integer, intent(in) :: img2CentCell(:)
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> Sparse array indexing for the start of atomic blocks in data structures
+    integer, allocatable, intent(inout) :: iPair(:,:)
+
+    !> Total number of elements in a sparse structure (ignoring extra indices like spin)
+    integer, intent(out) :: sparseSize
+
+    integer :: nAtom, mNeighbour
+    integer :: ind, iAt1, nOrb1, iNeigh1, nOrb2
+
+    nAtom = size(iNeighbour, dim=2)
+    mNeighbour = size(iNeighbour, dim=1)
+
+    @:ASSERT(allocated(iPair))
+    @:ASSERT(size(iPair, dim=2) == nAtom)
+
+    if (mNeighbour > size(iPair, dim=1)) then
+      deallocate(iPair)
+      allocate(iPair(0 : mNeighbour - 1, nAtom))
+      iPair(:,:) = 0
+    end if
+    ind = 0
+    do iAt1 = 1, nAtom
+      nOrb1 = orb%nOrbAtom(iAt1)
+      do iNeigh1 = 0, nNeighbourSK(iAt1)
+        iPair(iNeigh1, iAt1) = ind
+        nOrb2 = orb%nOrbAtom(img2CentCell(iNeighbour(iNeigh1, iAt1)))
+        ind = ind + nOrb1 * nOrb2
+      end do
+    end do
+    sparseSize = ind
+
+  end subroutine getSparseDescriptor
 
 end module dftbp_dftb_sparse2dense
