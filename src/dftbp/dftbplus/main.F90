@@ -283,7 +283,7 @@ contains
       if (tWriteCharges) then
         call writeCharges(fCharges, this%tWriteChrgAscii, this%orb, this%qInput, this%qBlockIn,&
             & this%qiBlockIn, this%densityMatrix%deltaRhoIn, size(this%iAtInCentralRegion),&
-            & multipoles=this%multipoleInp)
+            & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
       end if
 
       if (this%tForces) then
@@ -1062,6 +1062,8 @@ contains
               & this%nNeighbourSk, this%img2CentCell, this%iSparseStart, this%qOutput,&
               & iRhoPrim=this%iRhoPrim, qBlock=this%qBlockOut, qiBlock=this%qiBlockOut,&
               & qNetAtom=this%qNetAtom, multipoles=this%multipoleOut)
+          print *, 'after diag:'
+          print '(4F20.13)', sum(this%qOutput, dim=1)
 
           if (this%tSpinSharedEf .or. this%tFixEf .or.&
               & this%electronicSolver%iSolver == electronicSolverTypes%GF) then
@@ -2739,8 +2741,9 @@ contains
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
             & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species,&
-            & coord, rangeSep, densityMatrix%deltaRhoInSqrCplxHS, nNeighbourCam, nNeighbourCamSym,&
-            & HSqrCplx, SSqrCplx, SSqrCplxKpts, eigVecsCplx, eigen, errStatus)
+            & coord, rangeSep, densityMatrix%deltaRhoOutSqrCplx, densityMatrix%deltaRhoInSqrCplxHS,&
+            & nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts, eigVecsCplx,&
+            & eigen, errStatus)
         @:PROPAGATE_ERROR(errStatus)
       end if
     else
@@ -2954,8 +2957,8 @@ contains
   subroutine buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, neighbourList,&
       & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
       & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord,&
-      & rangeSep, deltaRhoInSqrCplxHS, nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx,&
-      & SSqrCplxKpts, eigvecsCplx, eigen, errStatus)
+      & rangeSep, deltaRhoOutSqrCplx, deltaRhoInSqrCplxHS, nNeighbourCam, nNeighbourCamSym,&
+      & HSqrCplx, SSqrCplx, SSqrCplxKpts, eigvecsCplx, eigen, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3019,6 +3022,9 @@ contains
 
     !> Data for rangeseparated calculation
     type(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+
+    !> Change in complex density matrix during last rangesep SCC cycle
+    complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
 
     !> Change in complex density matrix during last rangesep SCC cycle
     real(dp), intent(in), pointer :: deltaRhoInSqrCplxHS(:,:,:,:,:,:)
@@ -3099,9 +3105,9 @@ contains
         ! Store all square overlaps
         SSqrCplxKpts(:,:, iK) = SSqrCplx
         ! Pass real-space deltaRhoInSqrCplxHS for all BvK lattice shifts
-        call rangeSep%addCamHamiltonian(env, deltaRhoInSqrCplxHS, symNeighbourList,&
-            & nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-            & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS, HSqrCplx)
+        ! call rangeSep%addCamHamiltonian(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:, iKS),&
+        !     & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
+        !     & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS, HSqrCplx)
       end if
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
@@ -4354,6 +4360,8 @@ contains
 
         call mulliken(qInput, ints%overlap, deltaRhoInSqrCplxHS, orb, neighbourList%iNeighbour,&
             & nNeighbourSK, img2CentCell, iSparseStart, iAtomStart, iCellVec, cellVec, rangeSep)
+        print *, 'after mixer:'
+        print '(4F20.13)', sum(qInput, dim=1)
 
         ! RangeSep: for spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices

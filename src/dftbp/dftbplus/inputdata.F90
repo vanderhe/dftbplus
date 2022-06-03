@@ -375,7 +375,8 @@ module dftbp_dftbplus_inputdata
     real(dp), allocatable :: kWeight(:)
 
     !> Diagonal entries of supercell folding matrix
-    integer :: supercellFoldingDiag(3)
+    integer, allocatable :: supercellFoldingDiag(:)
+    real(dp), allocatable :: supercellFoldingMatrix(:,:)
 
     !> cell pressure if periodic
     real(dp) :: pressure       = 0.0_dp

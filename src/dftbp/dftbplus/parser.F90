@@ -2845,8 +2845,10 @@ contains
           call detailedError(value1, "Range-separated calculations with k-points require a&
               & Monkhorst-Pack-like sampling, i.e. a uniform extension of the lattice.")
         end if
+        ctrl%supercellFoldingMatrix = coeffsAndShifts
+        allocate(ctrl%supercellFoldingDiag(3))
         do ii = 1, 3
-          ctrl%supercellFoldingDiag(ii) = coeffs(ii, ii)
+          ctrl%supercellFoldingDiag(ii) = nint(coeffs(ii, ii))
         end do
         ! Check if shifts are zero
         if (any(abs(coeffsAndShifts(:, 4)) > 1e-06_dp)) then

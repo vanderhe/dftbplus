@@ -378,6 +378,10 @@ module dftbp_dftbplus_initprogram
     !> weight of the K-Points
     real(dp), allocatable :: kWeight(:)
 
+    !> Supercell folding coefficients and shifts
+    integer, allocatable :: supercellFoldingDiag(:)
+    real(dp), allocatable :: supercellFoldingMatrix(:,:)
+
     !> external pressure if periodic
     real(dp) :: extPressure
 
@@ -2615,15 +2619,25 @@ contains
     this%tWriteChrgAscii = input%ctrl%tWriteChrgAscii
     this%tSkipChrgChecksum = input%ctrl%tSkipChrgChecksum .or. this%tNegf
 
-    call this%initializeCharges(input%ctrl%initialSpins, input%ctrl%initialCharges)
-
     if (this%isRangeSep) then
+      ! k-point case with range-separation
+      ! if (.not. this%tRealHS .and. .not. this%tReadChrg) then
+      !   if (.not. allocated(input%ctrl%supercellFoldingDiag)) then
+      !     call error('Supercell folding coefficients for periodic, beyond gamma, range-separated&
+      !         & calculation absent.')
+      !   elseif (this%tReadChrg) then
+      !     ! allocate(this%densityMatrix%deltaRhoIn)
+      !   end if
+      !   this%supercellFoldingDiag = input%ctrl%supercellFoldingDiag
+      !   this%supercellFoldingMatrix = input%ctrl%supercellFoldingMatrix
+      ! end if
       call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
       call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic, this%tRealHS,&
           & this%nKPoint, input%ctrl%rangeSepInp%cutoffRed, input%ctrl%rangeSepInp%gSummationCutoff)
-      call this%initRangeSeparated(hubbU, input%ctrl%rangeSepInp, allocated(this%reks),&
-          & input%ctrl%supercellFoldingDiag)
+      call this%initRangeSeparated(hubbU, input%ctrl%rangeSepInp, allocated(this%reks))
     end if
+
+    call this%initializeCharges(input%ctrl%initialSpins, input%ctrl%initialCharges)
 
     ! Initialise images (translations)
     if (this%tPeriodic .or. this%tHelical) then
@@ -3874,7 +3888,7 @@ contains
   subroutine initializeCharges(this, initialSpins, initialCharges)
 
     !> Instance
-    class(TDftbPlusMain), intent(inout) :: this
+    class(TDftbPlusMain), intent(inout), target :: this
 
     !> Initial spins
     real(dp), optional, intent(in) :: initialSpins(:,:)
@@ -3888,6 +3902,12 @@ contains
     integer :: iAt, iSp, iSh, ii, jj, iStart, iEnd, iS
     real(dp) :: rTmp
     character(lc) :: message
+
+    !! Supercell folding coefficients
+    real(dp), pointer :: coeffs(:,:)
+
+    !! True, if the supercell folding does not correspond to a MP-like scheme
+    logical :: tNotMonkhorstPack
 
     ! Charge arrays may have already been initialised
     @:ASSERT(size(this%species0) == this%nAtom)
@@ -3954,25 +3974,58 @@ contains
 
     if (.not. this%tSccCalc) return
 
+    if (this%isRangeSep .and. (.not. this%tRealHS)) then
+      allocate(this%supercellFoldingMatrix(3, 4))
+    end if
+
     ! Charges read from file
     if (this%tReadChrg) then
       if (this%tFixEf .or. this%tSkipChrgChecksum) then
         ! do not check charge or magnetisation from file
         call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
             & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom,&
-            & multipoles=this%multipoleInp)
+            & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
       else
         ! check number of electrons in file
         if (this%nSpin /= 2) then
           call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
               & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom, nEl = sum(this%nEl),&
-              & multipoles=this%multipoleInp)
+              & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
         else
           ! check magnetisation in addition
           call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
               & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom, nEl=sum(this%nEl),&
-              & magnetisation=this%nEl(1)-this%nEl(2), multipoles=this%multipoleInp)
+              & magnetisation=this%nEl(1)-this%nEl(2), multipoles=this%multipoleInp,&
+              & coeffsAndShifts=this%supercellFoldingMatrix)
         end if
+      end if
+
+      ! Check if obtained supercell folding matrix meets current requirements
+      if (this%isRangeSep .and. (.not. this%tRealHS)) then
+        if (any(abs(modulo(this%supercellFoldingMatrix(:, 1:3) + 0.5_dp, 1.0_dp) - 0.5_dp)&
+            & > 1e-6_dp)) then
+          call error('The components of the supercell matrix must be integers.')
+        end if
+        ! Check if k-point mesh is a Monkhorst-Pack sampling
+        tNotMonkhorstPack = .false.
+        coeffs => this%supercellFoldingMatrix(:, 1:3)
+        lpOuter: do jj = 1, size(coeffs, dim=2)
+          do ii = 1, size(coeffs, dim=1)
+            if (ii == jj) cycle
+            if (coeffs(ii, jj) > 1e-06_dp) then
+              tNotMonkhorstPack = .true.
+              exit lpOuter
+            end if
+          end do
+        end do lpOuter
+        if (tNotMonkhorstPack) then
+          call error("Range-separated calculations with k-points require a&
+              & Monkhorst-Pack-like sampling, i.e. a uniform extension of the lattice.")
+        end if
+        allocate(this%supercellFoldingDiag(3))
+        do ii = 1, 3
+          this%supercellFoldingDiag(ii) = nint(this%supercellFoldingMatrix(ii, ii))
+        end do
       end if
 
     #:if WITH_TRANSPORT
@@ -5437,7 +5490,7 @@ contains
 
 
   !> Initialise range separated extension.
-  subroutine initRangeSeparated(this, hubbU, rangeSepInp, isREKS, supercellFoldingDiag)
+  subroutine initRangeSeparated(this, hubbU, rangeSepInp, isREKS)
 
     !> Instance
     class(TDftbPlusMain), intent(inout), target :: this
@@ -5451,14 +5504,11 @@ contains
     !> Is this DFTB/SSR formalism
     logical, intent(in) :: isREKS
 
-    !> Diagonal entries of supercell folding matrix
-    integer, intent(in) :: supercellFoldingDiag(:)
-
     allocate(this%rangeSep)
     call TRangeSepFunc_init(this%rangeSep, this%nAtom, this%species0, hubbU(1, :),&
         & rangeSepInp%screeningThreshold, rangeSepInp%omega, rangeSepInp%camAlpha,&
         & rangeSepInp%camBeta, this%cutOff%gSummationCutoff, this%cutOff%gammaCutoff, this%tSpin,&
-        & isREKS, rangeSepInp%rangeSepAlg, supercellFoldingDiag, this%tRealHS)
+        & isREKS, rangeSepInp%rangeSepAlg, this%supercellFoldingDiag, this%tRealHS)
 
     if (this%tRealHS) then
       this%nMixElements = this%nOrb * this%nOrb * this%nSpin
