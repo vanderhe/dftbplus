@@ -1069,8 +1069,6 @@ contains
               & this%nNeighbourSk, this%img2CentCell, this%iSparseStart, this%qOutput,&
               & iRhoPrim=this%iRhoPrim, qBlock=this%qBlockOut, qiBlock=this%qiBlockOut,&
               & qNetAtom=this%qNetAtom, multipoles=this%multipoleOut)
-          print *, 'after diag:'
-          print '(4F20.13)', sum(this%qOutput, dim=1)
 
           if (this%tSpinSharedEf .or. this%tFixEf .or.&
               & this%electronicSolver%iSolver == electronicSolverTypes%GF) then
@@ -1190,7 +1188,7 @@ contains
           if (tWriteSccRestart) then
             call writeCharges(fCharges, this%tWriteChrgAscii, this%orb, this%qInput, this%qBlockIn,&
                 & this%qiBlockIn, this%densityMatrix%deltaRhoIn, size(this%iAtInCentralRegion),&
-                & multipoles=this%multipoleInp)
+                & coeffsAndShifts=this%supercellFoldingMatrix, multipoles=this%multipoleInp)
           end if
         end if
 
@@ -4397,8 +4395,6 @@ contains
 
         call mulliken(qInput, ints%overlap, deltaRhoInSqrCplxHS, orb, neighbourList%iNeighbour,&
             & nNeighbourSK, img2CentCell, iSparseStart, iAtomStart, iCellVec, cellVec, rangeSep)
-        print *, 'after mixer:'
-        print '(4F20.13)', sum(qInput, dim=1)
 
         ! RangeSep: for spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices

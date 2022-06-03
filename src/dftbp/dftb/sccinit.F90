@@ -14,6 +14,7 @@ module dftbp_dftb_sccinit
   use dftbp_io_message, only : error
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_multipole, only : TMultipole
+  use dftbp_dftb_rangeseparated, only : checkSupercellFoldingMatrix
   implicit none
 
   private
@@ -219,26 +220,29 @@ contains
     !> Atomic multipoles, if relevant
     type(TMultipole), intent(inout), optional :: multipoles
 
-    !> nr. of orbitals / atoms / spin channels
+    !! Diagonal elements of supercell folding matrix
+    integer :: supercellFoldingDiag(3)
+
+    !! nr. of orbitals / atoms / spin channels
     integer :: nOrb, nAtom, nSpin
 
-    !> error returned by the io commands
+    !! error returned by the io commands
     integer :: iErr
 
-    !> file unit number
+    !! file unit number
     integer :: file
 
-    !> total charge is present at the top of the file
+    !! total charge is present at the top of the file
     real(dp) :: checkSum(size(qq, dim=3))
 
     integer :: iOrb, iAtom, iSpin, ii, jj, nAtomInFile, nDipole, nQuadrupole
     integer :: fileFormat
     real(dp) :: sumQ
 
-    !> Requested to be re-loaded
+    !! Requested to be re-loaded
     logical :: tBlock, tiBlock, tRho, tKpointInfo, isMultipolar
 
-    !> Present in the file itself
+    !! Present in the file itself
     logical :: tBlockPresent, tiBlockPresent, tRhoPresent, tKpointInfoPresent
 
     character(len=120) :: error_string
@@ -250,6 +254,16 @@ contains
     tiBlock = allocated(qiBlock)
     tRho = allocated(deltaRho)
     tKpointInfo = present(coeffsAndShifts)
+
+    if (tKpointInfo .and. (.not. tRho)) then
+      call error('Extracting k-point information only makes sense in combination with delta density&
+          & matrix.')
+    end if
+
+    ! In this case the size of deltaRho couldn't be known in advance, therefore deallocating
+    if (tRho .and. tKpointInfo) then
+      deallocate(deltaRho)
+    end if
 
     @:ASSERT(size(qq, dim=1) == orb%mOrb)
     @:ASSERT(nSpin == 1 .or. nSpin == 2 .or. nSpin == 4)
@@ -300,7 +314,7 @@ contains
       call error("Error during reading external file of charge data")
     end if
     isMultipolar = .false.
-    tKpointInfo = .false.
+    tKpointInfoPresent = .false.
     select case(fileFormat)
     case(4)
       if (tReadAscii) then
@@ -526,6 +540,9 @@ contains
               end if
             end do
           end do
+          call checkSupercellFoldingMatrix(coeffsAndShifts,&
+              & supercellFoldingDiagOut=supercellFoldingDiag)
+          allocate(deltaRho(orb%nOrb * orb%nOrb * nSpin * product(supercellFoldingDiag)))
         end if
       end if
       if (tRhoPresent) then
@@ -536,7 +553,7 @@ contains
             read (file, iostat=iErr) deltaRho(ii)
           end if
           if (iErr /= 0) then
-            write (error_string, *) "Failure to read file for external imaginary block charges"
+            write (error_string, *) 'Failure to read file for delta density matrix.'
             call error(error_string)
           end if
         end do

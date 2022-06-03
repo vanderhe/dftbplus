@@ -24,6 +24,7 @@ module dftbp_dftb_rangeseparated
   use dftbp_dftb_periodic, only : TNeighbourList, TSymNeighbourList, getCellTranslations
   use dftbp_dftb_nonscc, only : buildS
   use dftbp_dftb_densitymatrix, only : TDensityMatrix
+  use dftbp_math_simplealgebra, only : determinant33
 
 #:if WITH_OMP
   use omp_lib, only : OMP_GET_NUM_THREADS, OMP_GET_THREAD_NUM
@@ -32,7 +33,8 @@ module dftbp_dftb_rangeseparated
   implicit none
   private
 
-  public :: TRangeSepSKTag, TRangeSepFunc, TRangeSepFunc_init, getGammaPrimeValue, rangeSepTypes
+  public :: TRangeSepSKTag, TRangeSepFunc, TRangeSepFunc_init
+  public :: getGammaPrimeValue, rangeSepTypes, checkSupercellFoldingMatrix
 
 
   !> Returns the derivative of long-range gamma.
@@ -448,6 +450,75 @@ contains
     end subroutine getBvKLatticeShifts
 
   end subroutine TRangeSepFunc_init
+
+
+  !> Check if obtained supercell folding matrix meets current requirements
+  subroutine checkSupercellFoldingMatrix(supercellFoldingMatrix, supercellFoldingDiagOut)
+
+    !> Coefficients of the lattice vectors in the linear combination for the super lattice vectors
+    !! (should be integer values) and shift of the grid along the three small reciprocal lattice
+    !! vectors (between 0.0 and 1.0)
+    real(dp), intent(in), target :: supercellFoldingMatrix(:,:)
+
+    !> Diagonal elements of supercell folding matrix, if present
+    integer, intent(out), optional :: supercellFoldingDiagOut(:)
+
+    !! Supercell folding coefficients and shifts
+    real(dp), pointer :: coeffs(:,:), shifts(:)
+
+    !! True, if the supercell folding does not correspond to a MP-like scheme
+    logical :: tNotMonkhorstPack
+
+    !! Auxiliary variables
+    integer :: ii, jj
+
+    if (present(supercellFoldingDiagOut)) then
+      @:ASSERT(size(supercellFoldingDiagOut) == 3)
+    end if
+
+    coeffs => supercellFoldingMatrix(:, 1:3)
+    shifts => supercellFoldingMatrix(:, 4)
+
+    if (abs(determinant33(coeffs)) - 1.0_dp < -1e-6_dp) then
+      call error('Determinant of the supercell matrix must be greater than 1.')
+    end if
+
+    if (any(abs(modulo(coeffs + 0.5_dp, 1.0_dp) - 0.5_dp) > 1e-6_dp)) then
+      call error('The components of the supercell matrix must be integers.')
+    end if
+
+    ! Check if k-point mesh is a Monkhorst-Pack sampling with zero shift
+    tNotMonkhorstPack = .false.
+    lpOuter: do jj = 1, size(coeffs, dim=2)
+      do ii = 1, size(coeffs, dim=1)
+        if (ii == jj) cycle
+        if (coeffs(ii, jj) > 1e-06_dp) then
+          tNotMonkhorstPack = .true.
+          exit lpOuter
+        end if
+      end do
+    end do lpOuter
+    if (tNotMonkhorstPack) then
+      call error('Range-separated calculations with k-points require a Monkhorst-Pack-like&
+          & sampling, i.e. a uniform extension of the lattice.')
+    end if
+
+    ! Check if shifts are zero
+    if (any(abs(shifts) > 1e-06_dp)) then
+      call error('Range-separated calculations with k-points require a Monkhorst-Pack-like&
+          & sampling with zero shift.')
+    end if
+
+    ! All checks have passed, continue...
+
+    ! Get diagonal elements as integers, if requested
+    if (present(supercellFoldingDiagOut)) then
+      do ii = 1, 3
+        supercellFoldingDiagOut(ii) = nint(coeffs(ii, ii))
+      end do
+    end if
+
+  end subroutine checkSupercellFoldingMatrix
 
 
   !> Folds relative real-space vector back to BvK region.

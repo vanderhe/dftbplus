@@ -27,7 +27,7 @@ module dftbp_dftbplus_parser
   use dftbp_dftb_halogenx, only : halogenXSpecies1, halogenXSpecies2
   use dftbp_dftb_periodic, only : TNeighbourList, TNeighbourlist_init, getSuperSampling, &
       & getCellTranslations, updateNeighbourList
-  use dftbp_dftb_rangeseparated, only : TRangeSepSKTag, rangeSepTypes
+  use dftbp_dftb_rangeseparated, only : TRangeSepSKTag, rangeSepTypes, checkSupercellFoldingMatrix
   use dftbp_dftb_repulsive_chimesrep, only : TChimesRepInp
   use dftbp_dftb_repulsive_polyrep, only : TPolyRepInp, TPolyRep
   use dftbp_dftb_repulsive_splinerep, only : TSplineRepInp, TSplineRep
@@ -2772,14 +2772,8 @@ contains
     integer, allocatable :: tmpI1(:)
     real(dp), allocatable :: kpts(:,:)
 
-    !! Supercell folding coefficients
-    real(dp), pointer :: coeffs(:,:)
-
     !! True, if k-points should be reduced by inversion
     logical :: tReduceByInversion
-
-    !! True, if the supercell folding does not correspond to a MP-like scheme
-    logical :: tNotMonkhorstPack
 
     call getChildValue(node, "KPointsAndWeights", value1, child=child, &
         &modifier=modifier)
@@ -2803,31 +2797,13 @@ contains
             &must be integers.")
       end if
       if (allocated(ctrl%rangeSepInp)) then
-        ! Check if k-point mesh is a Monkhorst-Pack sampling
-        tNotMonkhorstPack = .false.
-        coeffs => coeffsAndShifts(:, 1:3)
-        lpOuter: do jj = 1, size(coeffs, dim=2)
-          do ii = 1, size(coeffs, dim=1)
-            if (ii == jj) cycle
-            if (coeffs(ii, jj) > 1e-06_dp) then
-              tNotMonkhorstPack = .true.
-              exit lpOuter
-            end if
-          end do
-        end do lpOuter
-        if (tNotMonkhorstPack) then
-          call detailedError(value1, "Range-separated calculations with k-points require a&
-              & Monkhorst-Pack-like sampling, i.e. a uniform extension of the lattice.")
-        end if
-        ctrl%supercellFoldingMatrix = coeffsAndShifts
         allocate(ctrl%supercellFoldingDiag(3))
-        do ii = 1, 3
-          ctrl%supercellFoldingDiag(ii) = nint(coeffs(ii, ii))
-        end do
-        ! Check if shifts are zero
-        if (any(abs(coeffsAndShifts(:, 4)) > 1e-06_dp)) then
-          call detailedError(value1, "Range-separated calculations with k-points require a&
-              & Monkhorst-Pack-like sampling with zero shift.")
+        call checkSupercellFoldingMatrix(coeffsAndShifts,&
+            & supercellFoldingDiagOut=ctrl%supercellFoldingDiag)
+        ctrl%supercellFoldingMatrix = coeffsAndShifts
+        ! For Gamma-point we don't need this information
+        if (sum(ctrl%supercellFoldingDiag) <= 3) then
+          deallocate(ctrl%supercellFoldingDiag, ctrl%supercellFoldingMatrix)
         end if
       end if
       ! tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))

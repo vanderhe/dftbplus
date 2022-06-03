@@ -47,7 +47,8 @@ module dftbp_dftbplus_initprogram
       & getCellTranslations
   use dftbp_dftb_pmlocalisation, only : TPipekMezey, initialise
   use dftbp_dftb_potentials, only : TPotentials, TPotentials_init
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, rangeSepTypes, TRangeSepFunc_init
+  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, rangeSepTypes, TRangeSepFunc_init,&
+      & checkSupercellFoldingMatrix
   use dftbp_dftb_repulsive_chimesrep, only : TChimesRepInp, TChimesRep, TChimesRep_init
   use dftbp_dftb_repulsive_pairrepulsive, only : TPairRepulsiveItem
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
@@ -1141,7 +1142,8 @@ module dftbp_dftbplus_initprogram
     procedure :: allocateDenseMatrices
     procedure :: getDenseDescCommon
     procedure :: ensureRangeSeparatedReqs
-    procedure :: initRangeSeparated
+    procedure :: reallocateRangeSeparated
+    procedure :: associateRangeSeparatedPointers
     procedure :: initPlumed
 
   end type TDftbPlusMain
@@ -2623,24 +2625,33 @@ contains
     this%tSkipChrgChecksum = input%ctrl%tSkipChrgChecksum .or. this%tNegf
 
     if (this%isRangeSep) then
-      ! k-point case with range-separation
-      ! if (.not. this%tRealHS .and. .not. this%tReadChrg) then
-      !   if (.not. allocated(input%ctrl%supercellFoldingDiag)) then
-      !     call error('Supercell folding coefficients for periodic, beyond gamma, range-separated&
-      !         & calculation absent.')
-      !   elseif (this%tReadChrg) then
-      !     ! allocate(this%densityMatrix%deltaRhoIn)
-      !   end if
-      !   this%supercellFoldingDiag = input%ctrl%supercellFoldingDiag
-      !   this%supercellFoldingMatrix = input%ctrl%supercellFoldingMatrix
-      ! end if
+      if ((.not. this%tRealHS) .and. (.not. this%tReadChrg)) then
+        this%supercellFoldingMatrix = input%ctrl%supercellFoldingMatrix
+        this%supercellFoldingDiag = input%ctrl%supercellFoldingDiag
+      end if
       call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
       call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic, this%tRealHS,&
           & this%nKPoint, input%ctrl%rangeSepInp%cutoffRed, input%ctrl%rangeSepInp%gSummationCutoff)
-      call this%initRangeSeparated(hubbU, input%ctrl%rangeSepInp, allocated(this%reks))
+      ! allocation is nessecary to hint "initializeCharges" what information to extract
+      call this%reallocateRangeSeparated()
     end if
 
     call this%initializeCharges(input%ctrl%initialSpins, input%ctrl%initialCharges)
+
+    if (this%isRangeSep) then
+      allocate(this%rangeSep)
+      call TRangeSepFunc_init(this%rangeSep, this%nAtom, this%species0, hubbU(1, :),&
+          & input%ctrl%rangeSepInp%screeningThreshold, input%ctrl%rangeSepInp%omega,&
+          & input%ctrl%rangeSepInp%camAlpha, input%ctrl%rangeSepInp%camBeta,&
+          & this%cutOff%gSummationCutoff, this%cutOff%gammaCutoff, this%tSpin,&
+          & allocated(this%reks), input%ctrl%rangeSepInp%rangeSepAlg, this%supercellFoldingDiag,&
+          & this%tRealHS)
+      ! now all information are present to properly allocate density matrices and associate pointers
+      call this%reallocateRangeSeparated()
+      ! reset number of mixer elements, so that there is enough space for density matrices
+      this%nMixElements = size(this%densityMatrix%deltaRhoIn)
+      call this%associateRangeSeparatedPointers()
+    end if
 
     ! Initialise images (translations)
     if (this%tPeriodic .or. this%tHelical) then
@@ -3032,7 +3043,7 @@ contains
     end if
 
     if (this%tSccCalc) then
-      if (.not.this%tRestartNoSC) then
+      if (.not. this%tRestartNoSC) then
         write(stdOut, "(A,':',T30,A)") "Self consistent charges", "Yes"
         write(stdOut, "(A,':',T30,E14.6)") "SCC-tolerance", this%sccTol
         write(stdOut, "(A,':',T30,I14)") "Max. scc iterations", this%maxSccIter
@@ -3987,8 +3998,10 @@ contains
 
     if (.not. this%tSccCalc) return
 
-    if (this%isRangeSep .and. (.not. this%tRealHS)) then
+    if (this%isRangeSep .and. (.not. this%tRealHS) .and. this%tReadChrg) then
       allocate(this%supercellFoldingMatrix(3, 4))
+    elseif (this%isRangeSep .and. this%tRealHS) then
+      if (allocated(this%supercellFoldingMatrix)) deallocate(this%supercellFoldingMatrix)
     end if
 
     ! Charges read from file
@@ -4015,30 +4028,9 @@ contains
 
       ! Check if obtained supercell folding matrix meets current requirements
       if (this%isRangeSep .and. (.not. this%tRealHS)) then
-        if (any(abs(modulo(this%supercellFoldingMatrix(:, 1:3) + 0.5_dp, 1.0_dp) - 0.5_dp)&
-            & > 1e-6_dp)) then
-          call error('The components of the supercell matrix must be integers.')
-        end if
-        ! Check if k-point mesh is a Monkhorst-Pack sampling
-        tNotMonkhorstPack = .false.
-        coeffs => this%supercellFoldingMatrix(:, 1:3)
-        lpOuter: do jj = 1, size(coeffs, dim=2)
-          do ii = 1, size(coeffs, dim=1)
-            if (ii == jj) cycle
-            if (coeffs(ii, jj) > 1e-06_dp) then
-              tNotMonkhorstPack = .true.
-              exit lpOuter
-            end if
-          end do
-        end do lpOuter
-        if (tNotMonkhorstPack) then
-          call error("Range-separated calculations with k-points require a&
-              & Monkhorst-Pack-like sampling, i.e. a uniform extension of the lattice.")
-        end if
         allocate(this%supercellFoldingDiag(3))
-        do ii = 1, 3
-          this%supercellFoldingDiag(ii) = nint(this%supercellFoldingMatrix(ii, ii))
-        end do
+        call checkSupercellFoldingMatrix(this%supercellFoldingMatrix,&
+            & supercellFoldingDiagOut=this%supercellFoldingDiag)
       end if
 
     #:if WITH_TRANSPORT
@@ -4059,7 +4051,6 @@ contains
         ${NAME}$(:) = 0.0_dp
       #:endfor
     end if
-
 
     !TODO(Alex) Could definitely split the code here
     if (allocated(this%reks)) return
@@ -4082,7 +4073,7 @@ contains
 
       if (.not. this%tSkipChrgChecksum) then
         ! Rescaling to ensure correct number of electrons in the system
-        this%qInput(:,:,1) = this%qInput(:,:,1) *  sum(this%nEl) / sum(this%qInput(:,:,1))
+        this%qInput(:,:,1) = this%qInput(:,:,1) * sum(this%nEl) / sum(this%qInput(:,:,1))
       end if
 
 
@@ -5517,52 +5508,71 @@ contains
   end subroutine getRangeSeparatedCutOff
 
 
-  !> Initialise range separated extension.
-  subroutine initRangeSeparated(this, hubbU, rangeSepInp, isREKS)
+  !> Pre-allocate density matrix for range-separation.
+  subroutine reallocateRangeSeparated(this)
 
     !> Instance
-    class(TDftbPlusMain), intent(inout), target :: this
+    class(TDftbPlusMain), intent(inout) :: this
 
-    !> Hubbard values for species
-    real(dp), intent(in) :: hubbU(:,:)
-
-    !> Input for range separated calculation
-    type(TRangeSepInp), intent(in) :: rangeSepInp
-
-    !> Is this DFTB/SSR formalism
-    logical, intent(in) :: isREKS
-
-    allocate(this%rangeSep)
-    call TRangeSepFunc_init(this%rangeSep, this%nAtom, this%species0, hubbU(1, :),&
-        & rangeSepInp%screeningThreshold, rangeSepInp%omega, rangeSepInp%camAlpha,&
-        & rangeSepInp%camBeta, this%cutOff%gSummationCutoff, this%cutOff%gammaCutoff, this%tSpin,&
-        & isREKS, rangeSepInp%rangeSepAlg, this%supercellFoldingDiag, this%tRealHS)
+    !! Size of arrays
+    integer :: nMixElements
 
     if (this%tRealHS) then
-      this%nMixElements = this%nOrb * this%nOrb * this%nSpin
+      nMixElements = this%nOrb * this%nOrb * this%nSpin
+    elseif (this%tReadChrg .and. (.not. allocated(this%supercellFoldingDiag))) then
+      ! in case of k-points and restart from file, we have to wait until charges.bin was read
+      nMixElements = 0
     else
-      this%nMixElements = this%nOrb * this%nOrb * this%nSpin * size(this%rangeSep%bvKShifts, dim=2)
+      ! normal k-point case, without restart from file
+      nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%supercellFoldingDiag)
     end if
 
-    allocate(this%densityMatrix%deltaRhoIn(this%nMixElements))
-    allocate(this%densityMatrix%deltaRhoOut(this%nMixElements))
-    allocate(this%densityMatrix%deltaRhoDiff(this%nMixElements))
-    this%densityMatrix%deltaRhoIn(:) = 0.0_dp
+    ! deallocate arrays, if already allocated
+    if (allocated(this%densityMatrix%deltaRhoOut)) deallocate(this%densityMatrix%deltaRhoOut)
+    if (allocated(this%densityMatrix%deltaRhoDiff)) deallocate(this%densityMatrix%deltaRhoDiff)
+    if (allocated(this%SSqrCplxKpts)) deallocate(this%SSqrCplxKpts)
+    if (allocated(this%densityMatrix%deltaRhoOutCplx))&
+        & deallocate(this%densityMatrix%deltaRhoOutCplx)
+
+    ! Prevent for deleting charges read in from file
+    if (.not. allocated(this%densityMatrix%deltaRhoIn)) then
+      allocate(this%densityMatrix%deltaRhoIn(nMixElements))
+      this%densityMatrix%deltaRhoIn(:) = 0.0_dp
+    end if
+    allocate(this%densityMatrix%deltaRhoOut(nMixElements))
+    allocate(this%densityMatrix%deltaRhoDiff(nMixElements))
     this%densityMatrix%deltaRhoOut(:) = 0.0_dp
     this%densityMatrix%deltaRhoDiff(:) = 0.0_dp
 
-    if (this%tRealHS) then
-      this%densityMatrix%deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
-          & => this%densityMatrix%deltaRhoIn(1:this%nMixElements)
-      this%densityMatrix%deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
-          & => this%densityMatrix%deltaRhoOut(1:this%nMixElements)
-    else
+    if (.not. this%tRealHS) then
       allocate(this%SSqrCplxKpts(this%nOrb, this%nOrb, this%nKpoint))
       this%SSqrCplxKpts(:,:,:) = 0.0_dp
 
       allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin&
           & * this%nKPoint))
       this%densityMatrix%deltaRhoOutCplx(:) = 0.0_dp
+    end if
+
+  end subroutine reallocateRangeSeparated
+
+
+  !> Associates density matrix pointers for range-separated extension.
+  subroutine associateRangeSeparatedPointers(this)
+
+    !> Instance
+    class(TDftbPlusMain), intent(inout), target :: this
+
+    !! Size of arrays
+    integer :: nMixElements
+
+    if (this%tRealHS) then
+      nMixElements = this%nOrb * this%nOrb * this%nSpin
+      this%densityMatrix%deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
+          & => this%densityMatrix%deltaRhoIn(1:nMixElements)
+      this%densityMatrix%deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
+          & => this%densityMatrix%deltaRhoOut(1:nMixElements)
+    else
+      nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%rangeSep%coeffsDiag)
       this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * this%nKPoint)&
           & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin&
           & * this%nKPoint)
@@ -5570,14 +5580,14 @@ contains
       this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
           & 1:this%rangeSep%coeffsDiag(1), 1:this%rangeSep%coeffsDiag(2),&
           & 1:this%rangeSep%coeffsDiag(3), 1:this%nSpin)&
-          & => this%densityMatrix%deltaRhoIn(1:this%nMixElements)
+          & => this%densityMatrix%deltaRhoIn(1:nMixElements)
       this%densityMatrix%deltaRhoOutSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
           & 1:this%rangeSep%coeffsDiag(1), 1:this%rangeSep%coeffsDiag(2),&
           & 1:this%rangeSep%coeffsDiag(3), 1:this%nSpin)&
-          & => this%densityMatrix%deltaRhoOut(1:this%nMixElements)
+          & => this%densityMatrix%deltaRhoOut(1:nMixElements)
     end if
 
-  end subroutine initRangeSeparated
+  end subroutine associateRangeSeparatedPointers
 
 
   !> Initializes PLUMED calculator.
