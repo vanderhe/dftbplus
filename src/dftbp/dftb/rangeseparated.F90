@@ -2017,7 +2017,7 @@ contains
     !! Density matrix block from sparse matrix
     real(dp), allocatable :: Pab(:,:)
 
-    !!
+    !! Stores start/end index and number of orbitals of square matrices
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
 
     !! Temporary storages
@@ -2307,7 +2307,7 @@ contains
     !! Density matrix block \alpha\beta
     real(dp), allocatable :: Pab(:,:,:,:,:)
 
-    !!
+    !! Stores start/end index and number of orbitals of square matrices
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
 
     !! Temporary storages
@@ -2379,9 +2379,11 @@ contains
     !! Dummy array with zeros
     real(dp) :: zeros(3)
 
-    ! print *, 'K-Point: ', iKS
+    print *, 'Entering K-Point #', iKS
 
     zeros(:) = 0.0_dp
+
+    ! this initialization is also valid for OMP, since tot is firstprivate
     tot(:,:) = 0.0_dp
 
     squareSize = size(HSqr, dim=1)
@@ -2401,7 +2403,7 @@ contains
 
     ! allocate and initialize difference of delta rho to previous SCC iteration
     deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin) - this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin)
-    pMax = maxval(abs(deltaRhoSqr))
+    pMax = maxval(abs(deltaDeltaRhoSqr))
     ! store deltaRho only one per SCC iteration
     if (iKS == nKS .or. iCurSpin == 2) then
       this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin) = deltaRhoSqr(:,:,:,:,:, iCurSpin)
@@ -2450,7 +2452,7 @@ contains
 
     !$omp parallel do schedule(dynamic) default(none) collapse(2)&
     !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
-    !$omp& testSquareOver, cellVecs, rCellVecs, deltaRhoSqr, latVecs, recVecs2p,&
+    !$omp& testSquareOver, cellVecs, rCellVecs, deltaDeltaRhoSqr, latVecs, recVecs2p,&
     !$omp& tmpHSqr, pMax, kPoint, zeros, iCurSpin, cellVecsG, rCellVecsG)&
     !$omp private(iAtN, iSpN, descN, iNeighN, iNeighNsort, iAtB, iAtBfold, iSpB, pSbnMax, vecL,&
     !$omp& rVecL, ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM,&
@@ -2471,7 +2473,7 @@ contains
           iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
           pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
           pMaxpSbnMax = pMax * pSbnMax
-          ! if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
+          if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
           iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
           iAtBfold = symNeighbourList%img2CentCell(iAtB)
           iSpB = this%species0(iAtBfold)
@@ -2491,13 +2493,13 @@ contains
           loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
             iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
             maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
-            ! if (maxEstimate < this%pScreeningThreshold) exit loopA
+            if (maxEstimate < this%pScreeningThreshold) exit loopA
             iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
             iAtAfold = symNeighbourList%img2CentCell(iAtA)
             iSpA = this%species0(iAtAfold)
             descA = getDescriptor(iAtAfold, iSquare)
             ! get continuous 2D copy of Pab density matrix block
-            Pab = deltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iCurSpin)
+            Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:)
             ! get real-space \vec{h} for gamma arguments
             rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
             vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
@@ -2523,6 +2525,7 @@ contains
             ! bvKShift(:) = this%foldToBvK(vecH - vecL)
             ! bvKIndex(:) = this%foldToBvKIndex(vecH - vecL)
             ! phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
+            ! phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, zeros))
 
             ! pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
             !     & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
@@ -2566,12 +2569,13 @@ contains
 
             ! tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
             !     & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-            !     & - tot(1:descM(iNOrb), 1:descN(iNOrb)) * phase
+            !     & + tot(1:descM(iNOrb), 1:descN(iNOrb)) * phase
 
             loopG: do iG = 1, size(rCellVecsG, dim=2)
               bvKShift(:) = this%foldToBvK(cellVecsG(:, iG) + vecH - vecL)
               bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iG) + vecH - vecL)
-              phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
+              ! phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
+              phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iG)))
 
               pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
                   & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
@@ -2615,7 +2619,7 @@ contains
 
               tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
                   & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-                  & - tot(1:descM(iNOrb), 1:descN(iNOrb)) * phase
+                  & + tot(1:descM(iNOrb), 1:descN(iNOrb)) * phase
             end do loopG
 
           end do loopA
@@ -2624,19 +2628,19 @@ contains
     end do loopM
 
     if (this%tSpin .or. this%tREKS) then
-      tmpHSqr(:,:) = 0.25_dp * tmpHSqr
+      tmpHSqr(:,:) = -0.25_dp * tmpHSqr
     else
-      tmpHSqr(:,:) = 0.125_dp * tmpHSqr
+      tmpHSqr(:,:) = -0.125_dp * tmpHSqr
     end if
 
-    HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
+    ! HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
     ! this%lrEnergy = this%lrEnergy + this%camBeta * evaluateEnergy_cplx_kptrho(tmpHSqr,&
     !     & deltaRhoOutSqrCplx)
 
-    ! this%hprevCplxHS(:,:, iKS) = this%hprevCplxHS(:,:, iKS) + this%camBeta * tmpHSqr
-    ! HSqr(:,:) = HSqr + this%hprevCplxHS(:,:, iKS)
-    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS),&
-    !     & deltaRhoOutSqrCplx)
+    this%hprevCplxHS(:,:, iKS) = this%hprevCplxHS(:,:, iKS) + tmpHSqr
+    HSqr(:,:) = HSqr + this%camBeta * this%hprevCplxHS(:,:, iKS)
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS),&
+        & deltaRhoOutSqrCplx)
     ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iKS),&
     !     & deltaRhoSqr(:,:,:,:,:, iCurSpin), this%bvKShifts, this%coeffsDiag, kPoint)
 
@@ -3775,7 +3779,7 @@ contains
     !! Diatomic block from square (k-space) delta density matrix
     real(dp), allocatable :: Pab(:,:,:), Pmn(:,:,:)
 
-    !!
+    !! Stores start/end index and number of orbitals of square matrices
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
 
     !! Temporary storages

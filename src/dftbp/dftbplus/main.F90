@@ -1056,6 +1056,7 @@ contains
             call transformDualSpaceToBvKRealSpace(this%densityMatrix%deltaRhoOutSqrCplx,&
                 & this%parallelKS, this%kPoint, this%kWeight, this%rangeSep%bvKShifts,&
                 & this%rangeSep%coeffsDiag, this%densityMatrix%deltaRhoOutSqrCplxHS)
+            ! write(stdOut, *) this%densityMatrix%deltaRhoOutSqrCplxHS(3:7, 2, 1, 2, 1, 1)
           end if
           if (this%tRealHS .and. this%tPeriodic) deallocate(SSqrReal)
         end if
@@ -3090,6 +3091,8 @@ contains
 
     integer :: iKS, iK, iSpin
 
+    ! write(stdOut, *) deltaRhoInSqrCplxHS(3:7, 2, 1, 2, 1, 1)
+
     eigen(:,:,:) = 0.0_dp
     do iKS = 1, parallelKS%nLocalKS
       iK = parallelKS%localKS(1, iKS)
@@ -3140,9 +3143,10 @@ contains
         ! Store all square overlaps
         SSqrCplxKpts(:,:, iK) = SSqrCplx
         ! Pass real-space deltaRhoInSqrCplxHS for all BvK lattice shifts
-        ! call rangeSep%addCamHamiltonian(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:, iKS),&
-        !     & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-        !     & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS, HSqrCplx)
+        ! Check whether input density if correct
+        call rangeSep%addCamHamiltonian(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:, iKS),&
+            & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
+            & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS, HSqrCplx)
       end if
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
@@ -3151,6 +3155,8 @@ contains
       eigvecsCplx(:,:,iKS) = HSqrCplx
     #:endif
     end do
+
+    ! write(stdOut, *) deltaRhoInSqrCplxHS(3:7, 2, 1, 2, 1, 1)
 
   #:if WITH_SCALAPACK
     ! Distribute all eigenvalues to all nodes via global summation
