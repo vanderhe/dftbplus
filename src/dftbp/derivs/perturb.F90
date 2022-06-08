@@ -244,10 +244,10 @@ contains
     type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
-    integer, intent(in) :: nNeighbourCam(:)
+    integer, intent(in), allocatable :: nNeighbourCam(:)
 
     !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in) :: nNeighbourCamSym(:)
+    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Charge mixing object
     type(TMixer), intent(inout), allocatable :: pChrgMixer
@@ -586,10 +586,10 @@ contains
     type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
-    integer, intent(in) :: nNeighbourCam(:)
+    integer, intent(in), allocatable :: nNeighbourCam(:)
 
     !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in) :: nNeighbourCamSym(:)
+    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Charge mixing object
     type(TMixer), intent(inout), allocatable :: pChrgMixer
@@ -899,10 +899,10 @@ contains
     integer, intent(in) :: nNeighbourSK(:)
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
-    integer, intent(in) :: nNeighbourCam(:)
+    integer, intent(in), allocatable :: nNeighbourCam(:)
 
     !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in) :: nNeighbourCamSym(:)
+    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Dense matrix descriptor
     type(TDenseDescr), intent(in) :: denseDesc

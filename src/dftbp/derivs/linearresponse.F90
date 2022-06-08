@@ -124,10 +124,10 @@ contains
     real(dp), intent(in) :: over(:)
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
-    integer, intent(in) :: nNeighbourCam(:)
+    integer, intent(in), allocatable :: nNeighbourCam(:)
 
     !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in) :: nNeighbourCamSym(:)
+    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Transformation structure for degenerate orbitals
     type(TRotateDegen), intent(inout) :: transform

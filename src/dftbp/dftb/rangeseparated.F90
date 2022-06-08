@@ -2395,16 +2395,21 @@ contains
 
     ! check and initialize screening
     if (.not. this%tScreeningInited) then
-      allocate(this%hprevCplxHS(squareSize, squareSize, nKS))
-      this%hprevCplxHS(:,:,:) = cmplx(0, 0, dp)
-      this%dRhoPrevCplxHS = deltaRhoSqr
-      this%tScreeningInited = .true.
+      if (iKS == 1) then
+        allocate(this%hprevCplxHS(squareSize, squareSize, nKS))
+        this%hprevCplxHS(:,:,:) = cmplx(0, 0, dp)
+        this%dRhoPrevCplxHS = deltaRhoSqr
+      end if
+      if (iKS == nKS .or. iCurSpin == 2) this%tScreeningInited = .true.
+      ! there is no previous delta density matrix, therefore just copy over
+      deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin)
+    else
+      ! allocate and initialize difference of delta rho to previous SCC iteration
+      deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin) - this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin)
     end if
 
-    ! allocate and initialize difference of delta rho to previous SCC iteration
-    deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin) - this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin)
     pMax = maxval(abs(deltaDeltaRhoSqr))
-    ! store deltaRho only one per SCC iteration
+    ! store delta density matrix only once per spin and SCC iteration
     if (iKS == nKS .or. iCurSpin == 2) then
       this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin) = deltaRhoSqr(:,:,:,:,:, iCurSpin)
     end if
@@ -2441,10 +2446,7 @@ contains
 
     ! get all cell translations within given cutoff
     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
-    ! allocate(cellVecsG(3, 1))
-    ! cellVecsG(:, 1) = 0.0_dp
-    ! allocate(rCellVecsG(3, 1))
-    ! rCellVecsG(:, 1) = 0.0_dp
+
     allocate(gammaMN(size(cellVecsG, dim=2)))
     allocate(gammaMB(size(cellVecsG, dim=2)))
     allocate(gammaAN(size(cellVecsG, dim=2)))
@@ -2517,64 +2519,9 @@ contains
             pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
             pSamT = transpose(pSam)
 
-            ! gammaMN(:) = 1.0_dp
-            ! gammaMB(:) = 1.0_dp
-            ! gammaAN(:) = 1.0_dp
-            ! gammaAB(:) = 1.0_dp
-
-            ! bvKShift(:) = this%foldToBvK(vecH - vecL)
-            ! bvKIndex(:) = this%foldToBvKIndex(vecH - vecL)
-            ! phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
-            ! phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, zeros))
-
-            ! pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
-            !     & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
-            ! ! call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKIndex(1),&
-            ! !     & bvKIndex(2), bvKIndex(3)), transA='T', transB='N')
-            ! Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
-            !     & bvKIndex(3)), pSbn)
-            ! ! call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKIndex(1), bvKIndex(2),&
-            ! !     & bvKIndex(3)), pSbn, transA='N', transB='N')
-
-            ! ! term #1
-            ! pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
-            !     & 1:descB(iNOrb)), pSbn)
-            ! ! call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-            ! !     & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
-
-            ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-            !     & * gammaMN(1)
-
-            ! ! term #2
-            ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-            ! & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(1), pSbn)
-            ! ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-            ! !     & 1:descB(iNOrb)) * gammaMB(iG), pSbn, transA='N', transB='N', beta=1.0_dp)
-
-            ! ! term #3
-            ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-            !     & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(1))
-            ! ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSam, Pab_Sbn(1:descA(iNOrb),&
-            ! !     & 1:descN(iNOrb)) * gammaAN(iG), transA='T', transB='N', beta=1.0_dp)
-
-            ! ! term #4
-            ! pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
-            !     & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(1))
-            ! ! call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSam, Pab(:,:,&
-            ! !     & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG), transA='T', transB='N')
-            ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-            !     & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
-            ! ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
-            ! !     & 1:descB(iNOrb)), pSbn, transA='N', transB='N', beta=1.0_dp)
-
-            ! tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-            !     & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-            !     & + tot(1:descM(iNOrb), 1:descN(iNOrb)) * phase
-
             loopG: do iG = 1, size(rCellVecsG, dim=2)
               bvKShift(:) = this%foldToBvK(cellVecsG(:, iG) + vecH - vecL)
               bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iG) + vecH - vecL)
-              ! phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, real(bvKShift, dp)))
               phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iG)))
 
               pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
@@ -2643,11 +2590,6 @@ contains
         & deltaRhoOutSqrCplx)
     ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iKS),&
     !     & deltaRhoSqr(:,:,:,:,:, iCurSpin), this%bvKShifts, this%coeffsDiag, kPoint)
-
-    if (any(HSqr /= HSqr)) then
-      print *, 'rip'
-      stop
-    end if
 
   end subroutine addLrHamiltonianNeighbour_kpts_sym
 

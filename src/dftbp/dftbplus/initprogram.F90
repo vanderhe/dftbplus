@@ -5258,9 +5258,9 @@ contains
     !> Parameters for the range separated calculation
     type(TRangeSepInp), intent(in) :: rangeSepInp
 
-    if (withMpi) then
-      call error("Range separated calculations do not work with MPI yet")
-    end if
+    ! if (withMpi) then
+    !   call error("Range separated calculations do not work with MPI yet")
+    ! end if
 
     if (this%tPeriodic) then
       if (rangeSepInp%rangeSepAlg /= rangeSepTypes%neighbour) then

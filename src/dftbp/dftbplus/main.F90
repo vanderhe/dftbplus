@@ -345,6 +345,8 @@ contains
       end if
     end if
 
+    write(stdOut, *) 'Fine1'
+
     if (env%tGlobalLead .and. this%tDerivs) then
       call getHessianMatrix(this%derivDriver, this%pDynMatrix)
       call writeHessianOut(hessianOut, this%pDynMatrix, this%indMovedAtom)
@@ -352,9 +354,13 @@ contains
       nullify(this%pDynMatrix)
     end if
 
+    write(stdOut, *) 'Fine2'
+
     if (this%tWriteShifts) then
       call writeShifts(fShifts, this%orb, this%potential%intShell)
-    endif
+    end if
+
+    write(stdOut, *) 'Fine3'
 
     ! Here time propagation is called
     if (allocated(this%electronDynamics)) then
@@ -371,6 +377,8 @@ contains
         call error(errStatus%message)
       end if
     end if
+
+    write(stdOut, *) 'Fine4'
 
   #:if WITH_TRANSPORT
 
@@ -403,6 +411,7 @@ contains
     if (this%isDFTBPT) then
 
       if (this%isEResp) then
+        write(stdOut, *) '###'
         call this%response%wrtEField(env, this%parallelKS, this%filling, this%eigen,&
             & this%eigVecsReal, this%eigvecsCplx, this%ints%hamiltonian, this%ints%overlap,&
             & this%orb, this%nAtom, this%species, this%neighbourList, this%symNeighbourList,&
@@ -413,6 +422,7 @@ contains
             & this%rangeSep, this%nNeighbourCam, this%nNeighbourCamSym, this%pChrgMixer,&
             & this%kPoint, this%kWeight, this%iCellVec, this%cellVec, this%polarisability,&
             & this%dEidE, this%dqOut, this%neFermi, this%dEfdE, errStatus, this%dynRespEFreq)
+        write(stdOut, *) '###'
         if (errStatus%hasError()) then
           call error(errStatus%message)
         end if
@@ -2763,17 +2773,22 @@ contains
 
     integer :: nSpin
 
+    write(stdOut, *) 'Fine1'
+
     nSpin = size(ints%hamiltonian, dim=2)
     call env%globalTimer%startTimer(globalTimers%diagonalization)
     if (nSpin /= 4) then
       if (tRealHS) then
+        write(stdOut, *) 'Fine2'
         call buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, iAtomStart,&
             & rCellVecs, iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord,&
             & electronicSolver, parallelKS, rangeSep, densityMatrix%deltaRhoInSqr, nNeighbourCam,&
             & nNeighbourCamSym, HSqrReal, SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
         @:PROPAGATE_ERROR(errStatus)
+        write(stdOut, *) 'Fine2'
       else
+        write(stdOut, *) 'Fine3'
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
             & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species,&
@@ -2781,6 +2796,7 @@ contains
             & nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts, eigVecsCplx,&
             & eigen, errStatus)
         @:PROPAGATE_ERROR(errStatus)
+        write(stdOut, *) 'Fine3'
       end if
     else
       call buildAndDiagDensePauliHam(env, denseDesc, ints, kPoint, neighbourList,&
@@ -3066,10 +3082,10 @@ contains
     real(dp), intent(in), pointer :: deltaRhoInSqrCplxHS(:,:,:,:,:,:)
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
-    integer, intent(in) :: nNeighbourCam(:)
+    integer, intent(in), allocatable :: nNeighbourCam(:)
 
     !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in) :: nNeighbourCamSym(:)
+    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Dense hamiltonian matrix
     complex(dp), intent(out) :: HSqrCplx(:,:)
@@ -3078,7 +3094,7 @@ contains
     complex(dp), intent(out) :: SSqrCplx(:,:)
 
     !> Dense overlap matrix for all k-points, needed for range-separated case
-    complex(dp), intent(out) :: SSqrCplxKpts(:,:,:)
+    complex(dp), intent(inout), allocatable :: SSqrCplxKpts(:,:,:)
 
     !> Complex eigenvectors
     complex(dp), intent(out) :: eigvecsCplx(:,:,:)
@@ -3091,9 +3107,11 @@ contains
 
     integer :: iKS, iK, iSpin
 
-    ! write(stdOut, *) deltaRhoInSqrCplxHS(3:7, 2, 1, 2, 1, 1)
-
     eigen(:,:,:) = 0.0_dp
+    if (allocated(SSqrCplxKpts)) then
+      SSqrCplxKpts(:,:,:) = 0.0_dp
+    end if
+
     do iKS = 1, parallelKS%nLocalKS
       iK = parallelKS%localKS(1, iKS)
       iSpin = parallelKS%localKS(2, iKS)
@@ -3118,6 +3136,18 @@ contains
         end if
       end if
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
+
+      ! Add CAM contribution
+      if (allocated(rangeSep)) then
+        ! Store all square overlaps
+        SSqrCplxKpts(:,:, iK) = SSqrCplx
+        ! Pass real-space deltaRhoInSqrCplxHS for all BvK lattice shifts
+        ! Check whether input density if correct
+        call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
+            & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
+            & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS, HSqrCplx)
+      end if
+
       call diagDenseMtxBlacs(env, electronicSolver, iKS, 'V', denseDesc%blacsOrbSqr, HSqrCplx,&
           & SSqrCplx, eigen(:,iK,iSpin), eigvecsCplx(:,:,iKS), errStatus)
       @:PROPAGATE_ERROR(errStatus)
@@ -3156,11 +3186,16 @@ contains
     #:endif
     end do
 
-    ! write(stdOut, *) deltaRhoInSqrCplxHS(3:7, 2, 1, 2, 1, 1)
-
   #:if WITH_SCALAPACK
     ! Distribute all eigenvalues to all nodes via global summation
     call mpifx_allreduceip(env%mpi%interGroupComm, eigen, MPI_SUM)
+  #:endif
+
+  #:if WITH_MPI
+    if (allocated(rangeSep)) then
+      ! Distribute all complex, square, k-space overlaps to all nodes via global summation
+      call mpifx_allreduceip(env%mpi%interGroupComm, SSqrCplxKpts, MPI_SUM)
+    end if
   #:endif
 
   end subroutine buildAndDiagDenseCplxHam
@@ -3489,9 +3524,13 @@ contains
 
     rhoPrim(:,:) = 0.0_dp
 
-    if (associated(deltaRhoOutSqrCplxHS)) then
-      deltaRhoOutSqrCplxHS(:,:,:,:,:,:) = 0.0_dp
+    if (associated(deltaRhoOutSqrCplx)) then
+      deltaRhoOutSqrCplx(:,:,:) = 0.0_dp
     end if
+
+    ! if (associated(deltaRhoOutSqrCplxHS)) then
+    !   deltaRhoOutSqrCplxHS(:,:,:,:,:,:) = 0.0_dp
+    ! end if
 
     do iKS = 1, parallelKS%nLocalKS
       iK = parallelKS%localKS(1, iKS)
@@ -3544,6 +3583,13 @@ contains
   #:if WITH_SCALAPACK
     ! Add up and distribute density matrix contribution from each group
     call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
+  #:endif
+
+  #:if WITH_MPI
+    if (allocated(rangeSep)) then
+      ! Distribute all k-space delta density matrices to all nodes via global summation
+      call mpifx_allreduceip(env%mpi%interGroupComm, deltaRhoOutSqrCplx, MPI_SUM)
+    end if
   #:endif
 
   end subroutine getDensityFromCplxEigvecs
@@ -5883,7 +5929,7 @@ contains
     integer, intent(in) :: nNeighbourSK(:)
 
     !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in) :: nNeighbourCamSym(:)
+    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Vectors to unit cells in absolute units
     real(dp), intent(in) :: rCellVecs(:,:)
