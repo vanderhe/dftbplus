@@ -1422,7 +1422,6 @@ contains
     end if
 
   #:if WITH_MPI
-
     if (input%ctrl%parallelOpts%nGroup > nIndepHam * this%nKPoint) then
       write(stdOut, *)"Parallel groups only relevant for tasks split over sufficient spins and/or&
           & k-points"
@@ -1432,6 +1431,14 @@ contains
     end if
 
     call env%initMpi(input%ctrl%parallelOpts%nGroup)
+
+    if (this%isRangeSep .and. (input%ctrl%parallelOpts%nGroup /= env%mpi%globalComm%size)) then
+      write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations beyond the Gamma point, the&
+          & number of MPI' // NEW_LINE('A') // '   groups must match the total number of MPI&
+          & processes.' // NEW_LINE('A') // '   Obtained (', input%ctrl%parallelOpts%nGroup, ')&
+          & groups for (', env%mpi%globalComm%size, ') total MPI processes!'
+      call error(trim(tmpStr))
+    end if
   #:endif
 
 
@@ -5517,6 +5524,9 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
+    !! Number of k-points in local MPI group
+    integer :: nLocalK
+
     if (this%tRealHS) then
       nMixElements = this%nOrb * this%nOrb * this%nSpin
     elseif (this%tReadChrg .and. (.not. allocated(this%supercellFoldingDiag))) then
@@ -5548,8 +5558,8 @@ contains
       allocate(this%SSqrCplxKpts(this%nOrb, this%nOrb, this%nKpoint))
       this%SSqrCplxKpts(:,:,:) = 0.0_dp
 
-      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin&
-          & * this%nKPoint))
+      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
+      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin * nLocalK))
       this%densityMatrix%deltaRhoOutCplx(:) = 0.0_dp
     end if
 
@@ -5565,6 +5575,9 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
+    !! Number of k-points in local MPI group
+    integer :: nLocalK
+
     if (this%tRealHS) then
       nMixElements = this%nOrb * this%nOrb * this%nSpin
       this%densityMatrix%deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
@@ -5572,10 +5585,10 @@ contains
       this%densityMatrix%deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoOut(1:nMixElements)
     else
+      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
       nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%rangeSep%coeffsDiag)
-      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * this%nKPoint)&
-          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin&
-          & * this%nKPoint)
+      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * nLocalK)&
+          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin * nLocalK)
 
       this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
           & 1:this%rangeSep%coeffsDiag(1), 1:this%rangeSep%coeffsDiag(2),&

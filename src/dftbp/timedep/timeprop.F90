@@ -1554,13 +1554,16 @@ contains
 
   !> Calculate energy - modify to include new way to calculate energy
   !> Repulsive energy and dispersion energies must be calculated before calling this subroutine
-  subroutine getTDEnergy(this, energy, rhoPrim, rho, neighbourList, nNeighbourSK, orb, iSquare,&
-      & iSparseStart, img2CentCell, ham0, qq, q0, potential, chargePerShell, energyKin,&
+  subroutine getTDEnergy(this, env, energy, rhoPrim, rho, neighbourList, nNeighbourSK, orb,&
+      & iSquare, iSparseStart, img2CentCell, ham0, qq, q0, potential, chargePerShell, energyKin,&
       & tDualSpinOrbit, thirdOrd, solvation, rangeSep, qDepExtPot, qBlock, dftbU, xi,&
       & iAtInCentralRegion, tFixEf, Ef, onSiteElements)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout) :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
 
     !> data type for energy components and total
     type(TEnergies), intent(inout) :: energy
@@ -1669,7 +1672,7 @@ contains
     call ud2qm(rhoPrim)
 
     TS = 0.0_dp
-    call calcEnergies(this%sccCalc, this%tblite, qq, q0, chargePerShell, this%multipole,&
+    call calcEnergies(env, this%sccCalc, this%tblite, qq, q0, chargePerShell, this%multipole,&
         & this%speciesAll, this%tLaser, .false., dftbU, tDualSpinOrbit, rhoPrim, ham0, orb,&
         & neighbourList, nNeighbourSK, img2CentCell, iSparseStart, 0.0_dp, 0.0_dp, TS,&
         & potential, energy, thirdOrd, solvation, rangeSep, reks, qDepExtPot, qBlock,&
@@ -3358,11 +3361,14 @@ contains
 
 
   !> Calculates repulsive and dispersion energies
-  subroutine  getPositionDependentEnergy(this, energy, coordAll, img2CentCell, nNeighbourSK,&
+  subroutine getPositionDependentEnergy(this, env, energy, coordAll, img2CentCell, nNeighbourSK,&
       & neighbourList, repulsive, iAtInCentralRegion, rangeSep)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout), target :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
 
     !> data type for energy components and total
     type(TEnergies), intent(inout) :: energy
@@ -3403,7 +3409,7 @@ contains
       energy%eDisp = 0.0_dp
     end if
     if (allocated(rangeSep)) then
-      call rangeSep%addCamEnergy(energy%Efock)
+      call rangeSep%addCamEnergy(env, energy%Efock)
     else
       energy%Efock = 0.0_dp
     end if
@@ -3804,11 +3810,11 @@ contains
       call kickDM(this, this%trho, this%Ssqr, this%Sinv, iSquare, coord)
     end if
 
-    call getPositionDependentEnergy(this, this%energy, coordAll, img2CentCell, nNeighbourSK,&
+    call getPositionDependentEnergy(this, env, this%energy, coordAll, img2CentCell, nNeighbourSK,&
         & neighbourList, repulsive, iAtInCentralRegion, rangeSep)
 
-    call getTDEnergy(this, this%energy, this%rhoPrim, this%trho, neighbourList, nNeighbourSK, orb,&
-        & iSquare, iSparseStart, img2CentCell, this%ham0, this%qq, q0, this%potential,&
+    call getTDEnergy(this, env, this%energy, this%rhoPrim, this%trho, neighbourList, nNeighbourSK,&
+        & orb, iSquare, iSparseStart, img2CentCell, this%ham0, this%qq, q0, this%potential,&
         & this%chargePerShell, this%energyKin, tDualSpinOrbit, thirdOrd, solvation, rangeSep,&
         & qDepExtPot, this%qBlock, dftbu, xi, iAtInCentralRegion, tFixEf, Ef, onSiteElements)
 
@@ -3881,11 +3887,11 @@ contains
 
 
   !> Do one TD step, propagating electrons and nuclei (if IonDynamics is enabled)
-  subroutine doTdStep(this, boundaryCond, iStep, coord, orb, neighbourList, nNeighbourSK, iSquare,&
-      & iSparseStart, img2CentCell, skHamCont, skOverCont, ints, env, coordAll, q0, referenceN0,&
-      & spinW, tDualSpinOrbit, xi, thirdOrd, dftbU, onSiteElements, refExtPot, solvation,&
-      & eFieldScaling, rangeSep, repulsive, iAtInCentralRegion, tFixEf, Ef, electronicSolver,&
-      & qDepExtPot, errStatus)
+  subroutine doTdStep(this, boundaryCond, iStep, coord, orb, neighbourList, nNeighbourSK,&
+      & iSquare, iSparseStart, img2CentCell, skHamCont, skOverCont, ints, env, coordAll, q0,&
+      & referenceN0, spinW, tDualSpinOrbit, xi, thirdOrd, dftbU, onSiteElements, refExtPot,&
+      & solvation, eFieldScaling, rangeSep, repulsive, iAtInCentralRegion, tFixEf, Ef,&
+      & electronicSolver, qDepExtPot, errStatus)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout), target :: this
@@ -4028,12 +4034,12 @@ contains
         @:PROPAGATE_ERROR(errStatus)
       end if
 
-      call getPositionDependentEnergy(this, this%energy, coordAll, img2CentCell, nNeighbourSK,&
+      call getPositionDependentEnergy(this, env, this%energy, coordAll, img2CentCell, nNeighbourSK,&
           & neighbourList, repulsive, iAtInCentralRegion, rangeSep)
     end if
 
-    call getTDEnergy(this, this%energy, this%rhoPrim, this%rho, neighbourList, nNeighbourSK, orb,&
-        & iSquare, iSparseStart, img2CentCell, this%ham0, this%qq, q0, this%potential,&
+    call getTDEnergy(this, env, this%energy, this%rhoPrim, this%rho, neighbourList, nNeighbourSK,&
+        & orb, iSquare, iSparseStart, img2CentCell, this%ham0, this%qq, q0, this%potential,&
         & this%chargePerShell, this%energyKin, tDualSpinOrbit, thirdOrd, solvation, rangeSep,&
         & qDepExtPot, this%qBlock, dftbU, xi, iAtInCentralRegion, tFixEf, Ef, onSiteElements)
 

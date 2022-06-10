@@ -121,7 +121,7 @@ contains
     !! Integer BvK real-space shift translated to density matrix indices
     integer :: bvKIndex(3)
 
-    rhoSqrBvK(:,:,:,:,:,:) = 0.0_dp
+    ! rhoSqrBvK(:,:,:,:,:,:) = 0.0_dp
 
     do iG = 1, size(bvKShifts, dim=2)
       do iKS = 1, parallelKS%nLocalKS

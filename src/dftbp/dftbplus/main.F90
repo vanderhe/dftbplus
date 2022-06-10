@@ -345,8 +345,6 @@ contains
       end if
     end if
 
-    write(stdOut, *) 'Fine1'
-
     if (env%tGlobalLead .and. this%tDerivs) then
       call getHessianMatrix(this%derivDriver, this%pDynMatrix)
       call writeHessianOut(hessianOut, this%pDynMatrix, this%indMovedAtom)
@@ -354,13 +352,9 @@ contains
       nullify(this%pDynMatrix)
     end if
 
-    write(stdOut, *) 'Fine2'
-
     if (this%tWriteShifts) then
       call writeShifts(fShifts, this%orb, this%potential%intShell)
     end if
-
-    write(stdOut, *) 'Fine3'
 
     ! Here time propagation is called
     if (allocated(this%electronDynamics)) then
@@ -377,8 +371,6 @@ contains
         call error(errStatus%message)
       end if
     end if
-
-    write(stdOut, *) 'Fine4'
 
   #:if WITH_TRANSPORT
 
@@ -411,7 +403,6 @@ contains
     if (this%isDFTBPT) then
 
       if (this%isEResp) then
-        write(stdOut, *) '###'
         call this%response%wrtEField(env, this%parallelKS, this%filling, this%eigen,&
             & this%eigVecsReal, this%eigvecsCplx, this%ints%hamiltonian, this%ints%overlap,&
             & this%orb, this%nAtom, this%species, this%neighbourList, this%symNeighbourList,&
@@ -422,7 +413,6 @@ contains
             & this%rangeSep, this%nNeighbourCam, this%nNeighbourCamSym, this%pChrgMixer,&
             & this%kPoint, this%kWeight, this%iCellVec, this%cellVec, this%polarisability,&
             & this%dEidE, this%dqOut, this%neFermi, this%dEfdE, errStatus, this%dynRespEFreq)
-        write(stdOut, *) '###'
         if (errStatus%hasError()) then
           call error(errStatus%message)
         end if
@@ -1005,7 +995,7 @@ contains
             & this%nNeighbourCamSym, this%tLargeDenseMatrices, this%deltaDftb, errStatus)
         if (errStatus%hasError()) call error(errStatus%message)
 
-        ! CAM calculations deduct atomic charges from deltaRho
+        ! CAM calculations deduct atomic charges from delta density matrix
         if (this%isRangeSep) then
           if (this%tRealHS .and. this%tPeriodic) then
             allocate(SSqrReal, mold=this%SSqrReal)
@@ -1063,10 +1053,16 @@ contains
             ! Build real-space delta rho from k-space density matrix:
             ! This is a workaround, since it is unknown how to substract q0 from its real-space
             ! representation, therefore this is done in k-space and everything transformed back :(
+            ! Reset deltaRhoOutSqrCplxHS, because of internal summation
+            this%densityMatrix%deltaRhoOutSqrCplxHS(:,:,:,:,:,:) = 0.0_dp
             call transformDualSpaceToBvKRealSpace(this%densityMatrix%deltaRhoOutSqrCplx,&
                 & this%parallelKS, this%kPoint, this%kWeight, this%rangeSep%bvKShifts,&
                 & this%rangeSep%coeffsDiag, this%densityMatrix%deltaRhoOutSqrCplxHS)
-            ! write(stdOut, *) this%densityMatrix%deltaRhoOutSqrCplxHS(3:7, 2, 1, 2, 1, 1)
+          #:if WITH_MPI
+            ! Distribute all complex, square, k-space overlaps to all nodes via global summation
+            call mpifx_allreduceip(env%mpi%interGroupComm, this%densityMatrix%deltaRhoOutSqrCplxHS,&
+                & MPI_SUM)
+          #:endif
           end if
           if (this%tRealHS .and. this%tPeriodic) deallocate(SSqrReal)
         end if
@@ -1137,7 +1133,7 @@ contains
 
         end if
 
-        call calcEnergies(this%scc, this%tblite, this%qOutput, this%q0, this%chargePerShell,&
+        call calcEnergies(env, this%scc, this%tblite, this%qOutput, this%q0, this%chargePerShell,&
             & this%multipoleOut, this%species, this%isExtField, this%isXlbomd, this%dftbU,&
             & this%tDualSpinOrbit, this%rhoPrim, this%H0, this%orb, this%neighbourList,&
             & this%nNeighbourSk, this%img2CentCell, this%iSparseStart, this%cellVol,&
@@ -2773,22 +2769,17 @@ contains
 
     integer :: nSpin
 
-    write(stdOut, *) 'Fine1'
-
     nSpin = size(ints%hamiltonian, dim=2)
     call env%globalTimer%startTimer(globalTimers%diagonalization)
     if (nSpin /= 4) then
       if (tRealHS) then
-        write(stdOut, *) 'Fine2'
         call buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, iAtomStart,&
             & rCellVecs, iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord,&
             & electronicSolver, parallelKS, rangeSep, densityMatrix%deltaRhoInSqr, nNeighbourCam,&
             & nNeighbourCamSym, HSqrReal, SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
         @:PROPAGATE_ERROR(errStatus)
-        write(stdOut, *) 'Fine2'
       else
-        write(stdOut, *) 'Fine3'
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
             & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species,&
@@ -2796,7 +2787,6 @@ contains
             & nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts, eigVecsCplx,&
             & eigen, errStatus)
         @:PROPAGATE_ERROR(errStatus)
-        write(stdOut, *) 'Fine3'
       end if
     else
       call buildAndDiagDensePauliHam(env, denseDesc, ints, kPoint, neighbourList,&
@@ -2819,7 +2809,7 @@ contains
         call getDensityFromCplxEigvecs(env, denseDesc, filling, kPoint, kWeight, neighbourList,&
             & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, orb,&
             & parallelKS, tHelical, species, coord, eigvecsCplx, rhoPrim, SSqrCplx,&
-            & densityMatrix%deltaRhoOutSqrCplx, densityMatrix%deltaRhoOutSqrCplxHS, rangeSep)
+            & densityMatrix%deltaRhoOutSqrCplx, rangeSep)
       end if
       call ud2qm(rhoPrim)
     else
@@ -3105,13 +3095,42 @@ contains
     !> Status of operation
     type(TStatus), intent(out) :: errStatus
 
+    !! Temporary storage for square, k-space CAM-Hamiltonian contribution
+    complex(dp), allocatable :: HSqrCplxCam(:,:,:)
+
     integer :: iKS, iK, iSpin
 
     eigen(:,:,:) = 0.0_dp
     if (allocated(SSqrCplxKpts)) then
       SSqrCplxKpts(:,:,:) = 0.0_dp
+      allocate(HSqrCplxCam(size(SSqrCplxKpts, dim=1), size(SSqrCplxKpts, dim=1),&
+          & parallelKS%nLocalKS))
+      HSqrCplxCam(:,:,:) = 0.0_dp
     end if
 
+  #:if WITH_MPI
+    if (allocated(rangeSep)) then
+      ! Pre-calculate CAM-Hamiltonian and overlap
+      do iKS = 1, parallelKS%nLocalKS
+        iK = parallelKS%localKS(1, iKS)
+        iSpin = parallelKS%localKS(2, iKS)
+
+        ! Get full complex, square, k-space overlap and store for later q0 substraction
+        call env%globalTimer%startTimer(globalTimers%sparseToDense)
+        call unpackHS(SSqrCplxKpts(:,:, iK), ints%overlap, kPoint(:,iK), neighbourList%iNeighbour,&
+            & nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart, img2CentCell)
+        call env%globalTimer%stopTimer(globalTimers%sparseToDense)
+
+        ! Get CAM-Hamiltonian contribution for current spin/k-point
+        call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
+            & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
+            & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS,&
+            & HSqrCplxCam(:,:, iKS))
+      end do
+    end if
+  #:endif
+
+    ! Loop over all spins/k-points associated with MPI group
     do iKS = 1, parallelKS%nLocalKS
       iK = parallelKS%localKS(1, iKS)
       iSpin = parallelKS%localKS(2, iKS)
@@ -3137,15 +3156,10 @@ contains
       end if
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
-      ! Add CAM contribution
+      ! Add CAM contribution to local Hamiltonian
+      ! (Works only if total number of MPI processes matches number of MPI groups.)
       if (allocated(rangeSep)) then
-        ! Store all square overlaps
-        SSqrCplxKpts(:,:, iK) = SSqrCplx
-        ! Pass real-space deltaRhoInSqrCplxHS for all BvK lattice shifts
-        ! Check whether input density if correct
-        call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
-            & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-            & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS, HSqrCplx)
+        HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iKS)
       end if
 
       call diagDenseMtxBlacs(env, electronicSolver, iKS, 'V', denseDesc%blacsOrbSqr, HSqrCplx,&
@@ -3170,11 +3184,10 @@ contains
 
       ! Add CAM contribution
       if (allocated(rangeSep)) then
-        ! Store all square overlaps
+        ! Store all square, dense, k-space overlaps for later q0 substraction
         SSqrCplxKpts(:,:, iK) = SSqrCplx
         ! Pass real-space deltaRhoInSqrCplxHS for all BvK lattice shifts
-        ! Check whether input density if correct
-        call rangeSep%addCamHamiltonian(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:, iKS),&
+        call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
             & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
             & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS, HSqrCplx)
       end if
@@ -3182,7 +3195,7 @@ contains
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
           & errStatus)
       @:PROPAGATE_ERROR(errStatus)
-      eigvecsCplx(:,:,iKS) = HSqrCplx
+      eigvecsCplx(:,:, iKS) = HSqrCplx
     #:endif
     end do
 
@@ -3442,7 +3455,7 @@ contains
   !> Creates sparse density matrix from complex eigenvectors.
   subroutine getDensityFromCplxEigvecs(env, denseDesc, filling, kPoint, kWeight, neighbourList,&
       & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, orb, parallelKS, tHelical,&
-      & species, coord, eigvecs, rhoPrim, work, deltaRhoOutSqrCplx, deltaRhoOutSqrCplxHS, rangeSep)
+      & species, coord, eigvecs, rhoPrim, work, deltaRhoOutSqrCplx, rangeSep)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3504,9 +3517,6 @@ contains
     !> Complex, square dual-space deltaRho output from range separation
     complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
 
-    !> Real-space deltaRho output from range separation in matrix form
-    real(dp), intent(in), pointer :: deltaRhoOutSqrCplxHS(:,:,:,:,:,:)
-
     !> Data for rangeseparated calculation
     type(TRangeSepFunc), intent(in), allocatable :: rangeSep
 
@@ -3527,10 +3537,6 @@ contains
     if (associated(deltaRhoOutSqrCplx)) then
       deltaRhoOutSqrCplx(:,:,:) = 0.0_dp
     end if
-
-    ! if (associated(deltaRhoOutSqrCplxHS)) then
-    !   deltaRhoOutSqrCplxHS(:,:,:,:,:,:) = 0.0_dp
-    ! end if
 
     do iKS = 1, parallelKS%nLocalKS
       iK = parallelKS%localKS(1, iKS)
@@ -3562,22 +3568,13 @@ contains
             & nNeighbourSK, orb%mOrb, iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart,&
             & img2CentCell)
       end if
-      if (allocated(rangeSep)) then
-        ! Assemble real-space, square density matrices for all g-vectors
-        call hermitianSquareMatrix(work)
-        ! do iG = 1, size(rangeSep%bvKShifts, dim=2)
-        !   phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoint(:, iK),&
-        !       & rangeSep%bvKShifts(:, iG)))
-        !   bvKIndex(:) = rangeSep%foldToBvKIndex(rangeSep%bvKShifts(:, iG))
-        !   deltaRhoOutSqrCplxHS(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
-        !       & = deltaRhoOutSqrCplxHS(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
-        !       & + kWeight(iK) * real(work * phase, dp)
-        ! end do
-        ! Store square density matrix P(iKS), since currently needed for q0 substraction
-        deltaRhoOutSqrCplx(:,:, iKS) = work
-      end if
       call env%globalTimer%stopTimer(globalTimers%denseToSparse)
     #:endif
+      if (allocated(rangeSep)) then
+        ! Store square density matrix P(iKS), since currently needed for q0 substraction
+        call hermitianSquareMatrix(work)
+        deltaRhoOutSqrCplx(:,:, iKS) = work
+      end if
     end do
 
   #:if WITH_SCALAPACK
@@ -3587,8 +3584,8 @@ contains
 
   #:if WITH_MPI
     if (allocated(rangeSep)) then
-      ! Distribute all k-space delta density matrices to all nodes via global summation
-      call mpifx_allreduceip(env%mpi%interGroupComm, deltaRhoOutSqrCplx, MPI_SUM)
+      ! Add up and distribute density matrix contribution from each group
+      ! call mpifx_allreduceip(env%mpi%globalComm, deltaRhoOutSqrCplx, MPI_SUM)
     end if
   #:endif
 
@@ -7688,7 +7685,7 @@ contains
               & denseDesc%iAtomStart, iSparseStart, orb, reks%hamSqrL(:,:,1,iL), reks%overSqr)
         end if
         ! Calculate range-separated exchange energy for spin up
-        call rangeSep%addCamEnergy(tmpEn(iL))
+        call rangeSep%addCamEnergy(env, tmpEn(iL))
       end do
     end if
 
@@ -7736,7 +7733,7 @@ contains
             & img2CentCell, orb)
       end if
 
-      call calcEnergies(sccCalc, tblite, reks%qOutputL(:,:,:,iL), q0,&
+      call calcEnergies(env, sccCalc, tblite, reks%qOutputL(:,:,:,iL), q0,&
           & reks%chargePerShellL(:,:,:,iL), multipole, species, isExtField, isXlbomd, dftbU,&
           & tDualSpinOrbit, rhoPrim, H0, orb, neighbourList, nNeighbourSk, img2CentCell,&
           & iSparseStart, cellVol, extPressure, TS, potential, energy, thirdOrd, solvation,&

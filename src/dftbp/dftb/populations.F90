@@ -863,8 +863,8 @@ contains
         iStart = iSquare(iAtom)
         iEnd = iSquare(iAtom + 1) - 1
         do iOrb = 1, iEnd - iStart + 1
-          rho(iStart+iOrb-1, iStart+iOrb-1, iSpin) = &
-              & rho(iStart+iOrb-1, iStart+iOrb-1, iSpin) - 0.5_dp * q0(iOrb, iAtom, 1)&
+          rho(iStart+iOrb-1, iStart+iOrb-1, iKS) = &
+              & rho(iStart+iOrb-1, iStart+iOrb-1, iKS) - 0.5_dp * q0(iOrb, iAtom, 1)&
               & / overSqr(iStart+iOrb-1, iStart+iOrb-1, iK)
         end do
       end do
