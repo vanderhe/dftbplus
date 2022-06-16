@@ -822,7 +822,7 @@ contains
   !> Updates the Hamiltonian with the range separated contribution (k-points version).
   subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
       & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb, kPoint,&
-      & iKS, iCurSpin, nKS, HSqr)
+      & kWeight, iKS, iCurSpin, nKS, HSqr)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -866,6 +866,9 @@ contains
     !> K-point in relative coordinates to calculate delta H(k) for
     real(dp), intent(in) :: kPoint(:)
 
+    !> K-point weight (for energy contribution)
+    real(dp), intent(in) :: kWeight
+
     !> Spin/k-point composite index of current diagonalization
     integer, intent(in) :: iKS
 
@@ -885,7 +888,7 @@ contains
     if (this%tLc .or. this%tCam) then
       call addLrHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
           & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb,&
-          & kPoint, iKS, iCurSpin, nKS, HSqr)
+          & kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
@@ -1027,7 +1030,7 @@ contains
   !> Interface routine for adding LC range-separated contributions to the Hamiltonian.
   subroutine addLrHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
       & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb, kPoint,&
-      & iKS, iCurSpin, nKS, HSqr)
+      & kWeight, iKS, iCurSpin, nKS, HSqr)
 
     !> Instance
     type(TRangeSepFunc), intent(inout) :: this
@@ -1071,6 +1074,9 @@ contains
     !> K-point in relative coordinates to calculate delta H(k) for
     real(dp), intent(in) :: kPoint(:)
 
+    !> K-point weight (for energy contribution)
+    real(dp), intent(in) :: kWeight
+
     !> Spin/k-point composite index of current diagonalization
     integer, intent(in) :: iKS
 
@@ -1089,7 +1095,7 @@ contains
     case (rangeSepTypes%neighbour)
       call addLrHamiltonianNeighbour_kpts_sym(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
           & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-          & iSquare, orb, kPoint, iKS, iCurSpin, nKS, HSqr)
+          & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
     case (rangeSepTypes%matrixBased)
       call error('Matrix based algorithm not yet implemented for periodic systems.')
     end select
@@ -2252,7 +2258,7 @@ contains
   !> Updates the Hamiltonian with the range separated contribution (k-points version).
   subroutine addLrHamiltonianNeighbour_kpts_sym(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
       & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-      & iSquare, orb, kPoint, iKS, iCurSpin, nKS, HSqr)
+      & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
 
     !> Instance
     type(TRangeSepFunc), intent(inout), target :: this
@@ -2295,6 +2301,9 @@ contains
 
     !> K-point in relative coordinates to calculate delta H(k) for
     real(dp), intent(in) :: kPoint(:)
+
+    !> K-point weight (for energy contribution)
+    real(dp), intent(in) :: kWeight
 
     !> Spin/k-point composite index of current diagonalization
     integer, intent(in) :: iKS
@@ -2613,24 +2622,23 @@ contains
       tmpHSqr(:,:) = -0.125_dp * tmpHSqr
     end if
 
-    ! HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
-    ! this%lrEnergy = this%lrEnergy + this%camBeta * evaluateEnergy_cplx_kptrho(tmpHSqr,&
-    !     & deltaRhoOutSqrCplx)
-
   #:if WITH_MPI
     ! Sum up contributions of current MPI group
     call mpifx_allreduceip(env%mpi%groupComm, tmpHSqr, MPI_SUM)
   #:endif
+
+    ! HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
+    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(tmpHSqr, kWeight, deltaRhoOutSqrCplx)
 
     this%hprevCplxHS(:,:, iKS) = this%hprevCplxHS(:,:, iKS) + tmpHSqr
     HSqr(:,:) = HSqr + this%camBeta * this%hprevCplxHS(:,:, iKS)
 
     ! Add energy contribution but divide by the number of processes working on iKS
   #:if WITH_MPI
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS),&
-        & deltaRhoOutSqrCplx) / env%mpi%groupComm%size
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
+        & deltaRhoOutSqrCplx) / real(env%mpi%groupComm%size, dp)
   #:else
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS),&
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
         & deltaRhoOutSqrCplx)
   #:endif
 
@@ -2667,16 +2675,11 @@ contains
     !> Total energy
     real(dp), intent(inout) :: energy
 
-    !! Total long-range energy of all MPI processes
-    real(dp) :: lrEnergy
-
   #:if WITH_MPI
-    call mpifx_allreduce(env%mpi%globalComm, this%lrEnergy, lrEnergy, MPI_SUM)
-  #:else
-    lrEnergy = this%lrEnergy
+    call mpifx_allreduceip(env%mpi%globalComm, this%lrEnergy, MPI_SUM)
   #:endif
 
-    energy = energy + this%camBeta * lrEnergy
+    energy = energy + this%camBeta * this%lrEnergy
 
     ! hack for spin unrestricted calculation
     this%lrEnergy = 0.0_dp
@@ -2779,10 +2782,13 @@ contains
 
 
   !> Evaluates energy from triangles of the Hamiltonian and density matrix (complex version).
-  pure function evaluateEnergy_cplx_kptrho(hamiltonian, densityMat) result(energy)
+  pure function evaluateEnergy_cplx_kptrho(hamiltonian, kWeight, densityMat) result(energy)
 
     !> Hamiltonian matrix
     complex(dp), intent(in) :: hamiltonian(:,:)
+
+    !> K-point weight (for energy contribution)
+    real(dp), intent(in) :: kWeight
 
     !> Density matrix in k-space
     complex(dp), intent(in), pointer :: densityMat(:,:)
@@ -2790,7 +2796,7 @@ contains
     !> Resulting energy due to CAM contribution
     real(dp) :: energy
 
-    energy = 0.5_dp * real(sum(hamiltonian * densityMat), dp)
+    energy = 0.5_dp * real(sum(hamiltonian * densityMat), dp) * kWeight
 
   end function evaluateEnergy_cplx_kptrho
 
@@ -3864,8 +3870,6 @@ contains
     do iSpin = 1, nSpin
       call symmetrizeHS(tmpDeltaRhoSqr(:,:, iSpin))
     end do
-
-    ! print *, nNeighbourCamSym
 
     ! get all cell translations within given cutoff
     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)

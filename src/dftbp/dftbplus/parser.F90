@@ -2788,18 +2788,15 @@ contains
     case ("supercellfolding")
       tBadIntegratingKPoints = .false.
       if (len(modifier) > 0) then
-        call detailedError(child, "No modifier is allowed, if the &
-            &SupercellFolding scheme is used.")
+        call detailedError(child, "No modifier is allowed, if the SupercellFolding scheme is used.")
       end if
       call getChildValue(value1, "", coeffsAndShifts)
       if (abs(determinant33(coeffsAndShifts(:,1:3))) - 1.0_dp < -1e-6_dp) then
-        call detailedError(value1, "Determinant of the supercell matrix must &
-            &be greater than 1")
+        call detailedError(value1, "Determinant of the supercell matrix must be greater than 1")
       end if
       if (any(abs(modulo(coeffsAndShifts(:,1:3) + 0.5_dp, 1.0_dp) - 0.5_dp) &
           &> 1e-6_dp)) then
-        call detailedError(value1, "The components of the supercell matrix &
-            &must be integers.")
+        call detailedError(value1, "The components of the supercell matrix must be integers.")
       end if
       if (allocated(ctrl%rangeSepInp)) then
         allocate(ctrl%supercellFoldingDiag(3))
@@ -2811,7 +2808,6 @@ contains
           deallocate(ctrl%supercellFoldingDiag, ctrl%supercellFoldingMatrix)
         end if
       end if
-      ! tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))
       tReduceByInversion = (.not. ctrl%tSpinOrbit)
       call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
           & ctrl%kPoint, ctrl%kWeight, reduceByInversion=tReduceByInversion)

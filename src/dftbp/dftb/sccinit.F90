@@ -481,9 +481,9 @@ contains
             nOrb = orb%nOrbAtom(iAtom)
             do ii = 1, nOrb
               if (tReadAscii) then
-                read (file, *, iostat=iErr) qBlock(1:nOrb, ii ,iAtom, iSpin)
+                read (file, *, iostat=iErr) qBlock(1:nOrb, ii, iAtom, iSpin)
               else
-                read (file, iostat=iErr) qBlock(1:nOrb, ii ,iAtom, iSpin)
+                read (file, iostat=iErr) qBlock(1:nOrb, ii, iAtom, iSpin)
               end if
               if (iErr /= 0) then
                 write (error_string, *) "Failure to read file for external block charges"
@@ -511,9 +511,9 @@ contains
             nOrb = orb%nOrbAtom(iAtom)
             do ii = 1, nOrb
               if (tReadAscii) then
-                read (file, *, iostat=iErr) qiBlock(1:nOrb, ii ,iAtom, iSpin)
+                read (file, *, iostat=iErr) qiBlock(1:nOrb, ii, iAtom, iSpin)
               else
-                read (file, iostat=iErr) qiBlock(1:nOrb, ii ,iAtom, iSpin)
+                read (file, iostat=iErr) qiBlock(1:nOrb, ii, iAtom, iSpin)
               end if
               if (iErr /= 0) then
                 write (error_string, *) "Failure to read file for external imaginary block charges"

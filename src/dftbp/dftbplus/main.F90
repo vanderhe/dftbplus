@@ -2780,7 +2780,7 @@ contains
             & nNeighbourCamSym, HSqrReal, SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
         @:PROPAGATE_ERROR(errStatus)
       else
-        call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, neighbourList,&
+        call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
             & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species,&
             & coord, rangeSep, densityMatrix%deltaRhoOutSqrCplx, densityMatrix%deltaRhoInSqrCplxHS,&
@@ -2996,7 +2996,7 @@ contains
 
 
   !> Builds and diagonalises dense k-point dependent Hamiltonians.
-  subroutine buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, neighbourList,&
+  subroutine buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
       & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
       & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord,&
       & rangeSep, deltaRhoOutSqrCplx, deltaRhoInSqrCplxHS, nNeighbourCam, nNeighbourCamSym,&
@@ -3013,6 +3013,9 @@ contains
 
     !> k-points
     real(dp), intent(in) :: kPoint(:,:)
+
+    !> K-point weight (for energy contribution)
+    real(dp), intent(in) :: kWeight(:)
 
     !> List of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
@@ -3124,8 +3127,8 @@ contains
         ! Get CAM-Hamiltonian contribution for current spin/k-point
         call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
             & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-            & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS,&
-            & HSqrCplxCam(:,:, iKS))
+            & denseDesc%iAtomStart, orb, kPoint(:, iK), kWeight(iK), iKS, iSpin,&
+            & parallelKS%nLocalKS, HSqrCplxCam(:,:, iKS))
       end do
     end if
   #:endif
@@ -3189,7 +3192,8 @@ contains
         ! Pass real-space deltaRhoInSqrCplxHS for all BvK lattice shifts
         call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
             & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-            & denseDesc%iAtomStart, orb, kPoint(:, iK), iKS, iSpin, parallelKS%nLocalKS, HSqrCplx)
+            & denseDesc%iAtomStart, orb, kPoint(:, iK), kWeight(iK), iKS, iSpin,&
+            & parallelKS%nLocalKS, HSqrCplx)
       end if
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&

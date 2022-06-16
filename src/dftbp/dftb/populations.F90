@@ -104,8 +104,7 @@ contains
     call mullikenPerOrbital(qPerOrbital, over, rho, orb, iNeighbour, nNeighbourSK, img2CentCell,&
         & iPair)
 
-    qq(:) = qq(:) + sum(qPerOrbital, dim=1)
-    deallocate(qPerOrbital)
+    qq(:) = qq + sum(qPerOrbital, dim=1)
 
   end subroutine mullikenPerAtom
 
