@@ -2946,6 +2946,23 @@ contains
         end if
       end if
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
+
+      ! Add CAM contribution
+      ! Assumes deltaRhoInSqr only used by rangeseparation.
+      ! Should this be used elsewhere, you need to pass isRangeSep.
+      if (allocated(rangeSep)) then
+        if (tPeriodic) then
+          call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
+              & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
+              & nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
+              & denseDesc%iAtomStart, orb, HSqrReal)
+        else
+          call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
+              & symNeighbourList, neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym,&
+              & denseDesc%iAtomStart, iSparseStart, orb, HSqrReal, SSqrReal)
+        end if
+      end if
+
       call diagDenseMtxBlacs(electronicSolver, 1, 'V', denseDesc%blacsOrbSqr, HSqrReal, SSqrReal,&
           & eigen(:,iSpin), eigvecsReal(:,:,iKS), errStatus)
       @:PROPAGATE_ERROR(errStatus)
@@ -3404,17 +3421,32 @@ contains
       iSpin = parallelKS%localKS(2, iKS)
 
     #:if WITH_SCALAPACK
-      call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, denseDesc%blacsOrbSqr, filling(:,iSpin),&
-          & eigvecs(:,:,iKS), work)
-      call env%globalTimer%startTimer(globalTimers%denseToSparse)
-      if (tHelical) then
-        call packRhoHelicalRealBlacs(env%blacs, denseDesc, work, neighbourList%iNeighbour,&
-            & nNeighbourSK, iSparseStart, img2CentCell, orb, species, coord, rhoPrim(:,iSpin))
+
+      if (.not. associated(deltaRhoOutSqr)) then
+        call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, denseDesc%blacsOrbSqr,&
+            & filling(:,iSpin), eigvecs(:,:,iKS), work)
+        call env%globalTimer%startTimer(globalTimers%denseToSparse)
+        if (tHelical) then
+          call packRhoHelicalRealBlacs(env%blacs, denseDesc, work, neighbourList%iNeighbour,&
+              & nNeighbourSK, iSparseStart, img2CentCell, orb, species, coord, rhoPrim(:,iSpin))
+        else
+          call packRhoRealBlacs(env%blacs, denseDesc, work, neighbourList%iNeighbour, nNeighbourSK,&
+              & orb%mOrb, iSparseStart, img2CentCell, rhoPrim(:,iSpin))
+        end if
+        call env%globalTimer%stopTimer(globalTimers%denseToSparse)
       else
-        call packRhoRealBlacs(env%blacs, denseDesc, work, neighbourList%iNeighbour, nNeighbourSK,&
-            & orb%mOrb, iSparseStart, img2CentCell, rhoPrim(:,iSpin))
+        ! Range-separated case: pack delta density matrix
+        call makeDensityMatrix(deltaRhoOutSqr(:,:,iSpin), eigvecs(:,:,iKS), filling(:,iSpin))
+        call env%globalTimer%startTimer(globalTimers%denseToSparse)
+        if (tHelical) then
+          call packHelicalHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin), neighbourlist%iNeighbour,&
+              & nNeighbourSK, denseDesc%iAtomStart, iSparseStart, img2CentCell, orb, species, coord)
+        else
+          call packHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin), neighbourlist%iNeighbour,&
+              & nNeighbourSK, orb%mOrb, denseDesc%iAtomStart, iSparseStart, img2CentCell)
+        end if
+        call env%globalTimer%stopTimer(globalTimers%denseToSparse)
       end if
-      call env%globalTimer%stopTimer(globalTimers%denseToSparse)
     #:else
       ! Either pack density matrix or delta density matrix
       if (.not. associated(deltaRhoOutSqr)) then
