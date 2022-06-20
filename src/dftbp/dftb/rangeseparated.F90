@@ -2336,6 +2336,13 @@ contains
     type(TRealArray1D), allocatable :: testSquareOver(:)
     type(TIntArray1D), allocatable :: overlapIndices(:)
 
+    !! Index arrays for descending sorting of Gamma arrays
+    integer, allocatable :: gammaMNsortIdx(:), gammaMBsortIdx(:)
+    integer, allocatable :: gammaANsortIdx(:), gammaABsortIdx(:)
+
+    !! Number of non-vanishing elements in descending Gamma arrays
+    integer :: nNonZeroGammaMN, nNonZeroGammaMB, nNonZeroGammaAN, nNonZeroGammaAB
+
     !! Number of atoms in central cell
     integer :: nAtom0
 
@@ -2394,7 +2401,7 @@ contains
     complex(dp) :: phase
 
     !! Iterates over all BvK real-space vectors
-    integer :: iG
+    integer :: iG, iGMN, iGMB, iGAN, iGAB
 
     !! Dummy array with zeros
     real(dp) :: zeros(3)
@@ -2455,6 +2462,8 @@ contains
     if (iKS == nKS .or. iCurSpin == 2) then
       this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin) = deltaRhoSqr(:,:,:,:,:, iCurSpin)
     end if
+    ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
+    if (pMax < 1e-16_dp) return
 
     ! allocate max estimates of square overlap blocks and index array for sorting
     allocate(testSquareOver(nAtom0))
@@ -2494,6 +2503,12 @@ contains
     allocate(gammaAN(size(cellVecsG, dim=2)))
     allocate(gammaAB(size(cellVecsG, dim=2)))
 
+    ! re-indexing for descending sorting
+    allocate(gammaMNsortIdx(size(cellVecsG, dim=2)))
+    allocate(gammaMBsortIdx(size(cellVecsG, dim=2)))
+    allocate(gammaANsortIdx(size(cellVecsG, dim=2)))
+    allocate(gammaABsortIdx(size(cellVecsG, dim=2)))
+
     ! !$omp parallel do schedule(dynamic) default(none)&
     ! !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
     ! !$omp& testSquareOver, cellVecs, rCellVecs, deltaDeltaRhoSqr, latVecs, recVecs2p,&
@@ -2514,6 +2529,9 @@ contains
       ! pre-tabulate g-resolved \gamma_{\mu\nu}(\vec{g})
       gammaMN(:) = getGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%coords, rCellVecsG,&
           & zeros)
+      call index_heap_sort(gammaMNsortIdx, gammaMN)
+      gammaMNsortIdx(:) = gammaMNsortIdx(size(gammaMNsortIdx):1:-1)
+      nNonZeroGammaMN = getNumberOfNonZeroElements(gammaMN(gammaMNsortIdx))
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
         iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
         pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
@@ -2535,6 +2553,9 @@ contains
         ! pre-tabulate g-resolved \gamma_{\mu\beta}(\vec{g}-\vec{l})
         gammaMB(:) = getGammaGResolved(this, iAtM, iAtBfold, iSpM, iSpB, this%coords,&
             & rCellVecsG, -rVecL)
+        call index_heap_sort(gammaMBsortIdx, gammaMB)
+        gammaMBsortIdx(:) = gammaMBsortIdx(size(gammaMBsortIdx):1:-1)
+        nNonZeroGammaMB = getNumberOfNonZeroElements(gammaMB(gammaMBsortIdx))
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
           maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
@@ -2552,9 +2573,15 @@ contains
           ! pre-tabulate g-resolved \gamma_{\alpha\nu}(\vec{g}+\vec{h})
           gammaAN(:) = getGammaGResolved(this, iAtAfold, iAtN, iSpA, iSpN, this%coords,&
               & rCellVecsG, rVecH)
+          call index_heap_sort(gammaANsortIdx, gammaAN)
+          gammaANsortIdx(:) = gammaANsortIdx(size(gammaANsortIdx):1:-1)
+          nNonZeroGammaAN = getNumberOfNonZeroElements(gammaAN(gammaANsortIdx))
           ! pre-tabulate g-resolved \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
           gammaAB(:) = getGammaGResolved(this, iAtAfold, iAtBfold, iSpA, iSpB, this%coords,&
               & rCellVecsG, rVecH - rVecL)
+          call index_heap_sort(gammaABsortIdx, gammaAB)
+          gammaABsortIdx(:) = gammaABsortIdx(size(gammaABsortIdx):1:-1)
+          nNonZeroGammaAB = getNumberOfNonZeroElements(gammaAB(gammaABsortIdx))
           ! get 2D pointer to Sam overlap block
           ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
           nOrbAt = descM(iNOrb)
@@ -2562,55 +2589,125 @@ contains
           pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
           pSamT = transpose(pSam)
 
-          loopG: do iG = 1, size(rCellVecsG, dim=2)
-            bvKShift(:) = this%foldToBvK(cellVecsG(:, iG) + vecH - vecL)
-            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iG) + vecH - vecL)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iG)))
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = 0.0_dp
+
+          loopGMN: do iG = 1, nNonZeroGammaMN
+            iGMN = gammaMNsortIdx(iG)
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGMN) + vecH - vecL)
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGMN)))
 
             pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
                 & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
-            ! call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKIndex(1),&
-            !     & bvKIndex(2), bvKIndex(3)), transA='T', transB='N')
             Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
                 & bvKIndex(3)), pSbn)
-            ! call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKIndex(1), bvKIndex(2),&
-            !     & bvKIndex(3)), pSbn, transA='N', transB='N')
 
             ! term #1
             pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
                 & 1:descB(iNOrb)), pSbn)
-            ! call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-            !     & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
 
-            tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-                & * gammaMN(iG)
+            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+                & + pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) * gammaMN(iGMN) * phase
+          end do loopGMN
+
+          loopGMB: do iG = 1, nNonZeroGammaMB
+            iGMB = gammaMBsortIdx(iG)
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGMB) + vecH - vecL)
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGMB)))
+
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
+                & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
+            Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                & bvKIndex(3)), pSbn)
 
             ! term #2
             tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-            & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(iG), pSbn)
-            ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-            !     & 1:descB(iNOrb)) * gammaMB(iG), pSbn, transA='N', transB='N', beta=1.0_dp)
+                & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(iGMB), pSbn) * phase
+          end do loopGMB
+
+          loopGAN: do iG = 1, nNonZeroGammaAN
+            iGAN = gammaANsortIdx(iG)
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGAN) + vecH - vecL)
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGAN)))
+
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
+                & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
+            Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                & bvKIndex(3)), pSbn)
 
             ! term #3
             tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(iG))
-            ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSam, Pab_Sbn(1:descA(iNOrb),&
-            !     & 1:descN(iNOrb)) * gammaAN(iG), transA='T', transB='N', beta=1.0_dp)
+                & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(iGAN)) * phase
+          end do loopGAN
+
+          loopGAB: do iG = 1, nNonZeroGammaAB
+            iGAB = gammaABsortIdx(iG)
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGAB) + vecH - vecL)
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGAB)))
+
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
+                & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
+            Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                & bvKIndex(3)), pSbn)
 
             ! term #4
             pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
-                & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG))
-            ! call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSam, Pab(:,:,&
-            !     & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG), transA='T', transB='N')
+                & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iGAB))
             tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
-            ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
-            !     & 1:descB(iNOrb)), pSbn, transA='N', transB='N', beta=1.0_dp)
+                & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn) * phase
+          end do loopGAB
 
-            tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-                & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-                & + tot(1:descM(iNOrb), 1:descN(iNOrb)) * phase
-          end do loopG
+          tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+              & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+              & + tot(1:descM(iNOrb), 1:descN(iNOrb))
+
+          ! loopG: do iG = 1, size(rCellVecsG, dim=2)
+          !   bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iG) + vecH - vecL)
+          !   phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iG)))
+
+          !   pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
+          !       & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
+          !   ! call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKIndex(1),&
+          !   !     & bvKIndex(2), bvKIndex(3)), transA='T', transB='N')
+          !   Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+          !       & bvKIndex(3)), pSbn)
+          !   ! call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKIndex(1), bvKIndex(2),&
+          !   !     & bvKIndex(3)), pSbn, transA='N', transB='N')
+
+          !   ! term #1
+          !   pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
+          !       & 1:descB(iNOrb)), pSbn)
+          !   ! call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
+          !   !     & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
+
+          !   tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+          !       & * gammaMN(iG)
+
+          !   ! term #2
+          !   tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+          !   & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(iG), pSbn)
+          !   ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
+          !   !     & 1:descB(iNOrb)) * gammaMB(iG), pSbn, transA='N', transB='N', beta=1.0_dp)
+
+          !   ! term #3
+          !   tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+          !       & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(iG))
+          !   ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSam, Pab_Sbn(1:descA(iNOrb),&
+          !   !     & 1:descN(iNOrb)) * gammaAN(iG), transA='T', transB='N', beta=1.0_dp)
+
+          !   ! term #4
+          !   pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
+          !       & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG))
+          !   ! call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSam, Pab(:,:,&
+          !   !     & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG), transA='T', transB='N')
+          !   tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+          !       & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
+          !   ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
+          !   !     & 1:descB(iNOrb)), pSbn, transA='N', transB='N', beta=1.0_dp)
+
+          !   tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+          !       & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+          !       & + tot(1:descM(iNOrb), 1:descN(iNOrb)) * phase
+          ! end do loopG
 
         end do loopA
       end do loopB
@@ -2641,6 +2738,29 @@ contains
     this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
         & deltaRhoOutSqrCplx)
   #:endif
+
+  contains
+
+    !> Returns the number of non-zero elements in a descending array of reals.
+    pure function getNumberOfNonZeroElements(array) result(nNonZeroEntries)
+
+      !> Descending one-dimensional, real-valued array to search
+      real(dp), intent(in) :: array(:)
+
+      !> Number of non-zero entries
+      real(dp) :: nNonZeroEntries
+
+      !! iterates over all array elements
+      integer :: ii
+
+      nNonZeroEntries = 0
+
+      do ii = 1, size(array)
+        if (array(ii) < 1e-16_dp) return
+        nNonZeroEntries = ii
+      end do
+
+    end function getNumberOfNonZeroElements
 
   end subroutine addLrHamiltonianNeighbour_kpts_sym
 
