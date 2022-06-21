@@ -1414,7 +1414,7 @@ contains
 
     this%tRealHS = .true.
     if (this%tPeriodic .or. this%tHelical) then
-      if ( size(this%kPoint,dim=2) == 1 .and. all(this%kPoint(:, 1) == 0.0_dp)) then
+      if (size(this%kPoint, dim=2) == 1 .and. all(this%kPoint(:, 1) == 0.0_dp)) then
         this%tRealHS = .true.
       else
         this%tRealHS = .false.

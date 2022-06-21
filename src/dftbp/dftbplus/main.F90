@@ -51,7 +51,7 @@ module dftbp_dftbplus_main
   use dftbp_dftb_shift, only : addShift
   use dftbp_dftb_slakocont, only : TSlakoCont
   use dftbp_dftb_sparse2dense, only : unpackHPauli, unpackHS, blockSymmetrizeHS, packHS,&
-      & blockSymmetrizeHS, packHS, SymmetrizeHS, unpackHelicalHS, packerho, blockHermitianHS,&
+      & blockSymmetrizeHS, packHS, symmetrizeHS, unpackHelicalHS, packerho, blockHermitianHS,&
       & packHSPauli, packHelicalHS, packHSPauliImag, iPackHS, unpackSPauli, getSparseDescriptor,&
       & hermitianSquareMatrix
   use dftbp_dftb_spin, only : ud2qm, qm2ud

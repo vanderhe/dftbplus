@@ -404,7 +404,7 @@ contains
 
 
     !> Returns BvK real-space shifts, compatible with k-point mesh.
-    pure subroutine getBvKLatticeShifts(coeffsDiag, bvKShifts)
+    subroutine getBvKLatticeShifts(coeffsDiag, bvKShifts)
 
       !> Supercell folding coefficients (diagonal elements)
       integer, intent(in) :: coeffsDiag(:)
@@ -2027,6 +2027,7 @@ contains
 
     !! Atom blocks from sparse, real-space overlap matrices S_{\alpha\mu}, S_{\beta\nu}
     real(dp), pointer :: pSam(:,:), pSbn(:,:)
+    real(dp), allocatable :: pSamT(:,:)
 
     !! Density matrix block from sparse matrix
     real(dp), allocatable :: Pab(:,:)
@@ -2084,11 +2085,26 @@ contains
     !! max overlap estimates
     real(dp) :: pMax, pMaxSbn, pMaxSbnSam, maxEstimate, pSbnMax, pMaxpSbnMax
 
-    !! Max. number of neighbours in neighbour list
-    integer :: nNeigh
+    !! Dummy array with zeros
+    real(dp) :: zeros(3)
+
+    !! Composite index iAtM/iAtN
+    integer :: ii, iAtMN(2, size(this%species0)**2)
+
+    zeros(:) = 0.0_dp
 
     squareSize = size(HSqr, dim=1)
     nAtom0 = size(this%species0)
+
+    ! Build up composite index iAtMN for collapsing iAtM and iAtN
+    ind = 1
+    loopM: do iAtM = 1, nAtom0
+      loopN: do iAtN = 1, nAtom0
+        iAtMN(1, ind) = iAtM
+        iAtMN(2, ind) = iAtN
+        ind = ind + 1
+      end do loopN
+    end do loopM
 
     ! allocate delta Hamiltonian
     allocate(tmpHSqr(squareSize, squareSize))
@@ -2116,7 +2132,6 @@ contains
     this%dRhoPrev(:,:) = tmpDeltaRhoSqr
 
     ! allocate max estimates of square overlap blocks and index array for sorting
-    nNeigh = size(symNeighbourList%neighbourList%iNeighbour, dim=1)
     allocate(testSquareOver(nAtom0))
     allocate(overlapIndices(nAtom0))
 
@@ -2149,99 +2164,99 @@ contains
     ! get all cell translations within given cutoff
     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
 
-    !$omp parallel do schedule(dynamic) default(none) collapse(2)&
-    !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
-    !$omp& testSquareOver, rCellVecs, rCellVecsG, tmpDeltaDeltaRhoSqr, tmpHSqr, pMax)&
-    !$omp private(iAtN, iSpN, descN, iNeighN, iNeighNsort, iAtB, iAtBfold, iSpB, pSbnMax, rVecL,&
-    !$omp& ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM, iNeighMsort,&
-    !$omp& iAtA, iAtAfold, iSpA, descA, Pab, maxEstimate, rVecH, gammaAN, gammaAB, pSam, pSamT_Pab,&
-    !$omp& Pab_Sbn, tot, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB, pMaxpSbnMax)
-    loopM: do iAtM = 1, nAtom0
-      loopN: do iAtN = 1, nAtom0
-        iSpM = this%species0(iAtM)
-        descM = getDescriptor(iAtM, iSquare)
-        iSpN = this%species0(iAtN)
-        descN = getDescriptor(iAtN, iSquare)
-        ! \gamma_{\mu\nu}(\vec{g})
-        gammaMN = getGammaGSum(this, iAtM, iAtN, iSpM, iSpN, this%coords, rCellVecsG,&
-            & [0.0_dp, 0.0_dp, 0.0_dp])
-        loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
-          iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
-          pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
-          pMaxpSbnMax = pMax * pSbnMax
-          if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
-          iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
-          iAtBfold = symNeighbourList%img2CentCell(iAtB)
-          iSpB = this%species0(iAtBfold)
-          descB = getDescriptor(iAtBfold, iSquare)
-          ! get real-space \vec{l} for gamma arguments
-          rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
-          ! get 2D pointer to Sbn overlap block
-          ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
-          nOrbAt = descN(iNOrb)
-          nOrbNeigh = descB(iNOrb)
-          pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-          ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
-          gammaMB = getGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%coords, rCellVecsG, -rVecL)
-          loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
-            iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
-            maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
-            if (maxEstimate < this%pScreeningThreshold) exit loopA
-            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
-            iAtAfold = symNeighbourList%img2CentCell(iAtA)
-            iSpA = this%species0(iAtAfold)
-            descA = getDescriptor(iAtAfold, iSquare)
-            ! get continuous 2D copy of Pab density matrix block
-            Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
-            ! get real-space \vec{h} for gamma arguments
-            rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
-            ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
-            gammaAN = getGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%coords, rCellVecsG, rVecH)
-            ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
-            gammaAB = getGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%coords, rCellVecsG,&
-                & rVecH - rVecL)
-            ! get 2D pointer to Sam overlap block
-            ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
-            nOrbAt = descM(iNOrb)
-            nOrbNeigh = descA(iNOrb)
-            pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+    ! !$omp parallel do schedule(dynamic) default(none)&
+    ! !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
+    ! !$omp& testSquareOver, rCellVecs, rCellVecsG, tmpDeltaDeltaRhoSqr, tmpHSqr, pMax)&
+    ! !$omp private(iAtN, iSpN, descN, iNeighN, iNeighNsort, iAtB, iAtBfold, iSpB, pSbnMax, rVecL,&
+    ! !$omp& ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM, iNeighMsort,&
+    ! !$omp& iAtA, iAtAfold, iSpA, descA, Pab, maxEstimate, rVecH, gammaAN, gammaAB, pSam, pSamT_Pab,&
+    ! !$omp& Pab_Sbn, tot, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB, pMaxpSbnMax)
+    loopMN: do ii = 1, nAtom0**2
+      iAtM = iAtMN(1, ii)
+      iAtN = iAtMN(2, ii)
+      iSpM = this%species0(iAtM)
+      descM = getDescriptor(iAtM, iSquare)
+      iSpN = this%species0(iAtN)
+      descN = getDescriptor(iAtN, iSquare)
+      ! \gamma_{\mu\nu}(\vec{g})
+      gammaMN = getGammaGSum(this, iAtM, iAtN, iSpM, iSpN, this%coords, rCellVecsG, zeros)
+      loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
+        iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
+        pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
+        pMaxpSbnMax = pMax * pSbnMax
+        if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
+        iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
+        iAtBfold = symNeighbourList%img2CentCell(iAtB)
+        iSpB = this%species0(iAtBfold)
+        descB = getDescriptor(iAtBfold, iSquare)
+        ! get real-space \vec{l} for gamma arguments
+        rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
+        ! get 2D pointer to Sbn overlap block
+        ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
+        nOrbAt = descN(iNOrb)
+        nOrbNeigh = descB(iNOrb)
+        pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+        ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
+        gammaMB = getGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%coords, rCellVecsG, -rVecL)
+        loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
+          iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
+          maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
+          if (maxEstimate < this%pScreeningThreshold) exit loopA
+          iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
+          iAtAfold = symNeighbourList%img2CentCell(iAtA)
+          iSpA = this%species0(iAtAfold)
+          descA = getDescriptor(iAtAfold, iSquare)
+          ! get continuous 2D copy of Pab density matrix block
+          Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
+          ! get real-space \vec{h} for gamma arguments
+          rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
+          ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
+          gammaAN = getGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%coords, rCellVecsG, rVecH)
+          ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
+          gammaAB = getGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%coords, rCellVecsG,&
+              & rVecH - rVecL)
+          ! get 2D pointer to Sam overlap block
+          ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
+          nOrbAt = descM(iNOrb)
+          nOrbNeigh = descA(iNOrb)
+          pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+          pSamT = transpose(pSam)
 
-            call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab, transA='T', transB='N')
-            call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab, pSbn, transA='N', transB='N')
+          call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSamT, Pab, transA='N', transB='N')
+          call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab, pSbn, transA='N', transB='N')
 
-            ! term #1
-            call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-                & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
-            tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-                & * gammaMN
+          ! term #1
+          call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
+              & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+              & * gammaMN
 
-            ! term #2
-            call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-                & 1:descB(iNOrb)) * gammaMB, pSbn, transA='N', transB='N', beta=1.0_dp)
+          ! term #2
+          call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
+              & 1:descB(iNOrb)) * gammaMB, pSbn, transA='N', transB='N', beta=1.0_dp)
 
-            ! term #3
-            call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSam, Pab_Sbn(1:descA(iNOrb),&
-                & 1:descN(iNOrb)) * gammaAN, transA='T', transB='N', beta=1.0_dp)
+          ! term #3
+          call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT, Pab_Sbn(1:descA(iNOrb),&
+              & 1:descN(iNOrb)) * gammaAN, transA='N', transB='N', beta=1.0_dp)
 
-            ! term #4
-            call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSam,&
-                & Pab * gammaAB, transA='T', transB='N')
-            call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
-                & 1:descB(iNOrb)), pSbn, transA='N', transB='N', beta=1.0_dp)
+          ! term #4
+          call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSamT,&
+              & Pab * gammaAB, transA='N', transB='N')
+          call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
+              & 1:descB(iNOrb)), pSbn, transA='N', transB='N', beta=1.0_dp)
 
-            tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-                & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-                & - tot(1:descM(iNOrb), 1:descN(iNOrb))
+          tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+              & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+              & + tot(1:descM(iNOrb), 1:descN(iNOrb))
 
-          end do loopA
-        end do loopB
-      end do loopN
-    end do loopM
+        end do loopA
+      end do loopB
+    end do loopMN
 
     if (this%tSpin .or. this%tREKS) then
-      tmpHSqr(:,:) = 0.250_dp * tmpHSqr
+      tmpHSqr(:,:) = -0.25_dp * tmpHSqr
     else
-      tmpHSqr(:,:) = 0.125_dp * tmpHSqr
+      tmpHSqr(:,:) = -0.125_dp * tmpHSqr
     end if
 
     this%hprev(:,:) = this%hprev + tmpHSqr
@@ -2348,9 +2363,6 @@ contains
 
     !! Real-space \vec{h} and \vec{l} vectors in absolute and relative coordinates
     real(dp) :: rVecH(3), rVecL(3), vecH(3), vecL(3)
-
-    !! Norm of \vec{h} and \vec{l} vectors in absolute coordinates
-    real(dp) :: rNormVecH, rNormVecL
 
     !! Translation vectors to lattice cells in units of lattice constants
     real(dp), allocatable :: cellVecsG(:,:)
@@ -2517,7 +2529,7 @@ contains
     ! !$omp& rVecL, ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM,&
     ! !$omp& iNeighMsort, iAtA, iAtAfold, iSpA, descA, Pab, maxEstimate, vecH, rVecH, gammaAN,&
     ! !$omp& gammaAB, pSam, pSamT, pSamT_Pab, Pab_Sbn, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB,&
-    ! !$omp& pMaxpSbnMax, bvKShift, bvKIndex, phase, iG, rNormVecL, rNormVecH)&
+    ! !$omp& pMaxpSbnMax, bvKShift, bvKIndex, phase, iG)&
     ! !$omp firstprivate(tot)
     loopMN: do ii = iParallelStart, iParallelEnd
       iAtM = iAtMN(1, ii)
@@ -2544,7 +2556,6 @@ contains
         ! get real-space \vec{l} for gamma arguments
         rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
         vecL(:) = cellVecs(:, symNeighbourList%iCellVec(iAtB))
-        rNormVecL = norm2(rVecL)
         ! get 2D pointer to Sbn overlap block
         ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
         nOrbAt = descN(iNOrb)
@@ -2569,7 +2580,6 @@ contains
           ! get real-space \vec{h} for gamma arguments
           rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
           vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
-          rNormVecH = norm2(rVecH)
           ! pre-tabulate g-resolved \gamma_{\alpha\nu}(\vec{g}+\vec{h})
           gammaAN(:) = getGammaGResolved(this, iAtAfold, iAtN, iSpA, iSpN, this%coords,&
               & rCellVecsG, rVecH)
@@ -4152,8 +4162,8 @@ contains
       gradients(:,:) = gradients - 0.0625_dp * this%camBeta * nSpin * tmpGradients
     end if
 
-    ! print '(3F25.16)', -gradients
-    ! print *, sum(-gradients, dim=2)
+    print '(3F25.16)', -gradients
+    print *, sum(-gradients, dim=2)
 
   end subroutine addLrGradients_gamma
 

@@ -2721,13 +2721,9 @@ contains
 
     ! K-Points
     if (geo%tPeriodic) then
-
       call getEuclideanKSampling(tBadIntegratingKPoints, ctrl, node, geo)
-
     else if (geo%tHelical) then
-
       call getHelicalKSampling(tBadIntegratingKPoints, ctrl, node, geo)
-
     end if
 
     if (ctrl%tSCC) then
@@ -2780,8 +2776,7 @@ contains
     !! True, if k-points should be reduced by inversion
     logical :: tReduceByInversion
 
-    call getChildValue(node, "KPointsAndWeights", value1, child=child, &
-        &modifier=modifier)
+    call getChildValue(node, "KPointsAndWeights", value1, child=child, modifier=modifier)
     call getNodeName(value1, buffer)
     select case(char(buffer))
 
@@ -2804,9 +2799,9 @@ contains
             & supercellFoldingDiagOut=ctrl%supercellFoldingDiag)
         ctrl%supercellFoldingMatrix = coeffsAndShifts
         ! For Gamma-point we don't need this information
-        if (sum(ctrl%supercellFoldingDiag) <= 3) then
-          deallocate(ctrl%supercellFoldingDiag, ctrl%supercellFoldingMatrix)
-        end if
+        ! if (sum(ctrl%supercellFoldingDiag) <= 3 .and. ) then
+        !   deallocate(ctrl%supercellFoldingDiag, ctrl%supercellFoldingMatrix)
+        ! end if
       end if
       tReduceByInversion = (.not. ctrl%tSpinOrbit)
       call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&

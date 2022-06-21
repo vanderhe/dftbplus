@@ -109,6 +109,11 @@ contains
     !> Real-space, dense, square rho for BvK cell
     real(dp), intent(in), pointer :: rhoSqrBvK(:,:,:,:,:,:)
 
+    !> Real-space, dense, square rho for BvK cell (complex version)
+    complex(dp) :: rhoSqrBvKCplx(size(rhoSqrBvK, dim=1), size(rhoSqrBvK, dim=2),&
+        & size(rhoSqrBvK, dim=3), size(rhoSqrBvK, dim=4), size(rhoSqrBvK, dim=5),&
+        & size(rhoSqrBvK, dim=6))
+
     !! K-point-spin composite index and k-point/spin index
     integer :: iKS, iK, iSpin
 
@@ -121,17 +126,21 @@ contains
     !! Integer BvK real-space shift translated to density matrix indices
     integer :: bvKIndex(3)
 
+    rhoSqrBvKCplx(:,:,:,:,:,:) = cmplx(0, 0, dp)
+
     do iG = 1, size(bvKShifts, dim=2)
       do iKS = 1, parallelKS%nLocalKS
         iK = parallelKS%localKS(1, iKS)
         iSpin = parallelKS%localKS(2, iKS)
         phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoint(:, iK), bvKShifts(:, iG)))
         bvKIndex(:) = nint(bvKShifts(:, iG)) + 1
-        rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
-            & = rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
-            & + kWeight(iK) * real(rhoSqrDual(:,:, iKS) * phase, dp)
+        rhoSqrBvKCplx(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
+            & = rhoSqrBvKCplx(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
+            & + kWeight(iK) * rhoSqrDual(:,:, iKS) * phase
       end do
     end do
+
+    rhoSqrBvK(:,:,:,:,:,:) = rhoSqrBvK + real(rhoSqrBvKCplx, dp)
 
   end subroutine transformDualSpaceToBvKRealSpace
 
