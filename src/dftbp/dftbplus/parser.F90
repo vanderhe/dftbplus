@@ -2789,8 +2789,8 @@ contains
       if (abs(determinant33(coeffsAndShifts(:,1:3))) - 1.0_dp < -1e-6_dp) then
         call detailedError(value1, "Determinant of the supercell matrix must be greater than 1")
       end if
-      if (any(abs(modulo(coeffsAndShifts(:,1:3) + 0.5_dp, 1.0_dp) - 0.5_dp) &
-          &> 1e-6_dp)) then
+      if (any(abs(modulo(coeffsAndShifts(:,1:3) + 0.5_dp, 1.0_dp) - 0.5_dp)&
+          & > 1e-6_dp)) then
         call detailedError(value1, "The components of the supercell matrix must be integers.")
       end if
       if (allocated(ctrl%rangeSepInp)) then
@@ -2803,7 +2803,8 @@ contains
         !   deallocate(ctrl%supercellFoldingDiag, ctrl%supercellFoldingMatrix)
         ! end if
       end if
-      tReduceByInversion = (.not. ctrl%tSpinOrbit)
+      ! tReduceByInversion = (.not. ctrl%tSpinOrbit)
+      tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))
       call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
           & ctrl%kPoint, ctrl%kWeight, reduceByInversion=tReduceByInversion)
       ctrl%nKPoint = size(ctrl%kPoint, dim=2)
@@ -7660,18 +7661,16 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
+          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff, -1.0_dp,&
+              & modifier=modifier, child=child3)
           call convertUnitHsd(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          ! call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
-          !     & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
-          !     & child=child3)
-          ! call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          call getChildValue(value2, "GammaCutoff", input%gammaCutoff, -1.0_dp, modifier=modifier,&
+              & child=child3)
+          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         else
           ! dummy cutoff values
-          ! input%gammaCutoff = 1.0_dp
+          input%gammaCutoff = 1.0_dp
           input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
@@ -7681,14 +7680,14 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         ! dummy cutoff values
-        ! input%gammaCutoff = 1.0_dp
+        input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
         ! dummy cutoff values
-        ! input%gammaCutoff = 1.0_dp
+        input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
@@ -7748,18 +7747,16 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
+          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff, -1.0_dp,&
+              & modifier=modifier, child=child3)
           call convertUnitHsd(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          ! call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
-          !     & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
-          !     & child=child3)
-          ! call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          call getChildValue(value2, "GammaCutoff", input%gammaCutoff, -1.0_dp, modifier=modifier,&
+              & child=child3)
+          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
         else
           ! dummy cutoff values
-          ! input%gammaCutoff = 1.0_dp
+          input%gammaCutoff = 1.0_dp
           input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
@@ -7769,14 +7766,14 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         ! dummy cutoff values
-        ! input%gammaCutoff = 1.0_dp
+        input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
         ! dummy cutoff values
-        ! input%gammaCutoff = 1.0_dp
+        input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
@@ -7797,18 +7794,16 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff,&
-              & 0.5_dp * sqrt(minval(sum(geo%latVecs**2, dim=1))), modifier=modifier,&
-              & child=child3)
+          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff, -1.0_dp,&
+              & modifier=modifier, child=child3)
           call convertUnitHsd(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          ! call getChildValue(value2, "GammaCutoff", input%gammaCutoff,&
-          !     & 0.5_dp * determinant33(geo%latVecs)**(1.0_dp / 3.0_dp), modifier=modifier,&
-          !     & child=child3)
-          ! call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          call getChildValue(value2, "GammaCutoff", input%gammaCutoff, -1.0_dp, modifier=modifier,&
+              & child=child3)
+          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
         else
           ! dummy cutoff values
-          ! input%gammaCutoff = 1.0_dp
+          input%gammaCutoff = 1.0_dp
           input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
@@ -7818,14 +7813,14 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         ! dummy cutoff values
-        ! input%gammaCutoff = 1.0_dp
+        input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
         ! dummy cutoff values
-        ! input%gammaCutoff = 1.0_dp
+        input%gammaCutoff = 1.0_dp
         input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)

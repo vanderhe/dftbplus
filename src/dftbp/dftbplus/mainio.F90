@@ -1993,9 +1993,11 @@ contains
     end if
     if (electronicSolver%providesElectronEntropy) then
       ! Mermin electronic free energy
-      call taggedWriter%write(fd, tagLabels%freeEgy, energy%EMermin)
+      ! call taggedWriter%write(fd, tagLabels%freeEgy, energy%EMermin)
+      call taggedWriter%write(fd, tagLabels%freeEgy, energy%EFock)
     else
-      call taggedWriter%write(fd, tagLabels%egyTotal, energy%ETotal)
+      ! call taggedWriter%write(fd, tagLabels%egyTotal, energy%ETotal)
+      call taggedWriter%write(fd, tagLabels%egyTotal, energy%EFock)
     end if
     if (pressure /= 0.0_dp) then
       ! Gibbs free energy

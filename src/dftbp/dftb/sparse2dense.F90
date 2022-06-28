@@ -2192,7 +2192,7 @@ contains
     type(TBlacsEnv), intent(in) :: myBlacs
 
     !> sparse matrix
-    real(dp), intent(in) :: orig(:, :)
+    real(dp), intent(in) :: orig(:,:)
 
     !> Relative coordinates of the K-point where the sparse matrix should be unfolded.
     real(dp), intent(in) :: kPoint(:)
@@ -2222,12 +2222,12 @@ contains
     type(TDenseDescr), intent(in) :: desc
 
     !> local part of distributed whole dense matrix
-    complex(dp), intent(out) :: square(:, :)
+    complex(dp), intent(out) :: square(:,:)
 
     !> imaginary part of sparse matrix
-    real(dp), intent(in), optional :: iorig(:, :)
+    real(dp), intent(in), optional :: iorig(:,:)
 
-    square(:, :) = cmplx(0, 0, dp)
+    square(:,:) = cmplx(0, 0, dp)
     call unpackHPauliBlacsHelper(myBlacs, orig, kPoint, iNeighbour, nNeighbourSK, iCellVec,&
         & cellVec, iSparseStart, img2CentCell, mOrb, cmplx(1, 0, dp), cmplx(1, 0, dp), desc, square)
     if (present(iorig)) then
