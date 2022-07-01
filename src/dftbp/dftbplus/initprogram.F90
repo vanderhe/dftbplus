@@ -2638,34 +2638,35 @@ contains
     this%tSkipChrgChecksum = input%ctrl%tSkipChrgChecksum .or. this%tNegf
 
     if (this%isRangeSep) then
-      if ((.not. this%tRealHS) .and. (.not. this%tReadChrg)) then
+      ! if ((.not. this%tRealHS) .and. (.not. this%tReadChrg)) then
+      if (.not. this%tReadChrg) then
         this%supercellFoldingMatrix = input%ctrl%supercellFoldingMatrix
         this%supercellFoldingDiag = input%ctrl%supercellFoldingDiag
       end if
       call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
+      tGammaCutoffFromHSD = .not. input%ctrl%rangeSepInp%gammaCutoff + 1.0_dp < 1e-06_dp
+      tGSumCutoffFromHSD = .not. input%ctrl%rangeSepInp%gSummationCutoff + 1.0_dp < 1e-06_dp
       if (.not. this%tReadChrg) then
-        tGammaCutoffFromHSD = .not. input%ctrl%rangeSepInp%gammaCutoff + 1.0_dp < 1e-06_dp
-        tGSumCutoffFromHSD = .not. input%ctrl%rangeSepInp%gSummationCutoff + 1.0_dp < 1e-06_dp
         if ((.not. tGammaCutoffFromHSD) .and. (.not. tGSumCutoffFromHSD)) then
           ! CT and g-summation only dummy cutoffs, therefore set automatically
           call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic,&
-              & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed,&
+              & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed, this%nKpoint,&
               & supercellFoldingDiag=this%supercellFoldingDiag)
         elseif (tGammaCutoffFromHSD .and. (.not. tGSumCutoffFromHSD)) then
           ! Manual Gamma cutoff selection from HSD input
           call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic,&
-              & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed,&
+              & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed, this%nKpoint,&
               & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
         elseif ((.not. tGammaCutoffFromHSD) .and. tGSumCutoffFromHSD) then
           ! Manual g-summation cutoff selection from HSD input
           call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic,&
-              & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed,&
+              & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed, this%nKpoint,&
               & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
               & supercellFoldingDiag=this%supercellFoldingDiag)
         else
           ! Manual Gamma/g-summation cutoff selection from HSD input
           call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic,&
-              & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed,&
+              & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed, this%nKpoint,&
               & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
               & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
         end if
@@ -2680,8 +2681,16 @@ contains
     ! initial run is only known after invoking this%initializeCharges(). Inferring the Coulomb
     ! truncation cutoff, therefore calling getRangeSeparatedCutoff(), needs this information.
     if (this%isRangeSep .and. this%tReadChrg) then
-      call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic, this%tRealHS,&
-          & input%ctrl%rangeSepInp%cutoffRed, supercellFoldingDiag=this%supercellFoldingDiag)
+      if (tGammaCutoffFromHSD) then
+        ! Manual Gamma cutoff selection from HSD input
+        call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic,&
+            & this%tRealHS, input%ctrl%rangeSepInp%cutoffRed, this%nKpoint,&
+            & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
+      else
+        call getRangeSeparatedCutoff(this%cutOff, input%geom%latVecs, this%tPeriodic, this%tRealHS,&
+            & input%ctrl%rangeSepInp%cutoffRed, this%nKpoint,&
+            & supercellFoldingDiag=this%supercellFoldingDiag)
+      end if
     end if
 
     if (this%isRangeSep) then
@@ -4044,10 +4053,11 @@ contains
 
     if (.not. this%tSccCalc) return
 
-    if (this%isRangeSep .and. (.not. this%tRealHS) .and. this%tReadChrg) then
+    if (this%isRangeSep .and. this%tReadChrg) then
+    ! if (this%isRangegSep .and. (.not. this%tRealHS) .and. this%tReadChrg) then
       allocate(this%supercellFoldingMatrix(3, 4))
-    elseif (this%isRangeSep .and. this%tRealHS) then
-      if (allocated(this%supercellFoldingMatrix)) deallocate(this%supercellFoldingMatrix)
+    ! elseif (this%isRangeSep .and. this%tRealHS) then
+      ! if (allocated(this%supercellFoldingMatrix)) deallocate(this%supercellFoldingMatrix)
     end if
 
     ! Charges read from file
@@ -4073,10 +4083,16 @@ contains
       end if
 
       ! Check if obtained supercell folding matrix meets current requirements
-      if (this%isRangeSep .and. (.not. this%tRealHS)) then
+      ! if (this%isRangeSep .and. (.not. this%tRealHS)) then
+      if (this%isRangeSep) then
+        ! print *, 'allocate(this%supercellFoldingDiag(3))'
         allocate(this%supercellFoldingDiag(3))
+        ! print *, 'this%supercellFoldingMatrix'
+        ! print *, this%supercellFoldingMatrix
         call checkSupercellFoldingMatrix(this%supercellFoldingMatrix,&
             & supercellFoldingDiagOut=this%supercellFoldingDiag)
+        ! print *, 'this%supercellFoldingDiag'
+        ! print *, this%supercellFoldingDiag
       end if
 
     #:if WITH_TRANSPORT
@@ -5504,7 +5520,7 @@ contains
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff(cutOff, latVecs, tPeriodic, tRealHS, cutoffRed,&
+  subroutine getRangeSeparatedCutOff(cutOff, latVecs, tPeriodic, tRealHS, cutoffRed, nKpoint,&
       & gSummationCutoff, gammaCutoff, supercellFoldingDiag)
 
     !> Resulting cutoff
@@ -5521,6 +5537,9 @@ contains
 
     !> CAM-neighbour list cutoff reduction
     real(dp), intent(in) :: cutoffRed
+
+    !> Number of k-points
+    integer, intent(in) :: nKpoint
 
     !> Cutoff for real-space g-summation
     real(dp), intent(in), optional :: gSummationCutoff
@@ -5550,26 +5569,36 @@ contains
     cutOff%mCutoff = max(cutOff%mCutOff, cutoff%camCutOff)
 
     ! minLatVecIdx = minloc(norm2(latVecs, dim=2), dim=1)
-    ! minLatVecIdx = maxloc(norm2(latVecs, dim=2), dim=1)
+    ! maxLatVecIdx = maxloc(norm2(latVecs, dim=2), dim=1)
     minLatVecNorm2 = minval(norm2(latVecs, dim=2))
     maxLatVecNorm2 = maxval(norm2(latVecs, dim=2))
 
+    ! write(stdOut, *) present(gammaCutoff)
+    ! write(stdOut, *) present(gSummationCutoff)
+
     if (present(gammaCutoff)) then
+      write(stdOut, *) 'Setting CT-cutoff from HSD input'
       cutOff%gammaCutoff = gammaCutoff
     else
       if (tRealHS .and. tPeriodic) then
-        cutOff%gammaCutoff = 0.5_dp * minLatVecNorm2
+        write(stdOut, *) 'Setting CT-cutoff automatically (real)'
+        ! cutOff%gammaCutoff = 0.5_dp * minLatVecNorm2
+        cutOff%gammaCutoff = minLatVecNorm2 * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
         ! cutOff%gammaCutoff = (3.0_dp * determinant33(latVecs) / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       elseif ((.not. tRealHS) .and. tPeriodic) then
         if (.not. present(supercellFoldingDiag)) then
           call error('Error while inferring Coulomb truncation cutoff from supercell folding&
               & matrix. Diagonal elements not present.')
         end if
-        cutOff%gammaCutoff = 0.5_dp * minLatVecNorm2
+        write(stdOut, *) 'Setting CT-cutoff automatically (cplx)'
+        ! print *, supercellFoldingDiag
+        ! cutOff%gammaCutoff = 0.5_dp * minLatVecNorm2
         ! cutOff%gammaCutoff = 3.0_dp * minLatVecNorm2 * supercellFoldingDiag(minLatVecIdx)&
         !     & / (4.0_dp * pi)
-        ! cutOff%gammaCutoff = (3.0_dp * determinant33(latVecs) * nKpoint&
+        ! cutOff%gammaCutoff = (3.0_dp * determinant33(latVecs) * product(supercellFoldingDiag)&
         !     & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+        cutOff%gammaCutoff = minLatVecNorm2 * (3.0_dp * product(supercellFoldingDiag)&
+            & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       else
         ! dummy cutoff value
         cutOff%gammaCutoff = 1.0_dp
@@ -5577,14 +5606,17 @@ contains
     end if
 
     if (present(gSummationCutoff)) then
+      write(stdOut, *) 'Setting g-cutoff from HSD input'
       cutOff%gSummationCutoff = gSummationCutoff
     else
       ! This would correspond to "the savest option"
-      cutOff%gSummationCutoff = 2.0_dp * cutOff%camCutOff + maxLatVecNorm2
+      ! cutOff%gSummationCutoff = 2.0_dp * cutOff%camCutOff + maxLatVecNorm2
+       write(stdOut, *) 'Setting g-cutoff automatically'
+      cutOff%gSummationCutoff = 2.0_dp * cutOff%camCutOff + cutOff%gammaCutoff
     end if
 
-    print *, cutOff%gammaCutoff, 'Bohr'
-    print *, cutOff%gSummationCutoff, 'Bohr'
+    write(stdOut, *) 'gammaCutoff: ', cutOff%gammaCutoff, 'Bohr'
+    write(stdOut, *) 'gSummationCutoff: ', cutOff%gSummationCutoff, 'Bohr'
 
   end subroutine getRangeSeparatedCutOff
 

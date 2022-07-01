@@ -1054,12 +1054,14 @@ contains
             ! This is a workaround, since it is unknown how to substract q0 from its real-space
             ! representation, therefore this is done in k-space and everything transformed back :(
             ! Reset deltaRhoOutSqrCplxHS, because of internal summation
+            ! write(stdOut, *) associated(this%densityMatrix%deltaRhoOutSqrCplx)
+            ! write(stdOut, *) associated(this%densityMatrix%deltaRhoOutSqrCplxHS)
             this%densityMatrix%deltaRhoOutSqrCplxHS(:,:,:,:,:,:) = 0.0_dp
             call transformDualSpaceToBvKRealSpace(this%densityMatrix%deltaRhoOutSqrCplx,&
                 & this%parallelKS, this%kPoint, this%kWeight, this%rangeSep%bvKShifts,&
                 & this%rangeSep%coeffsDiag, this%densityMatrix%deltaRhoOutSqrCplxHS)
           #:if WITH_MPI
-            ! Distribute all complex, square, k-space overlaps to all nodes via global summation
+            ! Distribute all square, real-space density matrices to all nodes via global summation
             call mpifx_allreduceip(env%mpi%interGroupComm, this%densityMatrix%deltaRhoOutSqrCplxHS,&
                 & MPI_SUM)
           #:endif
@@ -2888,7 +2890,7 @@ contains
     logical, intent(in) :: tHelical
 
     !> Coordinates of all atoms including images
-    real(dp), allocatable, intent(inout) :: coord(:,:)
+    real(dp), intent(inout), allocatable :: coord(:,:)
 
     !> Electronic solver information
     type(TElectronicSolver), intent(inout) :: electronicSolver
@@ -2897,10 +2899,10 @@ contains
     type(TParallelKS), intent(in) :: parallelKS
 
     !>Data for rangeseparated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    type(TRangeSepFunc), intent(inout), allocatable :: rangeSep
 
     !> Change in density matrix during last rangesep SCC cycle
-    real(dp), pointer, intent(in) :: deltaRhoInSqr(:,:,:)
+    real(dp), intent(in), pointer :: deltaRhoInSqr(:,:,:)
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
@@ -2922,8 +2924,6 @@ contains
 
     !> Status of operation
     type(TStatus), intent(out) :: errStatus
-
-    real(dp), allocatable :: SSqrRealTmp(:,:)
 
     integer :: iKS, iSpin
 
@@ -2953,12 +2953,12 @@ contains
       ! Add CAM contribution
       if (allocated(rangeSep)) then
         if (tPeriodic) then
-          call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
+          call rangeSep%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
               & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
               & nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, HSqrReal)
         else
-          call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
+          call rangeSep%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
               & symNeighbourList, neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym,&
               & denseDesc%iAtomStart, iSparseStart, orb, HSqrReal, SSqrReal)
         end if
@@ -2985,12 +2985,12 @@ contains
       ! Add CAM contribution
       if (allocated(rangeSep)) then
         if (tPeriodic) then
-          call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
+          call rangeSep%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
               & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
               & nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, HSqrReal)
         else
-          call rangeSep%addCamHamiltonian(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
+          call rangeSep%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
               & symNeighbourList, neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym,&
               & denseDesc%iAtomStart, iSparseStart, orb, HSqrReal, SSqrReal)
         end if
@@ -7713,7 +7713,7 @@ contains
       do iL = 1, reks%Lmax
         ! Add range-separated contribution to Hamiltonian
         if (reks%tPeriodic) then
-          call rangeSep%addCamHamiltonian(env, reks%deltaRhoSqrL(:,:,1,iL), reks%overSqr,&
+          call rangeSep%addCamHamiltonian_gamma(env, reks%deltaRhoSqrL(:,:,1,iL), reks%overSqr,&
               & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
               & nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, reks%hamSqrL(:,:,1,iL))
@@ -7721,7 +7721,7 @@ contains
           ! call rangeSep%addCamHamiltonian(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
           !     & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
           !     & reks%hamSqrL(:,:,1,iL), reks%overSqr)
-          call rangeSep%addCamHamiltonian(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
+          call rangeSep%addCamHamiltonian_cluster(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
               & symNeighbourList, neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym,&
               & denseDesc%iAtomStart, iSparseStart, orb, reks%hamSqrL(:,:,1,iL), reks%overSqr)
         end if

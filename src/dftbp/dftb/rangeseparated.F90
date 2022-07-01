@@ -3128,19 +3128,19 @@ contains
     !   gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
     ! end if
 
-    ! if (dist >= this%gammaCutoff) then
-    !   gamma = 0.0_dp
-    ! else
-    !   gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
-    ! end if
-
-    if (.not. ((all(distVec > -0.5_dp) .and. all(distVec < 0.5_dp))&
-        & .or. (all(-distVec > -0.5_dp) .and. all(-distVec < 0.5_dp)))) then
+    if (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
-      return
+    else
+      gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
     end if
 
-    gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
+    ! if (.not. ((all(distVec > -0.5_dp) .and. all(distVec < 0.5_dp))&
+    !     & .or. (all(-distVec > -0.5_dp) .and. all(-distVec < 0.5_dp)))) then
+    !   gamma = 0.0_dp
+    !   return
+    ! end if
+
+    ! gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
 
   end function getTruncatedGammaValue
 

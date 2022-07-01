@@ -1993,8 +1993,7 @@ contains
     end if
     if (electronicSolver%providesElectronEntropy) then
       ! Mermin electronic free energy
-      ! call taggedWriter%write(fd, tagLabels%freeEgy, energy%EMermin)
-      call taggedWriter%write(fd, tagLabels%freeEgy, energy%EFock)
+      call taggedWriter%write(fd, tagLabels%freeEgy, energy%EMermin)
     else
       ! call taggedWriter%write(fd, tagLabels%egyTotal, energy%ETotal)
       call taggedWriter%write(fd, tagLabels%egyTotal, energy%EFock)
@@ -3961,6 +3960,8 @@ contains
     !> Atomic multipoles, if relevant
     type(TMultipole), intent(in), optional :: multipoles
 
+    ! print *, 'present(coeffsAndShifts)'
+    ! print *, present(coeffsAndShifts)
     call writeQToFile(qInput, fCharges, tWriteAscii, orb, qBlockIn, qiBlockIn, deltaRhoIn,&
         & nAtInCentralRegion, coeffsAndShifts=coeffsAndShifts, multipoles=multipoles)
     if (tWriteAscii) then

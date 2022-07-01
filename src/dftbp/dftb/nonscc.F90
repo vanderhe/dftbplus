@@ -313,7 +313,7 @@ contains
         out(ind + 1 : ind + nOrb2 * nOrb1) = reshape(tmp(1:nOrb2, 1:nOrb1), [nOrb2 * nOrb1])
       end do
     end do
-    !$OMP  END PARALLEL DO
+    !$OMP END PARALLEL DO
 
   end subroutine buildDiatomicBlocks
 
