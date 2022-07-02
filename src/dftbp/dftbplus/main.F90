@@ -2569,12 +2569,12 @@ contains
 
       call getDensityFromDenseDiag(env, denseDesc, ints, neighbourList, symNeighbourList,&
           & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, kPoint, kWeight, orb,&
-          & denseDesc%iAtomStart, tHelical, coord, species, electronicSolver, rCellVecs, latVecs,&
-          & recVecs2p, tPeriodic, tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep,&
-          & tFixEf, tMulliken, iDistribFn, tempElec, nEl, parallelKS, Ef, energy, rangeSep, eigen,&
-          & filling, rhoPrim, xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx,&
-          & SSqrCplx, SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam,&
-          & nNeighbourCamSym, deltaDftb, errStatus)
+          & tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p, tPeriodic,&
+          & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
+          & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, rangeSep, eigen, filling, rhoPrim,&
+          & xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx,&
+          & SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym,&
+          & deltaDftb, errStatus)
       @:PROPAGATE_ERROR(errStatus)
 
     case(electronicSolverTypes%omm, electronicSolverTypes%pexsi, electronicSolverTypes%ntpoly,&
@@ -2597,12 +2597,12 @@ contains
   !> Returns the density matrix using dense diagonalisation.
   subroutine getDensityFromDenseDiag(env, denseDesc, ints, neighbourList, symNeighbourList,&
       & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, kPoint, kWeight, orb,&
-      & iAtomStart, tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p,&
-      & tPeriodic, tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf,&
-      & tMulliken, iDistribFn, tempElec, nEl, parallelKS, Ef, energy, rangeSep, eigen, filling,&
-      & rhoPrim, xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx,&
-      & SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym,&
-      & deltaDftb, errStatus)
+      & tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p, tPeriodic,&
+      & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
+      & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, rangeSep, eigen, filling, rhoPrim, xi,&
+      & orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx, SSqrCplxKpts,&
+      & eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym, deltaDftb,&
+      & errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2642,9 +2642,6 @@ contains
 
     !> Atomic orbital information
     type(TOrbitals), intent(in) :: orb
-
-    !> Start of atomic blocks in dense arrays
-    integer, allocatable, intent(in) :: iAtomStart(:)
 
     !> Is the geometry helical
     logical, intent(in) :: tHelical
@@ -2776,10 +2773,10 @@ contains
     if (nSpin /= 4) then
       if (tRealHS) then
         call buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
-            & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, iAtomStart,&
-            & cellVec, rCellVecs, iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord,&
-            & electronicSolver, parallelKS, rangeSep, densityMatrix%deltaRhoInSqr, nNeighbourCam,&
-            & nNeighbourCamSym, HSqrReal, SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
+            & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, cellVec, rCellVecs,&
+            & iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord, electronicSolver,&
+            & parallelKS, rangeSep, densityMatrix%deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym,&
+            & HSqrReal, SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
         @:PROPAGATE_ERROR(errStatus)
       else
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
@@ -2830,10 +2827,10 @@ contains
 
   !> Builds and diagonalises dense Hamiltonians.
   subroutine buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
-      & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, iAtomStart, cellVecs,&
-      & rCellVecs, iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord, electronicSolver,&
-      & parallelKS, rangeSep, deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym, HSqrReal, SSqrReal,&
-      & eigvecsReal, eigen, errStatus)
+      & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, cellVecs, rCellVecs,&
+      & iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord, electronicSolver, parallelKS,&
+      & rangeSep, deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym, HSqrReal, SSqrReal, eigvecsReal,&
+      & eigen, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2864,9 +2861,6 @@ contains
 
     !> species of all atoms in the system
     integer, intent(in) :: species(:)
-
-    !> Start of atomic blocks in dense arrays
-    integer, allocatable, intent(in) :: iAtomStart(:)
 
     !> Vectors to unit cells in relative units
     real(dp), intent(in) :: cellVecs(:,:)
@@ -2987,7 +2981,7 @@ contains
         if (tPeriodic) then
           call rangeSep%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
               & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
-              & nNeighbourCam, nNeighbourCamSym, iCellVec, rCellVecs, latVecs, recVecs2p,&
+              & nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, HSqrReal)
         else
           call rangeSep%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&

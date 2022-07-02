@@ -205,8 +205,8 @@ module dftbp_dftb_rangeseparated
     procedure :: addCamHamiltonian_cluster
     procedure :: addCamHamiltonian_gamma
     procedure :: addCamHamiltonian_kpts
-    generic :: addCamHamiltonian => addCamHamiltonian_cluster, addCamHamiltonian_gamma,&
-        & addCamHamiltonian_kpts
+    ! generic :: addCamHamiltonian => addCamHamiltonian_cluster, addCamHamiltonian_gamma,&
+    !     & addCamHamiltonian_kpts
 
     procedure :: addLrHamiltonianMatrixCmplx
 
@@ -232,7 +232,7 @@ contains
 
   !> Intitializes the range-sep module.
   subroutine TRangeSepFunc_init(this, nAtom, species0, hubbu, screen, omega, camAlpha, camBeta,&
-      & gSummationCutoff, gammaCutoff, tSpin, tREKS, rsAlg, coeffsDiag, tRealHS)
+      & gSummationCutoff, gammaCutoff, tSpin, tREKS, rsAlg, tRealHS, coeffsDiag)
 
     !> Instance
     type(TRangeSepFunc), intent(out) :: this
@@ -273,11 +273,11 @@ contains
     !> lr-hamiltonian construction algorithm
     integer, intent(in) :: rsAlg
 
-    !> Supercell folding coefficients (diagonal elements)
-    integer, intent(in) :: coeffsDiag(:)
-
     !> True, if Hamiltonian and overlap are real
     logical, intent(in) :: tRealHS
+
+    !> Supercell folding coefficients (diagonal elements)
+    integer, intent(in), optional :: coeffsDiag(:)
 
     !! Species indices
     integer :: iSp1, iSp2
@@ -375,6 +375,10 @@ contains
     end if
 
     if (.not. tRealHS) then
+      if (.not. present(coeffsDiag)) then
+        call error('Error while initialising range-separated module. Supercell coefficients not&
+            & present although dense Hamiltonian and overlap are complex.')
+      end if
       this%coeffsDiag = coeffsDiag
       call getBvKLatticeShifts(this%coeffsDiag, this%bvKShifts)
     end if

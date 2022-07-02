@@ -1995,8 +1995,7 @@ contains
       ! Mermin electronic free energy
       call taggedWriter%write(fd, tagLabels%freeEgy, energy%EMermin)
     else
-      ! call taggedWriter%write(fd, tagLabels%egyTotal, energy%ETotal)
-      call taggedWriter%write(fd, tagLabels%egyTotal, energy%EFock)
+      call taggedWriter%write(fd, tagLabels%egyTotal, energy%ETotal)
     end if
     if (pressure /= 0.0_dp) then
       ! Gibbs free energy

@@ -376,7 +376,7 @@ contains
       end if
       call unpackHS(workLocal, over, neighbourList%iNeighbour, nNeighbourSK,&
           & denseDesc%iAtomStart, iSparseStart, img2CentCell)
-      call rangeSep%addCamHamiltonian(env, dRhoSqr(:,:,iS), over, symNeighbourList,&
+      call rangeSep%addCamHamiltonian_cluster(env, dRhoSqr(:,:,iS), over, symNeighbourList,&
           & neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym, denseDesc%iAtomStart,&
           & iSparseStart, orb, dRho, workLocal)
     end if

@@ -260,11 +260,6 @@ contains
           & matrix.')
     end if
 
-    ! In this case the size of deltaRho couldn't be known in advance, therefore deallocating
-    if (tRho .and. tKpointInfo) then
-      deallocate(deltaRho)
-    end if
-
     @:ASSERT(size(qq, dim=1) == orb%mOrb)
     @:ASSERT(nSpin == 1 .or. nSpin == 2 .or. nSpin == 4)
 
@@ -525,6 +520,11 @@ contains
       end if
     end if
     ! need a checksum here
+
+    ! In this case the size of deltaRho couldn't be known in advance, therefore deallocating
+    if (tRho .and. tKpointInfo .and. tKpointInfoPresent) then
+      deallocate(deltaRho)
+    end if
 
     if (tRho) then
       deltaRho(:) = 0.0_dp
