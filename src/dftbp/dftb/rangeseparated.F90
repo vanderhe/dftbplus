@@ -3122,22 +3122,24 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
-    ! if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-    !   gamma = poly5zero(this%gammaAtDamping(iSp1, iSp2), this%dGammaAtDamping(iSp1, iSp2),&
-    !       & this%ddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
-    !       & tDerivative=.false.)
-    ! elseif (dist >= this%gammaCutoff) then
-    !   gamma = 0.0_dp
-    ! else
-    !   gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
-    ! end if
-
-    if (dist >= this%gammaCutoff) then
+    if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
+      gamma = poly5zero(this%gammaAtDamping(iSp1, iSp2), this%dGammaAtDamping(iSp1, iSp2),&
+          & this%ddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
+          & tDerivative=.false.)
+    elseif (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
       gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
     end if
 
+    ! #############hard cutoff#################
+    ! if (dist >= this%gammaCutoff) then
+    !   gamma = 0.0_dp
+    ! else
+    !   gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
+    ! end if
+
+    ! ##############-0.5 rel 0.5 approach###################
     ! if (.not. ((all(distVec > -0.5_dp) .and. all(distVec < 0.5_dp))&
     !     & .or. (all(-distVec > -0.5_dp) .and. all(-distVec < 0.5_dp)))) then
     !   gamma = 0.0_dp
