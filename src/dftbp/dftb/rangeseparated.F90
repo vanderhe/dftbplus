@@ -302,9 +302,9 @@ contains
     ! is this a sensible choice for the beginning of the damping region?
     this%gammaDamping = 0.95_dp * this%gammaCutoff
 
-    ! if (this%gammaDamping <= 0.0_dp) then
-    !   call error("Beginning of damped region of electrostatics must be positive.")
-    ! end if
+    if (this%gammaDamping <= 0.0_dp) then
+      call error("Beginning of damped region of electrostatics must be positive.")
+    end if
 
     this%tHyb = .false.
     this%tLc = .false.
@@ -2592,7 +2592,8 @@ contains
           & cellVecsG, rCellVecsG, zeros, zeros)
       call index_heap_sort(gammaMNsortIdx, gammaMN)
       gammaMNsortIdx(:) = gammaMNsortIdx(size(gammaMNsortIdx):1:-1)
-      nNonZeroGammaMN = getNumberOfNonZeroElements(gammaMN(gammaMNsortIdx))
+      nNonZeroGammaMN = getNumberOfNonZeroElements(gammaMN(gammaMNsortIdx),&
+          & this%pScreeningThreshold)
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
         iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
         pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
@@ -2615,7 +2616,8 @@ contains
             & cellVecsG, rCellVecsG, vecL, rVecL)
         call index_heap_sort(gammaMBsortIdx, gammaMB)
         gammaMBsortIdx(:) = gammaMBsortIdx(size(gammaMBsortIdx):1:-1)
-        nNonZeroGammaMB = getNumberOfNonZeroElements(gammaMB(gammaMBsortIdx))
+        nNonZeroGammaMB = getNumberOfNonZeroElements(gammaMB(gammaMBsortIdx),&
+            & this%pScreeningThreshold)
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
           maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
@@ -2634,13 +2636,15 @@ contains
               & this%rCoords, cellVecsG, rCellVecsG, vecH, rVecH)
           call index_heap_sort(gammaANsortIdx, gammaAN)
           gammaANsortIdx(:) = gammaANsortIdx(size(gammaANsortIdx):1:-1)
-          nNonZeroGammaAN = getNumberOfNonZeroElements(gammaAN(gammaANsortIdx))
+          nNonZeroGammaAN = getNumberOfNonZeroElements(gammaAN(gammaANsortIdx),&
+              & this%pScreeningThreshold)
           ! pre-tabulate g-resolved \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
           gammaAB(:) = getGammaGResolved(this, iAtAfold, iAtBfold, iSpA, iSpB, this%coords,&
               & this%rCoords, cellVecsG, rCellVecsG, vecH + vecL, rVecH + rVecL)
           call index_heap_sort(gammaABsortIdx, gammaAB)
           gammaABsortIdx(:) = gammaABsortIdx(size(gammaABsortIdx):1:-1)
-          nNonZeroGammaAB = getNumberOfNonZeroElements(gammaAB(gammaABsortIdx))
+          nNonZeroGammaAB = getNumberOfNonZeroElements(gammaAB(gammaABsortIdx),&
+              & this%pScreeningThreshold)
           ! get 2D pointer to Sam overlap block
           ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
           nOrbAt = descM(iNOrb)
@@ -2803,10 +2807,13 @@ contains
   contains
 
     !> Returns the number of non-zero elements in a descending array of reals.
-    pure function getNumberOfNonZeroElements(array) result(nNonZeroEntries)
+    function getNumberOfNonZeroElements(array, threshold) result(nNonZeroEntries)
 
       !> Descending one-dimensional, real-valued array to search
       real(dp), intent(in) :: array(:)
+
+      !> Screening threshold value
+      real(dp), intent(in) :: threshold
 
       !> Number of non-zero entries
       real(dp) :: nNonZeroEntries
@@ -2818,6 +2825,7 @@ contains
 
       do ii = 1, size(array)
         if (array(ii) < 1e-16_dp) return
+        ! if (array(ii) < threshold) return
         nNonZeroEntries = ii
       end do
 
@@ -3121,6 +3129,8 @@ contains
 
     !> Resulting truncated gamma
     real(dp) :: gamma
+
+    ! gamma = getAnalyticalGammaValue(this, iSp1, iSp2, dist)
 
     if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
       gamma = poly5zero(this%gammaAtDamping(iSp1, iSp2), this%dGammaAtDamping(iSp1, iSp2),&

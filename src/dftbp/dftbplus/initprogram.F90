@@ -2664,6 +2664,7 @@ contains
           end if
         else
           ! Dense Hamiltonian and overlap are complex-valued (general k-point case)
+
           if ((.not. tGammaCutoffFromHSD) .and. (.not. tGSumCutoffFromHSD)) then
             ! CT and g-summation only dummy cutoffs, therefore set automatically
             call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
@@ -2685,6 +2686,7 @@ contains
                 & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
                 & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
           end if
+
         end if
       end if
 
@@ -2716,16 +2718,29 @@ contains
         end if
       elseif ((.not. this%tRealHS) .and. this%tPeriodic) then
         ! Periodic system (general k-point case)
-        ! G-summation determined automatically, since restart (not strictly nessecary, but save)
-        if (tGammaCutoffFromHSD) then
+
+        if ((.not. tGammaCutoffFromHSD) .and. (.not. tGSumCutoffFromHSD)) then
+          ! CT and g-summation only dummy cutoffs, therefore set automatically
+          call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
+              & input%ctrl%rangeSepInp%cutoffRed, supercellFoldingDiag=this%supercellFoldingDiag)
+        elseif (tGammaCutoffFromHSD .and. (.not. tGSumCutoffFromHSD)) then
           ! Manual Gamma cutoff selection from HSD input
           call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
               & input%ctrl%rangeSepInp%cutoffRed, gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
-        else
-          ! CT only dummy, therefore set automatically
+        elseif ((.not. tGammaCutoffFromHSD) .and. tGSumCutoffFromHSD) then
+          ! Manual g-summation cutoff selection from HSD input
           call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed, supercellFoldingDiag=this%supercellFoldingDiag)
+              & input%ctrl%rangeSepInp%cutoffRed,&
+              & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
+              & supercellFoldingDiag=this%supercellFoldingDiag)
+        else
+          ! Manual Gamma/g-summation cutoff selection from HSD input
+          call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
+              & input%ctrl%rangeSepInp%cutoffRed,&
+              & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
+              & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
         end if
+
       end if
     end if
 
@@ -3526,8 +3541,16 @@ contains
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "NeighbourBased"
         write(stdOut, "(2X,A,':',T30,E14.6,A)") "Spatially cutoff at",&
             & input%ctrl%rangeSepInp%cutoffRed * Bohr__AA," A"
-        write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
-            & input%ctrl%rangeSepInp%screeningThreshold
+        if (this%tPeriodic) then
+          write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
+              & input%ctrl%rangeSepInp%screeningThreshold
+          write(stdOut, "(2X,A,':',T30,E14.6)") "Coulomb Truncation",&
+              & this%cutOff%gammaCutoff
+        end if
+        if (.not. this%tRealHS) then
+          write(stdOut, "(2X,A,':',T30,E14.6)") "G-Summation Cutoff",&
+              & this%cutOff%gSummationCutoff
+        end if
       case (rangeSepTypes%threshold)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "Thresholded"
         write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
@@ -4121,14 +4144,9 @@ contains
       ! Check if obtained supercell folding matrix meets current requirements
       ! if (this%isRangeSep .and. (.not. this%tRealHS)) then
       if (this%isRangeSep) then
-        ! print *, 'allocate(this%supercellFoldingDiag(3))'
         allocate(this%supercellFoldingDiag(3))
-        ! print *, 'this%supercellFoldingMatrix'
-        ! print *, this%supercellFoldingMatrix
         call checkSupercellFoldingMatrix(this%supercellFoldingMatrix,&
             & supercellFoldingDiagOut=this%supercellFoldingDiag)
-        ! print *, 'this%supercellFoldingDiag'
-        ! print *, this%supercellFoldingDiag
       end if
 
     #:if WITH_TRANSPORT
@@ -4173,7 +4191,6 @@ contains
         ! Rescaling to ensure correct number of electrons in the system
         this%qInput(:,:,1) = this%qInput(:,:,1) * sum(this%nEl) / sum(this%qInput(:,:,1))
       end if
-
 
       select case (this%nSpin)
       case (1)
