@@ -444,23 +444,6 @@ contains
         end do
       end do
 
-      ! nBvKShifts = (2 * coeffsDiag(1) + 1) * (2 * coeffsDiag(2) + 1) * (2 * coeffsDiag(3) + 1)
-
-      ! allocate(bvKShifts(3, nBvKShifts))
-
-      ! ind = 1
-
-      ! do kk = -coeffsDiag(3), coeffsDiag(3)
-      !   do jj = -coeffsDiag(2), coeffsDiag(2)
-      !     do ii = -coeffsDiag(1), coeffsDiag(1)
-      !       bvKShifts(1, ind) = real(ii, dp)
-      !       bvKShifts(2, ind) = real(jj, dp)
-      !       bvKShifts(3, ind) = real(kk, dp)
-      !       ind = ind + 1
-      !     end do
-      !   end do
-      ! end do
-
     end subroutine getBvKLatticeShifts
 
   end subroutine TRangeSepFunc_init
@@ -493,9 +476,9 @@ contains
     coeffs => supercellFoldingMatrix(:, 1:3)
     shifts => supercellFoldingMatrix(:, 4)
 
-    ! if (abs(determinant33(coeffs)) - 1.0_dp < -1e-6_dp) then
-    !   call error('Determinant of the supercell matrix must be greater than 1.')
-    ! end if
+    if (abs(determinant33(coeffs)) - 1.0_dp < -1e-06_dp) then
+      call error('Determinant of the supercell matrix must be greater than 1.')
+    end if
 
     if (any(abs(modulo(coeffs + 0.5_dp, 1.0_dp) - 0.5_dp) > 1e-6_dp)) then
       call error('The components of the supercell matrix must be integers.')
@@ -2221,8 +2204,8 @@ contains
         iSpB = this%species0(iAtBfold)
         descB = getDescriptor(iAtBfold, iSquare)
         ! get real-space \vec{l} for gamma arguments
-        vecL(:) = cellVecs(:, symNeighbourList%iCellVec(iAtB))
-        rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
+        vecL(:) = -cellVecs(:, symNeighbourList%iCellVec(iAtB))
+        rVecL(:) = -rCellVecs(:, symNeighbourList%iCellVec(iAtB))
         ! get 2D pointer to Sbn overlap block
         ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
         nOrbAt = descN(iNOrb)
@@ -2230,7 +2213,7 @@ contains
         pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
         ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
         gammaMB = getGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%coords, this%rCoords,&
-            & cellVecsG, rCellVecsG, -vecL, -rVecL)
+            & cellVecsG, rCellVecsG, vecL, rVecL)
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
           maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
@@ -2249,13 +2232,13 @@ contains
               & cellVecsG, rCellVecsG, vecH, rVecH)
           ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
           gammaAB = getGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%coords, this%rCoords,&
-              & cellVecsG, rCellVecsG, vecH - vecL, rVecH - rVecL)
+              & cellVecsG, rCellVecsG, vecH + vecL, rVecH + rVecL)
           ! get 2D pointer to Sam overlap block
           ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
           nOrbAt = descM(iNOrb)
           nOrbNeigh = descA(iNOrb)
           pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-          pSamT = transpose(pSam)
+          pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
 
           call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSamT, Pab, transA='N', transB='N')
           call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab, pSbn, transA='N', transB='N')

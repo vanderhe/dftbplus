@@ -87,22 +87,26 @@ input/caffeine_xyz                     #? MPI_PROCS <= 1
 input/ammonia_poscar                   #? MPI_PROCS <= 1
 input/unsorted_contcar                 #? MPI_PROCS <= 1
 
-rangesep/C18H12-force                  #? not WITH_MPI
-rangesep/C18H12-nbscreening            #? not WITH_MPI
-rangesep/C18H12-matrix                 #? not WITH_MPI
-rangesep/CH3                           #? not WITH_MPI
-rangesep/CH3-matrix                    #? not WITH_MPI
-rangesep/C60-nb                        #? not WITH_MPI
-rangesep/C60-nb-cutoff                 #? not WITH_MPI
-rangesep/Thymine-T1-force              #? not WITH_MPI
-rangesep/cyclopropene_nb_restart       #? not WITH_MPI
-rangesep/C240_tn                       #? not WITH_MPI and LONG_TEST
-rangesep/Thymine-T1_onsite             #? not WITH_MPI
-rangesep/C4H6-Casida-S1-Force          #? WITH_ARPACK and (not WITH_MPI)
-rangesep/Benzene-Casida-S5-Force       #? WITH_ARPACK and (not WITH_MPI)
-rangesep/C4H6-TD-LC-Triplet            #? WITH_ARPACK and (not WITH_MPI)
-rangesep/Benzene-TD-LC-Spinpol         #? WITH_ARPACK and (not WITH_MPI)
-rangesep/Benzene-TD-LC-Spinpol-Iter    #? WITH_ARPACK and (not WITH_MPI)
+rangesep/cluster/C18H12-force                  #? not WITH_MPI
+rangesep/cluster/C18H12-nbscreening            #? not WITH_MPI
+rangesep/cluster/C18H12-matrix                 #? not WITH_MPI
+rangesep/cluster/CH3                           #? not WITH_MPI
+rangesep/cluster/CH3-matrix                    #? not WITH_MPI
+rangesep/cluster/C60-nb                        #? not WITH_MPI
+rangesep/cluster/C60-nb-cutoff                 #? not WITH_MPI
+rangesep/cluster/Thymine-T1-force              #? not WITH_MPI
+rangesep/cluster/cyclopropene_nb_restart       #? not WITH_MPI
+rangesep/cluster/C240_tn                       #? not WITH_MPI and LONG_TEST
+rangesep/cluster/Thymine-T1_onsite             #? not WITH_MPI
+rangesep/cluster/C4H6-Casida-S1-Force          #? WITH_ARPACK and (not WITH_MPI)
+rangesep/cluster/Benzene-Casida-S5-Force       #? WITH_ARPACK and (not WITH_MPI)
+rangesep/cluster/C4H6-TD-LC-Triplet            #? WITH_ARPACK and (not WITH_MPI)
+rangesep/cluster/Benzene-TD-LC-Spinpol         #? WITH_ARPACK and (not WITH_MPI)
+rangesep/cluster/Benzene-TD-LC-Spinpol-Iter    #? WITH_ARPACK and (not WITH_MPI)
+
+rangesep/periodic/Acene-kpts                   #? MPI_PROCS <= 1
+rangesep/periodic/Acene-kpts-restart           #? MPI_PROCS <= 1
+rangesep/periodic/Acene-kpts-band              #? MPI_PROCS <= 1
 
 reks/C2H4_3SSR_rangesep                #? not WITH_MPI
 reks/C2H4_direct                       #? not WITH_MPI

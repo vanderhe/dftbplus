@@ -522,12 +522,14 @@ contains
     ! need a checksum here
 
     ! In this case the size of deltaRho couldn't be known in advance, therefore deallocating
+    if (tRho) then
+      deltaRho(:) = 0.0_dp
+    end if
     if (tRho .and. tKpointInfo .and. tKpointInfoPresent) then
       deallocate(deltaRho)
     end if
 
     if (tRho) then
-      deltaRho(:) = 0.0_dp
       if (tKpointInfo) then
         coeffsAndShifts(:,:) = 0.0_dp
         if (tKpointInfoPresent) then
