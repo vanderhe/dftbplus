@@ -27,7 +27,7 @@ module dftbp_dftbplus_initprogram
   use dftbp_dftb_boundarycond, only : boundaryConditions, TBoundaryConditions,&
       & TBoundaryConditions_init
   use dftbp_dftb_coulomb, only : TCoulombInput
-  use dftbp_dftb_dense, only :buildSquaredAtomIndex
+  use dftbp_dftb_dense, only : buildSquaredAtomIndex
   use dftbp_dftb_determinants, only : TDftbDeterminants, TDftbDeterminants_init
   use dftbp_dftb_dftbplusu, only : TDftbU, TDftbU_init
   use dftbp_dftb_dispdftd4, only : writeDftD4Info
@@ -169,10 +169,10 @@ module dftbp_dftbplus_initprogram
     real(dp) :: camCutOff
 
     !> Cutoff for real-space g-summation in CAM Hartree-Fock contributions
-    real(dp) :: gSummationCutoff
+    real(dp), allocatable :: gSummationCutoff
 
     !> Cutoff for truncated long-range Gamma integral
-    real(dp) :: gammaCutoff
+    real(dp), allocatable :: gammaCutoff
 
     !> Max. of all cutoffs
     real(dp) :: mCutOff
@@ -1289,12 +1289,6 @@ contains
 
     logical :: tInitialized, tGeoOptRequiresEgy, isOnsiteCorrected
     type(TStatus) :: errStatus
-
-    !! True, if a meaningful user specified value for the Coulomb truncation cutoff is provided
-    logical :: tGammaCutoffFromHSD
-
-    !! True, if a meaningful user specified value for the g-summation cutoff is provided
-    logical :: tGSumCutoffFromHSD
 
     @:ASSERT(input%tInitialized)
 
@@ -2644,49 +2638,19 @@ contains
         this%supercellFoldingDiag = input%ctrl%supercellFoldingDiag
       end if
       call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
-      tGammaCutoffFromHSD = .not. input%ctrl%rangeSepInp%gammaCutoff + 1.0_dp < 1e-06_dp
-      tGSumCutoffFromHSD = .not. input%ctrl%rangeSepInp%gSummationCutoff + 1.0_dp < 1e-06_dp
       if (.not. this%tReadChrg) then
-        if (this%tRealHS) then
-          ! Dense Hamiltonian and overlap are real-valued
-          if (this%tPeriodic) then
-            ! Periodic system (Gamma-point only)
-            if (tGammaCutoffFromHSD) then
-              ! Coulomb truncation cutoff specified in HSD input
-              call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
-                  & input%ctrl%rangeSepInp%cutoffRed,&
-                  & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
-            else
-              ! Coulomb truncation cutoff not specified in HSD input, determine automatically
-              call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
-                  & input%ctrl%rangeSepInp%cutoffRed)
-            end if
-          end if
-        else
+        if (this%tPeriodic .and. this%tRealHS) then
+          ! Periodic system (Gamma-point only), dense Hamiltonian and overlap are real-valued
+          call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
+              & input%ctrl%rangeSepInp%cutoffRed,&
+              & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
+        elseif (.not. this%tRealHS) then
           ! Dense Hamiltonian and overlap are complex-valued (general k-point case)
-
-          if ((.not. tGammaCutoffFromHSD) .and. (.not. tGSumCutoffFromHSD)) then
-            ! CT and g-summation only dummy cutoffs, therefore set automatically
-            call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-                & input%ctrl%rangeSepInp%cutoffRed, supercellFoldingDiag=this%supercellFoldingDiag)
-          elseif (tGammaCutoffFromHSD .and. (.not. tGSumCutoffFromHSD)) then
-            ! Manual Gamma cutoff selection from HSD input
-            call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-                & input%ctrl%rangeSepInp%cutoffRed, gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
-          elseif ((.not. tGammaCutoffFromHSD) .and. tGSumCutoffFromHSD) then
-            ! Manual g-summation cutoff selection from HSD input
-            call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-                & input%ctrl%rangeSepInp%cutoffRed,&
-                & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-                & supercellFoldingDiag=this%supercellFoldingDiag)
-          else
-            ! Manual Gamma/g-summation cutoff selection from HSD input
-            call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-                & input%ctrl%rangeSepInp%cutoffRed,&
-                & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-                & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
-          end if
-
+          call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
+              & input%ctrl%rangeSepInp%cutoffRed,&
+              & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
+              & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
+              & supercellFoldingDiag=this%supercellFoldingDiag)
         end if
       end if
 
@@ -2705,42 +2669,36 @@ contains
     ! initial run is only known after invoking this%initializeCharges(). Inferring the Coulomb
     ! truncation cutoff, therefore calling getRangeSeparatedCutoff(), needs this information.
     if (this%isRangeSep .and. this%tReadChrg) then
-      if (this%tRealHS .and. this%tPeriodic) then
-        ! Periodic system (Gamma-point only)
-        if (tGammaCutoffFromHSD) then
-          ! Manual Gamma cutoff selection from HSD input
-          call getRangeSeparatedCutoff_gamma(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed, gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
-        else
-          ! Coulomb truncation cutoff not specified in HSD input, determine automatically
-          call getRangeSeparatedCutoff_gamma(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed)
+      ! First, check if supercell folding matrix is identical to previous run, if specified in input
+      if (allocated(input%ctrl%supercellFoldingMatrix)) then
+        if (any(abs(input%ctrl%supercellFoldingMatrix&
+            & - this%supercellFoldingMatrix) > 1e-06_dp)) then
+          write(tmpStr, "(A,3I5,A,3I5,A,3I5,A,3F10.6)")&
+              & 'Error while processing k-point sampling for range-separated run.'&
+              & // NEW_LINE('A')&
+              & // '   When restarting, only identical k-point samplings to previous run are'&
+              & // NEW_LINE('A') // '   supported. In this case this would correspond to the&
+              & following supercell' // NEW_LINE('A') // '   folding matrix:'&
+              & // NEW_LINE('A'),&
+              & nint(this%supercellFoldingMatrix(1, 1:3)), NEW_LINE('A'),&
+              & nint(this%supercellFoldingMatrix(2, 1:3)), NEW_LINE('A'),&
+              & nint(this%supercellFoldingMatrix(3, 1:3)), NEW_LINE('A'),&
+              & this%supercellFoldingMatrix(:, 4)
+          call error(trim(tmpStr))
         end if
-      elseif ((.not. this%tRealHS) .and. this%tPeriodic) then
-        ! Periodic system (general k-point case)
-
-        if ((.not. tGammaCutoffFromHSD) .and. (.not. tGSumCutoffFromHSD)) then
-          ! CT and g-summation only dummy cutoffs, therefore set automatically
-          call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed, supercellFoldingDiag=this%supercellFoldingDiag)
-        elseif (tGammaCutoffFromHSD .and. (.not. tGSumCutoffFromHSD)) then
-          ! Manual Gamma cutoff selection from HSD input
-          call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed, gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
-        elseif ((.not. tGammaCutoffFromHSD) .and. tGSumCutoffFromHSD) then
-          ! Manual g-summation cutoff selection from HSD input
-          call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed,&
-              & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-              & supercellFoldingDiag=this%supercellFoldingDiag)
-        else
-          ! Manual Gamma/g-summation cutoff selection from HSD input
-          call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed,&
-              & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-              & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
-        end if
-
+      end if
+      if (this%tPeriodic .and. this%tRealHS) then
+        ! Periodic system (Gamma-point only), dense Hamiltonian and overlap are real-valued
+        call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
+            & input%ctrl%rangeSepInp%cutoffRed,&
+            & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
+      elseif (.not. this%tRealHS) then
+        ! Dense Hamiltonian and overlap are complex-valued (general k-point case)
+        call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
+            & input%ctrl%rangeSepInp%cutoffRed,&
+            & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
+            & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
+            & supercellFoldingDiag=this%supercellFoldingDiag)
       end if
     end if
 
@@ -2749,9 +2707,9 @@ contains
       call TRangeSepFunc_init(this%rangeSep, this%nAtom, this%species0, hubbU(1, :),&
           & input%ctrl%rangeSepInp%screeningThreshold, input%ctrl%rangeSepInp%omega,&
           & input%ctrl%rangeSepInp%camAlpha, input%ctrl%rangeSepInp%camBeta,&
-          & this%cutOff%gSummationCutoff, this%cutOff%gammaCutoff, this%tSpin,&
-          & allocated(this%reks), input%ctrl%rangeSepInp%rangeSepAlg, this%tRealHS,&
-          & coeffsDiag=this%supercellFoldingDiag)
+          & this%tSpin, allocated(this%reks), input%ctrl%rangeSepInp%rangeSepAlg,&
+          & coeffsDiag=this%supercellFoldingDiag, gammaCutoff=this%cutOff%gammaCutoff,&
+          & gSummationCutoff=this%cutOff%gSummationCutoff)
       ! now all information are present to properly allocate density matrices and associate pointers
       call this%reallocateRangeSeparated()
       ! reset number of mixer elements, so that there is enough space for density matrices
@@ -5641,9 +5599,6 @@ contains
       cutOff%gammaCutoff = minLatVecNorm2 * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
     end if
 
-    ! dummy cutoff value
-    cutOff%gSummationCutoff = 1.0_dp
-
   end subroutine getRangeSeparatedCutOff_gamma
 
 
@@ -5700,11 +5655,9 @@ contains
     end if
 
     if (present(gSummationCutoff)) then
-      write(stdOut, *) 'Setting g-cutoff from HSD input'
       cutOff%gSummationCutoff = gSummationCutoff
     else
       ! This would correspond to "the savest option"
-       write(stdOut, *) 'Setting g-cutoff automatically'
       cutOff%gSummationCutoff = 2.0_dp * cutOff%camCutOff + cutOff%gammaCutoff
     end if
 

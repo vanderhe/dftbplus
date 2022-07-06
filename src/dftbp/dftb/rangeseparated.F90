@@ -232,7 +232,7 @@ contains
 
   !> Intitializes the range-sep module.
   subroutine TRangeSepFunc_init(this, nAtom, species0, hubbu, screen, omega, camAlpha, camBeta,&
-      & gSummationCutoff, gammaCutoff, tSpin, tREKS, rsAlg, tRealHS, coeffsDiag)
+      & tSpin, tREKS, rsAlg, gammaCutoff, gSummationCutoff, coeffsDiag)
 
     !> Instance
     type(TRangeSepFunc), intent(out) :: this
@@ -258,12 +258,6 @@ contains
     !> CAM beta parameter
     real(dp), intent(in) :: camBeta
 
-    !> Cutoff for real-space g-summation
-    real(dp), intent(in) :: gSummationCutoff
-
-    !> Cutoff for truncated Gamma
-    real(dp), intent(in) :: gammaCutoff
-
     !> Is this spin restricted (F) or unrestricted (T)
     logical, intent(in) :: tSpin
 
@@ -273,8 +267,14 @@ contains
     !> lr-hamiltonian construction algorithm
     integer, intent(in) :: rsAlg
 
-    !> True, if Hamiltonian and overlap are real
-    logical, intent(in) :: tRealHS
+    ! !> True, if Hamiltonian and overlap are real
+    ! logical, intent(in) :: tRealHS
+
+    !> Cutoff for truncated Gamma
+    real(dp), intent(in), optional :: gammaCutoff
+
+    !> Cutoff for real-space g-summation
+    real(dp), intent(in), optional :: gSummationCutoff
 
     !> Supercell folding coefficients (diagonal elements)
     integer, intent(in), optional :: coeffsDiag(:)
@@ -287,24 +287,47 @@ contains
 
     this%tScreeningInited = .false.
     this%pScreeningThreshold = screen
-    this%gSummationCutoff = gSummationCutoff
-    this%gammaCutoff = gammaCutoff
+
     this%omega = omega
-    this%lrEnergy = 0.0_dp
-    this%hfEnergy = 0.0_dp
     this%rsAlg = rsAlg
     this%tSpin = tSpin
     this%tREKS = tREKS
-
     this%camAlpha = camAlpha
     this%camBeta = camBeta
+    this%hubbu = hubbu
+    this%species0 = species0
 
-    ! is this a sensible choice for the beginning of the damping region?
-    this%gammaDamping = 0.95_dp * this%gammaCutoff
+    this%lrEnergy = 0.0_dp
+    this%hfEnergy = 0.0_dp
 
-    if (this%gammaDamping <= 0.0_dp) then
-      call error("Beginning of damped region of electrostatics must be positive.")
+    if (present(gammaCutoff)) then
+      this%gammaCutoff = gammaCutoff
+
+      ! Is this a sensible choice for the beginning of the damping region?
+      this%gammaDamping = 0.95_dp * this%gammaCutoff
+
+      if (this%gammaDamping <= 0.0_dp) then
+        call error("Beginning of damped region of electrostatics must be positive.")
+      end if
+
+      ! Tabulate truncated Gamma properties for all (symmetric) combinations of species
+      call getNumberOfUniqueInt(this%species0, nUniqueSpecies)
+      allocate(this%gammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      allocate(this%dGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      allocate(this%ddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      do iSp2 = 1, nUniqueSpecies
+        do iSp1 = 1, nUniqueSpecies
+          this%gammaAtDamping(iSp1, iSp2) = getAnalyticalGammaValue(this, iSp1, iSp2,&
+              & this%gammaDamping)
+          this%dGammaAtDamping(iSp1, iSp2) = getdAnalyticalGammaDeriv(this, iSp1, iSp2,&
+              & this%gammaDamping)
+          this%ddGammaAtDamping(iSp1, iSp2) = getddNumericalGammaDeriv(this, iSp1, iSp2,&
+              & this%gammaDamping, 1e-08_dp)
+        end do
+      end do
     end if
+
+    if (present(gSummationCutoff)) this%gSummationCutoff = gSummationCutoff
 
     this%tHyb = .false.
     this%tLc = .false.
@@ -340,25 +363,6 @@ contains
     allocate(this%hfGammaEval0(nAtom, nAtom))
     this%hfGammaEval0(:,:) = 0.0_dp
 
-    this%hubbu = hubbu
-    this%species0 = species0
-
-    ! tabulate truncated Gamma properties for all (symmetric) combinations of species
-    call getNumberOfUniqueInt(this%species0, nUniqueSpecies)
-    allocate(this%gammaAtDamping(nUniqueSpecies, nUniqueSpecies))
-    allocate(this%dGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
-    allocate(this%ddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
-    do iSp2 = 1, nUniqueSpecies
-      do iSp1 = 1, nUniqueSpecies
-        this%gammaAtDamping(iSp1, iSp2) = getAnalyticalGammaValue(this, iSp1, iSp2,&
-            & this%gammaDamping)
-        this%dGammaAtDamping(iSp1, iSp2) = getdAnalyticalGammaDeriv(this, iSp1, iSp2,&
-            & this%gammaDamping)
-        this%ddGammaAtDamping(iSp1, iSp2) = getddNumericalGammaDeriv(this, iSp1, iSp2,&
-            & this%gammaDamping, 1e-08_dp)
-      end do
-    end do
-
     ! Check for current restrictions
     if (this%tSpin .and. this%rsAlg == rangeSepTypes%threshold) then
       call error("Spin-unrestricted calculation for thresholded range separation not yet&
@@ -374,11 +378,7 @@ contains
       call error("Unknown algorithm for screening the exchange in range separation!")
     end if
 
-    if (.not. tRealHS) then
-      if (.not. present(coeffsDiag)) then
-        call error('Error while initialising range-separated module. Supercell coefficients not&
-            & present although dense Hamiltonian and overlap are complex.')
-      end if
+    if (present(coeffsDiag)) then
       this%coeffsDiag = coeffsDiag
       call getBvKLatticeShifts(this%coeffsDiag, this%bvKShifts)
     end if

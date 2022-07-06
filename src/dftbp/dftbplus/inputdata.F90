@@ -127,10 +127,10 @@ module dftbp_dftbplus_inputdata
     integer :: rangeSepAlg
 
     !> Cutoff for real-space g-summation
-    real(dp) :: gSummationCutoff
+    real(dp), allocatable :: gSummationCutoff
 
     !> Coulomb truncation cutoff of Gamma electrostatics
-    real(dp) :: gammaCutoff
+    real(dp), allocatable :: gammaCutoff
 
   end type TRangeSepInp
 

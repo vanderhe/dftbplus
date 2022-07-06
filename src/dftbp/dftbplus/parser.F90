@@ -2778,6 +2778,20 @@ contains
 
     call getChildValue(node, "KPointsAndWeights", value1, child=child, modifier=modifier)
     call getNodeName(value1, buffer)
+
+    ! Check for range-separated requirement
+    if (allocated(ctrl%rangeSepInp) .and. geo%tPeriodic .and. (char(buffer) /= "supercellfolding")&
+        & .and. (.not. ctrl%tReadChrg)) then
+      call detailedError(value1, "Error while parsing k-point sampling for range-separated run.&
+          & Currently only" // NEW_LINE('A') // "   the supercell folding technique is supported&
+          & (obtained: '" // trim(char(buffer)) // "').")
+      elseif (allocated(ctrl%rangeSepInp) .and. geo%tPeriodic .and. (char(buffer) == "klines")&
+          & .and. ctrl%tReadChrg) then
+        call detailedWarning(value1, "Restarting a range-separated run with bad k-point sampling&
+            & that does probably" // NEW_LINE('A') // "   not match the original sampling (however&
+            & fine for bandstructure calculations).")
+    end if
+
     select case(char(buffer))
 
     case ("supercellfolding")
@@ -2786,11 +2800,11 @@ contains
         call detailedError(child, "No modifier is allowed, if the SupercellFolding scheme is used.")
       end if
       call getChildValue(value1, "", coeffsAndShifts)
-      if (abs(determinant33(coeffsAndShifts(:,1:3))) - 1.0_dp < -1e-6_dp) then
+      if (abs(determinant33(coeffsAndShifts(:,1:3))) - 1.0_dp < -1e-06_dp) then
         call detailedError(value1, "Determinant of the supercell matrix must be greater than 1")
       end if
       if (any(abs(modulo(coeffsAndShifts(:,1:3) + 0.5_dp, 1.0_dp) - 0.5_dp)&
-          & > 1e-6_dp)) then
+          & > 1e-06_dp)) then
         call detailedError(value1, "The components of the supercell matrix must be integers.")
       end if
       if (allocated(ctrl%rangeSepInp)) then
@@ -7628,7 +7642,7 @@ contains
     type(TGeometry), intent(in) :: geo
 
     !! auxiliary node pointers
-    type(fnode), pointer :: child1, value1, child2, value2, child3
+    type(fnode), pointer :: child1, value1, child2, value2, child3, child4
 
     !! Temporary string buffers
     type(string) :: buffer, modifier
@@ -7661,17 +7675,20 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff, -1.0_dp,&
-              & modifier=modifier, child=child3)
-          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          call getChildValue(value2, "GammaCutoff", input%gammaCutoff, -1.0_dp, modifier=modifier,&
-              & child=child3)
-          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
+          call getChild(value2, "GSummationCutoff", child=child3, modifier=modifier,&
+              & requested=.false.)
+          if (associated(child3)) then
+            allocate(input%gSummationCutoff)
+            call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
+            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
+          end if
+          call getChild(value2, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
+          if (associated(child3)) then
+            allocate(input%gammaCutoff)
+            call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
+            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
+          end if
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
-        else
-          ! dummy cutoff values
-          input%gammaCutoff = 1.0_dp
-          input%gSummationCutoff = 1.0_dp
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7679,16 +7696,10 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-        ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
-        input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
-        ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
-        input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
@@ -7715,7 +7726,7 @@ contains
     type(TGeometry), intent(in) :: geo
 
     !! auxiliary node pointers
-    type(fnode), pointer :: child1, value1, child2, value2, child3
+    type(fnode), pointer :: child1, value1, child2, value2, child3, child4
 
     !! Temporary string buffers
     type(string) :: buffer, modifier
@@ -7747,17 +7758,20 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff, -1.0_dp,&
-              & modifier=modifier, child=child3)
-          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          call getChildValue(value2, "GammaCutoff", input%gammaCutoff, -1.0_dp, modifier=modifier,&
-              & child=child3)
-          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
-          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
-        else
-          ! dummy cutoff values
-          input%gammaCutoff = 1.0_dp
-          input%gSummationCutoff = 1.0_dp
+          call getChild(value2, "GSummationCutoff", child=child3, modifier=modifier,&
+              & requested=.false.)
+          if (associated(child3)) then
+            allocate(input%gSummationCutoff)
+            call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
+            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
+          end if
+          call getChild(value2, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
+          if (associated(child3)) then
+            allocate(input%gammaCutoff)
+            call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
+            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
+          end if
+          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7765,16 +7779,10 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-        ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
-        input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
-        ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
-        input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
@@ -7794,17 +7802,20 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(value2, "GSummationCutoff", input%gSummationCutoff, -1.0_dp,&
-              & modifier=modifier, child=child3)
-          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gSummationCutoff)
-          call getChildValue(value2, "GammaCutoff", input%gammaCutoff, -1.0_dp, modifier=modifier,&
-              & child=child3)
-          call convertUnitHsd(char(modifier), lengthUnits, child3, input%gammaCutoff)
-          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
-        else
-          ! dummy cutoff values
-          input%gammaCutoff = 1.0_dp
-          input%gSummationCutoff = 1.0_dp
+          call getChild(value2, "GSummationCutoff", child=child3, modifier=modifier,&
+              & requested=.false.)
+          if (associated(child3)) then
+            allocate(input%gSummationCutoff)
+            call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
+            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
+          end if
+          call getChild(value2, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
+          if (associated(child3)) then
+            allocate(input%gammaCutoff)
+            call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
+            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
+          end if
+          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         end if
       case ("thresholded")
         input%rangeSepAlg = rangeSepTypes%threshold
@@ -7812,16 +7823,10 @@ contains
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-        ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
-        input%gSummationCutoff = 1.0_dp
       case ("matrixbased")
         input%rangeSepAlg = rangeSepTypes%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
-        ! dummy cutoff values
-        input%gammaCutoff = 1.0_dp
-        input%gSummationCutoff = 1.0_dp
       case default
         call getNodeHSdName(value2, buffer)
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
