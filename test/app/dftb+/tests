@@ -107,6 +107,8 @@ rangesep/cluster/Benzene-TD-LC-Spinpol-Iter    #? WITH_ARPACK and (not WITH_MPI)
 rangesep/periodic/Acene-kpts                   #? MPI_PROCS <= 1
 rangesep/periodic/Acene-kpts-restart           #? MPI_PROCS <= 1
 rangesep/periodic/Acene-kpts-band              #? MPI_PROCS <= 1
+rangesep/periodic/GaAs-gamma                   #? MPI_PROCS <= 4
+rangesep/periodic/GaAs-gamma-restart   #? MPI_PROCS <= 4
 
 reks/C2H4_3SSR_rangesep                #? not WITH_MPI
 reks/C2H4_direct                       #? not WITH_MPI

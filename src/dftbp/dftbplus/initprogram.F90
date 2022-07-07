@@ -1442,7 +1442,7 @@ contains
       call error(trim(tmpStr))
     elseif (this%isRangeSep .and. this%tPeriodic .and. this%tRealHS&
         & .and. (input%ctrl%parallelOpts%nGroup /= 1)) then
-      ! Gamma-point case (HF Hamiltonian buildup parallelized)
+      ! Gamma-point case (HF Hamiltonian build-up parallelized)
       write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations at the Gamma point, the&
           & number of MPI' // NEW_LINE('A') // '   groups must be (1).'&
           & // NEW_LINE('A') // '   Obtained (', input%ctrl%parallelOpts%nGroup, ')&
