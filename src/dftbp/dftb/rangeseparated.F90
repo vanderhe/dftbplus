@@ -747,7 +747,7 @@ contains
   !! (periodic systems at the gamma point only).
   subroutine addCamHamiltonian_gamma(this, env, densSqr, squareOver, symNeighbourList, iNeighbour,&
       & iPair, img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs,&
-      & latVecs, recVecs2p, iSquare, orb, HH)
+      & latVecs, recVecs2p, iSquare, orb, iKS, nKS, HH)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -801,6 +801,12 @@ contains
     !> Orbital information.
     type(TOrbitals), intent(in) :: orb
 
+    !> Spin/k-point composite index of current diagonalization
+    integer, intent(in) :: iKS
+
+    !> Number of Spin/k-point combinations
+    integer, intent(in) :: nKS
+
     !> Square (unpacked) Hamiltonian to be updated.
     real(dp), intent(inout) :: HH(:,:)
 
@@ -809,9 +815,9 @@ contains
     ! Add long-range contribution if needed.
     ! For pure Hyb, camBeta would be zero anyway, but we want to save as much time as possible.
     if (this%tLc .or. this%tCam) then
-      call addLrHamiltonian_gamma(this, densSqr, symNeighbourList, iNeighbour, iPair, img2CentCell,&
-          & nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
-          & iSquare, orb, HH)
+      call addLrHamiltonian_gamma(this, env, densSqr, symNeighbourList, iNeighbour, iPair,&
+          & img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs,&
+          & recVecs2p, iSquare, orb, iKS, nKS, HH)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
@@ -971,12 +977,15 @@ contains
 
 
   !> Interface routine for adding LC range-separated contributions to the Hamiltonian.
-  subroutine addLrHamiltonian_gamma(this, densSqr, symNeighbourList, iNeighbour, iPair,&
+  subroutine addLrHamiltonian_gamma(this, env, densSqr, symNeighbourList, iNeighbour, iPair,&
       & img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs,&
-      & recVecs2p, iSquare, orb, HH)
+      & recVecs2p, iSquare, orb, iKS, nKS, HH)
 
     !> Instance
     type(TRangeSepFunc), intent(inout) :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
 
     !> Square (unpacked) density matrix
     real(dp), intent(in), target :: densSqr(:,:)
@@ -1021,6 +1030,12 @@ contains
     !> Orbital information.
     type(TOrbitals), intent(in) :: orb
 
+    !> Spin/k-point composite index of current diagonalization
+    integer, intent(in) :: iKS
+
+    !> Number of Spin/k-point combinations
+    integer, intent(in) :: nKS
+
     !> Square (unpacked) Hamiltonian to be updated.
     real(dp), intent(inout) :: HH(:,:)
 
@@ -1028,8 +1043,9 @@ contains
     case (rangeSepTypes%threshold)
       call error('Thresholded algorithm not yet implemented for periodic systems.')
     case (rangeSepTypes%neighbour)
-      call addLrHamiltonianNeighbour_gamma_sym(this, densSqr, symNeighbourList,&
-          & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, HH)
+      call addLrHamiltonianNeighbour_gamma_sym(this, env, densSqr, symNeighbourList,&
+          & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, iKS,&
+          & nKS, HH)
     case (rangeSepTypes%matrixBased)
       call error('Matrix based algorithm not yet implemented for periodic systems.')
     end select
@@ -1996,11 +2012,15 @@ contains
 
 
   !> Updates the Hamiltonian with the range separated contribution.
-  subroutine addLrHamiltonianNeighbour_gamma_sym(this, deltaRhoSqr, symNeighbourList,&
-      & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, HSqr)
+  subroutine addLrHamiltonianNeighbour_gamma_sym(this, env, deltaRhoSqr, symNeighbourList,&
+      & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, iKS,&
+      & nKS, HSqr)
 
     !> Instance
     type(TRangeSepFunc), intent(inout), target :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
 
     !> Square (unpacked) delta density matrix
     real(dp), intent(in) :: deltaRhoSqr(:,:)
@@ -2031,6 +2051,12 @@ contains
 
     !> Orbital information.
     type(TOrbitals), intent(in) :: orb
+
+    !> Spin/k-point composite index of current diagonalization
+    integer, intent(in) :: iKS
+
+    !> Number of Spin/k-point combinations
+    integer, intent(in) :: nKS
 
     !> Square (unpacked) Hamiltonian to be updated
     real(dp), intent(inout) :: HSqr(:,:)
@@ -2101,6 +2127,9 @@ contains
     !! Dummy array with zeros
     real(dp) :: zeros(3)
 
+    !! Start and end index for MPI parallelization, if applicable
+    integer :: iParallelStart, iParallelEnd
+
     !! Composite index iAtM/iAtN
     integer :: ii, iAtMN(2, size(this%species0)**2)
 
@@ -2119,6 +2148,14 @@ contains
       end do loopN
     end do loopM
 
+  #:if WITH_MPI
+    call getStartAndEndIndex(nAtom0**2, env%mpi%groupComm%size, env%mpi%groupComm%rank,&
+        & iParallelStart, iParallelEnd)
+  #:else
+    iParallelStart = 1
+    iParallelEnd = nAtom0**2
+  #:endif
+
     ! allocate delta Hamiltonian
     allocate(tmpHSqr(squareSize, squareSize))
     tmpHSqr(:,:) = 0.0_dp
@@ -2129,20 +2166,26 @@ contains
 
     ! check and initialize screening
     if (.not. this%tScreeningInited) then
-      allocate(this%hprev(squareSize, squareSize))
-      allocate(this%dRhoPrev(squareSize, squareSize))
-      this%hprev(:,:) = 0.0_dp
-      this%dRhoPrev(:,:) = tmpDeltaRhoSqr
-      this%tScreeningInited = .true.
+      if (iKS == 1) then
+        allocate(this%hPrev(squareSize, squareSize))
+        this%hPrev(:,:) = 0.0_dp
+        this%dRhoPrev = tmpDeltaRhoSqr
+      end if
+      if (iKS == nKS) this%tScreeningInited = .true.
+      ! there is no previous delta density matrix, therefore just copy over
+      tmpDeltaDeltaRhoSqr = tmpDeltaRhoSqr
+    else
+      ! allocate and initialize difference of delta rho to previous SCC iteration
+      tmpDeltaDeltaRhoSqr = tmpDeltaRhoSqr - this%dRhoPrev
     end if
 
-    ! allocate and initialize difference of delta rho to previous SCC iteration
-    allocate(tmpDeltaDeltaRhoSqr(squareSize, squareSize))
-    tmpDeltaDeltaRhoSqr(:,:) = tmpDeltaRhoSqr - this%dRhoPrev
     pMax = maxval(abs(tmpDeltaDeltaRhoSqr))
-    ! old thresholding scheme, not as performant as delta-delta scheme
-    ! pMax = maxval(abs(tmpDeltaRhoSqr))
-    this%dRhoPrev(:,:) = tmpDeltaRhoSqr
+    ! store delta density matrix only once per spin and SCC iteration
+    if (iKS == nKS) then
+      this%dRhoPrev(:,:) = tmpDeltaRhoSqr
+    end if
+    ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
+    if (pMax < 1e-16_dp) return
 
     ! allocate max estimates of square overlap blocks and index array for sorting
     allocate(testSquareOver(nAtom0))
@@ -2177,14 +2220,7 @@ contains
     ! get all cell translations within given cutoff
     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
 
-    ! !$omp parallel do schedule(dynamic) default(none)&
-    ! !$omp shared(this, nAtom0, iSquare, nNeighbourCamSym, overlapIndices, symNeighbourList,&
-    ! !$omp& testSquareOver, rCellVecs, rCellVecsG, tmpDeltaDeltaRhoSqr, tmpHSqr, pMax)&
-    ! !$omp private(iAtN, iSpN, descN, iNeighN, iNeighNsort, iAtB, iAtBfold, iSpB, pSbnMax, rVecL,&
-    ! !$omp& ind, nOrbAt, nOrbNeigh, pSbn, iAtM, iSpM, descM, gammaMN, gammaMB, iNeighM, iNeighMsort,&
-    ! !$omp& iAtA, iAtAfold, iSpA, descA, Pab, maxEstimate, rVecH, gammaAN, gammaAB, pSam, pSamT_Pab,&
-    ! !$omp& Pab_Sbn, tot, pSamT_Pab_pSbn, pSamT_Pab_gammaAB, descB, pMaxpSbnMax)
-    loopMN: do ii = 1, nAtom0**2
+    loopMN: do ii = iParallelStart, iParallelEnd
       iAtM = iAtMN(1, ii)
       iAtN = iAtMN(2, ii)
       iSpM = this%species0(iAtM)
@@ -2277,13 +2313,21 @@ contains
       tmpHSqr(:,:) = -0.125_dp * tmpHSqr
     end if
 
+  #:if WITH_MPI
+    ! Sum up contributions of current MPI group
+    call mpifx_allreduceip(env%mpi%groupComm, tmpHSqr, MPI_SUM)
+  #:endif
+
     this%hprev(:,:) = this%hprev + tmpHSqr
     HSqr(:,:) = HSqr + this%camBeta * this%hprev
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)
 
-    ! using delta Hamiltonian, instead of delta-delta (which seems to be considerably faster)
-    ! HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
-    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)
+    ! Add energy contribution but divide by the number of processes
+  #:if WITH_MPI
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)&
+        & / real(env%mpi%groupComm%size, dp)
+  #:else
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)
+  #:endif
 
   end subroutine addLrHamiltonianNeighbour_gamma_sym
 
@@ -2856,7 +2900,7 @@ contains
     ! hack for spin unrestricted calculation
     this%lrEnergy = 0.0_dp
 
-  end subroutine addLrenergy
+  end subroutine addLrEnergy
 
 
   !> Finds location of relevant atomic block indices in a dense matrix.

@@ -1432,24 +1432,44 @@ contains
 
     call env%initMpi(input%ctrl%parallelOpts%nGroup)
 
-    if (this%isRangeSep .and. (input%ctrl%parallelOpts%nGroup /= env%mpi%globalComm%size)) then
+    if (this%isRangeSep .and. (.not. this%tRealHS)&
+        & .and. (input%ctrl%parallelOpts%nGroup /= env%mpi%globalComm%size)) then
+      ! General k-point case (parallelized over k-points)
       write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations beyond the Gamma point, the&
           & number of MPI' // NEW_LINE('A') // '   groups must match the total number of MPI&
           & processes.' // NEW_LINE('A') // '   Obtained (', input%ctrl%parallelOpts%nGroup, ')&
           & groups for (', env%mpi%globalComm%size, ') total MPI processes!'
       call error(trim(tmpStr))
+    elseif (this%isRangeSep .and. this%tPeriodic .and. this%tRealHS&
+        & .and. (input%ctrl%parallelOpts%nGroup /= 1)) then
+      ! Gamma-point case (HF Hamiltonian buildup parallelized)
+      write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations at the Gamma point, the&
+          & number of MPI' // NEW_LINE('A') // '   groups must be (1).'&
+          & // NEW_LINE('A') // '   Obtained (', input%ctrl%parallelOpts%nGroup, ')&
+          & groups for (', env%mpi%globalComm%size, ') total MPI processes!'
+      call error(trim(tmpStr))
+    end if
+
+    if (this%isRangeSep .and. this%tPeriodic .and. this%tRealHS&
+        & .and. (env%mpi%globalComm%size > this%nAtom**2)) then
+      write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations at the Gamma point, the&
+          & number of MPI' // NEW_LINE('A') // '   must not exceed nAtom**2.'&
+          & // NEW_LINE('A') // '   Obtained (', env%mpi%globalComm%size, ')&
+          & processes, were maximum is (', this%nAtom**2, ') total MPI processes!'
+      call error(trim(tmpStr))
     end if
   #:endif
 
-
   #:if WITH_SCALAPACK
-    call initBlacs(input%ctrl%parallelOpts%blacsOpts, this%nAtom, this%nOrb,&
-        & this%t2Component, env, errStatus)
-    if (errStatus%hasError()) then
-      if (errStatus%code == -1) then
-        call warning("Insufficient atoms for this number of MPI processors")
+    if (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic)) then
+      call initBlacs(input%ctrl%parallelOpts%blacsOpts, this%nAtom, this%nOrb,&
+          & this%t2Component, env, errStatus)
+      if (errStatus%hasError()) then
+        if (errStatus%code == -1) then
+          call warning("Insufficient atoms for this number of MPI processors")
+        end if
+        call error(errStatus%message)
       end if
-      call error(errStatus%message)
     end if
   #:endif
     call TParallelKS_init(this%parallelKS, env, this%nKPoint, nIndepHam)
@@ -2786,10 +2806,12 @@ contains
     end if
 
   #:if WITH_SCALAPACK
-    associate (blacsOpts => input%ctrl%parallelOpts%blacsOpts)
-      call getDenseDescBlacs(env, blacsOpts%blockSize, blacsOpts%blockSize, this%denseDesc,&
-          & this%isSparseReorderRequired)
-    end associate
+    if (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic)) then
+      associate (blacsOpts => input%ctrl%parallelOpts%blacsOpts)
+        call getDenseDescBlacs(env, blacsOpts%blockSize, blacsOpts%blockSize, this%denseDesc,&
+            & this%isSparseReorderRequired)
+      end associate
+    end if
   #:endif
 
     if (allocated(this%reks)) then
@@ -3011,10 +3033,12 @@ contains
   #:endif
 
   #:if WITH_SCALAPACK
-    write(stdOut, "('BLACS orbital grid size:', T30, I0, ' x ', I0)")env%blacs%orbitalGrid%nRow,&
-        & env%blacs%orbitalGrid%nCol
-    write(stdOut, "('BLACS atom grid size:', T30, I0, ' x ', I0)")env%blacs%atomGrid%nRow,&
-        & env%blacs%atomGrid%nCol
+    if (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic)) then
+      write(stdOut, "('BLACS orbital grid size:', T30, I0, ' x ', I0)")env%blacs%orbitalGrid%nRow,&
+          & env%blacs%orbitalGrid%nCol
+      write(stdOut, "('BLACS atom grid size:', T30, I0, ' x ', I0)")env%blacs%atomGrid%nRow,&
+          & env%blacs%atomGrid%nCol
+    end if
   #:endif
 
     if (tRandomSeed) then
@@ -4959,8 +4983,13 @@ contains
 
     nLocalKS = size(this%parallelKS%localKS, dim=2)
   #:if WITH_SCALAPACK
-    call scalafx_getlocalshape(env%blacs%orbitalGrid, this%denseDesc%blacsOrbSqr, nLocalRows,&
-        & nLocalCols)
+    if (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic) then
+      nLocalRows = this%denseDesc%fullSize
+      nLocalCols = this%denseDesc%fullSize
+    else
+      call scalafx_getlocalshape(env%blacs%orbitalGrid, this%denseDesc%blacsOrbSqr, nLocalRows,&
+          & nLocalCols)
+    end if
   #:else
     nLocalRows = this%denseDesc%fullSize
     nLocalCols = this%denseDesc%fullSize
@@ -4978,7 +5007,8 @@ contains
 
   #:if WITH_SCALAPACK
 
-    if (this%isSparseReorderRequired) then
+    if (this%isSparseReorderRequired .and.&
+        & (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic))) then
       call scalafx_getlocalshape(env%blacs%rowOrbitalGrid, this%denseDesc%blacsColumnSqr,&
           & nLocalRows, nLocalCols)
       if (this%t2Component .or. .not. this%tRealHS) then
