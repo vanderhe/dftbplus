@@ -2160,8 +2160,7 @@ contains
     allocate(tmpHSqr(squareSize, squareSize))
     tmpHSqr(:,:) = 0.0_dp
 
-    allocate(tmpDeltaRhoSqr(squareSize, squareSize))
-    tmpDeltaRhoSqr(:,:) = deltaRhoSqr
+    tmpDeltaRhoSqr = deltaRhoSqr
     call symmetrizeHS(tmpDeltaRhoSqr)
 
     ! check and initialize screening
@@ -2240,8 +2239,8 @@ contains
         iSpB = this%species0(iAtBfold)
         descB = getDescriptor(iAtBfold, iSquare)
         ! get real-space \vec{l} for gamma arguments
-        vecL(:) = -cellVecs(:, symNeighbourList%iCellVec(iAtB))
-        rVecL(:) = -rCellVecs(:, symNeighbourList%iCellVec(iAtB))
+        vecL(:) = cellVecs(:, symNeighbourList%iCellVec(iAtB))
+        rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
         ! get 2D pointer to Sbn overlap block
         ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
         nOrbAt = descN(iNOrb)
@@ -2261,8 +2260,8 @@ contains
           ! get continuous 2D copy of Pab density matrix block
           Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
           ! get real-space \vec{h} for gamma arguments
-          vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
-          rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
+          vecH(:) = -cellVecs(:, symNeighbourList%iCellVec(iAtA))
+          rVecH(:) = -rCellVecs(:, symNeighbourList%iCellVec(iAtA))
           ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
           gammaAN = getGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%coords, this%rCoords,&
               & cellVecsG, rCellVecsG, vecH, rVecH)
@@ -2276,28 +2275,27 @@ contains
           pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
           pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
 
-          call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSamT, Pab, transA='N', transB='N')
-          call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab, pSbn, transA='N', transB='N')
+          pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab)
+          Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab, pSbn)
 
           ! term #1
-          call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-              & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
+          pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+              & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
           tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
               & * gammaMN
 
           ! term #2
-          call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-              & 1:descB(iNOrb)) * gammaMB, pSbn, transA='N', transB='N', beta=1.0_dp)
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+              & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB, pSbn)
 
           ! term #3
-          call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT, Pab_Sbn(1:descA(iNOrb),&
-              & 1:descN(iNOrb)) * gammaAN, transA='N', transB='N', beta=1.0_dp)
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+              & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN)
 
           ! term #4
-          call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSamT,&
-              & Pab * gammaAB, transA='N', transB='N')
-          call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
-              & 1:descB(iNOrb)), pSbn, transA='N', transB='N', beta=1.0_dp)
+          pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab * gammaAB)
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+              & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
 
           tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
               & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
@@ -3999,6 +3997,7 @@ contains
 
     !! Atom blocks from sparse, real-space overlap matrices S_{\alpha\mu}, S_{\beta\nu}
     real(dp), pointer :: pSam(:,:), pSbn(:,:)
+    real(dp), allocatable :: Sma(:,:)
 
     !! Diatomic block from square (k-space) delta density matrix
     real(dp), allocatable :: Pab(:,:,:), Pmn(:,:,:)
@@ -4076,10 +4075,23 @@ contains
     !! Temporary gradient storage
     real(dp) :: tmpGradients1(3)
 
+    !! Composite index iAtM/iAtN
+    integer :: ii, iAtMN(2, size(this%species0)**2)
+
     zeros(:) = 0.0_dp
 
     nAtom0 = size(this%species0)
     nSpin = size(deltaRhoSqr, dim=3)
+
+    ! Build up composite index iAtMN for collapsing iAtM and iAtN
+    ind = 1
+    loopiM: do iAtM = 1, nAtom0
+      loopiN: do iAtN = 1, nAtom0
+        iAtMN(1, ind) = iAtM
+        iAtMN(2, ind) = iAtN
+        ind = ind + 1
+      end do loopiN
+    end do loopiM
 
     ! allocate gradient contribution
     allocate(tmpGradients(3, size(gradients, dim=2)))
@@ -4138,14 +4150,14 @@ contains
             pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
             ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
             gammaMB = getGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%coords, this%rCoords,&
-                & cellVecsG, rCellVecsG, -vecL, -rVecL)
+                & cellVecsG, rCellVecsG, vecL, rVecL)
             dGammaMB(:) = 0.0_dp
             if (iAtK == iAtM .and. iAtM /= iAtBfold) then
               dGammaMB(:) = getGammaPrimeGSum(this, iAtK, iAtBfold, iSpK, iSpB, this%rCoords,&
-                  & rCellVecsG, -rVecL)
+                  & rCellVecsG, rVecL)
             elseif (iAtK == iAtBfold .and. iAtM /= iAtBfold) then
               dGammaMB(:) = getGammaPrimeGSum(this, iAtM, iAtK, iSpM, iSpK, this%rCoords,&
-                  & rCellVecsG, -rVecL)
+                  & rCellVecsG, rVecL)
             end if
             SbnPrimeKequalsN(:,:,:) = 0.0_dp
             if (iAtK /= iAtBfold) then
@@ -4158,8 +4170,8 @@ contains
               iSpA = this%species0(iAtAfold)
               descA = getDescriptor(iAtAfold, iSquare)
               ! get real-space \vec{h} for gamma arguments
-              vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
-              rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
+              vecH(:) = -cellVecs(:, symNeighbourList%iCellVec(iAtA))
+              rVecH(:) = -rCellVecs(:, symNeighbourList%iCellVec(iAtA))
               ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
               gammaAN = getGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%coords, this%rCoords,&
                   & cellVecsG, rCellVecsG, vecH, rVecH)
@@ -4173,25 +4185,27 @@ contains
               end if
               ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
               gammaAB = getGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%coords,&
-                  & this%rCoords, cellVecsG, rCellVecsG, vecH - vecL, rVecH - rVecL)
+                  & this%rCoords, cellVecsG, rCellVecsG, vecH + vecL, rVecH + rVecL)
               dGammaAB(:) = 0.0_dp
               if (iAtK == iAtAfold .and. iAtAfold /= iAtBfold) then
                 dGammaAB(:) = getGammaPrimeGSum(this, iAtK, iAtBfold, iSpK, iSpB, this%rCoords,&
-                    & rCellVecsG, rVecH - rVecL)
+                    & rCellVecsG, rVecH + rVecL)
               elseif (iAtK == iAtBfold .and. iAtAfold /= iAtBfold) then
                 dGammaAB(:) = getGammaPrimeGSum(this, iAtAfold, iAtK, iSpA, iSpK, this%rCoords,&
-                    & rCellVecsG, rVecH - rVecL)
+                    & rCellVecsG, rVecH + rVecL)
               end if
               ! get 2D pointer to Sam overlap block
               ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
               nOrbAt = descM(iNOrb)
               nOrbNeigh = descA(iNOrb)
               pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+              ! SamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
 
               Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :)
 
               gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
               dGammaTot(:) = dGammaMN + dGammaMB + dGammaAN + dGammaAB
+              ! dGammaTot(:) = -dGammaTot
 
               SamPrimeKequalsM(:,:,:) = 0.0_dp
               if (iAtK /= iAtAfold) then
@@ -4217,7 +4231,7 @@ contains
                         if (iAtK == iAtAfold .and. iAtM /= iAtAfold) then
                           tmpGradients1(:) = tmpGradients1 + dPabdPmnGammaTot * Sbn&
                               & * SamPrimeKequalsA(alpha, mu, :)
-                        elseif (iAtK == iAtM .and. iAtM /= iAtAfold) then
+                          elseif (iAtK == iAtM .and. iAtM /= iAtAfold) then
                           tmpGradients1(:) = tmpGradients1 + dPabdPmnGammaTot * Sbn&
                               & * SamPrimeKequalsM(alpha, mu, :)
                         end if
