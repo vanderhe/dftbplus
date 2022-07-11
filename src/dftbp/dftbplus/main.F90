@@ -3433,77 +3433,102 @@ contains
 
     rhoPrim(:,:) = 0.0_dp
 
-    do iKS = 1, parallelKS%nLocalKS
-      iSpin = parallelKS%localKS(2, iKS)
+    if (associated(deltaRhoOutSqr) .and. tPeriodic) then
+      ! Periodic, non-helical, Gamma-point only, range-separated
+      ! For now, requires different, admittedly extremely stupid parallelization method,
+      ! which only speeds up building the Hartree-Fock Hamiltonian (complain @vanderhe)!
+
+      do iKS = 1, parallelKS%nLocalKS
+        iSpin = parallelKS%localKS(2, iKS)
+
+        ! Range-separated case: pack delta density matrix
+        call makeDensityMatrix(deltaRhoOutSqr(:,:,iSpin), eigvecs(:,:,iKS), filling(:,iSpin))
+        call env%globalTimer%startTimer(globalTimers%denseToSparse)
+        call packHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin), neighbourlist%iNeighbour,&
+            & nNeighbourSK, orb%mOrb, denseDesc%iAtomStart, iSparseStart, img2CentCell)
+        call env%globalTimer%stopTimer(globalTimers%denseToSparse)
+
+        if (allocated(rhoSqrReal)) then
+          rhoSqrReal(:,:,iSpin) = work
+        end if
+
+      end do
+
+    else
+
+      do iKS = 1, parallelKS%nLocalKS
+        iSpin = parallelKS%localKS(2, iKS)
+
+      #:if WITH_SCALAPACK
+
+        if (.not. associated(deltaRhoOutSqr)) then
+          call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, denseDesc%blacsOrbSqr,&
+              & filling(:,iSpin), eigvecs(:,:,iKS), work)
+          call env%globalTimer%startTimer(globalTimers%denseToSparse)
+          if (tHelical) then
+            call packRhoHelicalRealBlacs(env%blacs, denseDesc, work, neighbourList%iNeighbour,&
+                & nNeighbourSK, iSparseStart, img2CentCell, orb, species, coord, rhoPrim(:,iSpin))
+          else
+            call packRhoRealBlacs(env%blacs, denseDesc, work, neighbourList%iNeighbour,&
+                & nNeighbourSK, orb%mOrb, iSparseStart, img2CentCell, rhoPrim(:,iSpin))
+          end if
+          call env%globalTimer%stopTimer(globalTimers%denseToSparse)
+        else
+          ! Range-separated case: pack delta density matrix
+          call makeDensityMatrix(deltaRhoOutSqr(:,:,iSpin), eigvecs(:,:,iKS), filling(:,iSpin))
+          call env%globalTimer%startTimer(globalTimers%denseToSparse)
+          if (tHelical) then
+            call packHelicalHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin),&
+                & neighbourlist%iNeighbour, nNeighbourSK, denseDesc%iAtomStart, iSparseStart,&
+                & img2CentCell, orb, species, coord)
+          else
+            call packHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin), neighbourlist%iNeighbour,&
+                & nNeighbourSK, orb%mOrb, denseDesc%iAtomStart, iSparseStart, img2CentCell)
+          end if
+          call env%globalTimer%stopTimer(globalTimers%denseToSparse)
+        end if
+      #:else
+        ! Either pack density matrix or delta density matrix
+        if (.not. associated(deltaRhoOutSqr)) then
+          call makeDensityMatrix(work, eigvecs(:,:,iKS), filling(:,iSpin))
+          call env%globalTimer%startTimer(globalTimers%denseToSparse)
+          if (tHelical) then
+            call packHelicalHS(rhoPrim(:,iSpin), work, neighbourlist%iNeighbour, nNeighbourSK,&
+                & denseDesc%iAtomStart, iSparseStart, img2CentCell, orb, species, coord)
+          else
+            call packHS(rhoPrim(:,iSpin), work, neighbourlist%iNeighbour, nNeighbourSK, orb%mOrb,&
+                & denseDesc%iAtomStart, iSparseStart, img2CentCell)
+          end if
+          call env%globalTimer%stopTimer(globalTimers%denseToSparse)
+        else
+          ! Range-separated case: pack delta density matrix
+          call makeDensityMatrix(deltaRhoOutSqr(:,:,iSpin), eigvecs(:,:,iKS), filling(:,iSpin))
+          call env%globalTimer%startTimer(globalTimers%denseToSparse)
+          if (tHelical) then
+            call packHelicalHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin),&
+                & neighbourlist%iNeighbour, nNeighbourSK, denseDesc%iAtomStart, iSparseStart,&
+                & img2CentCell, orb, species, coord)
+          else
+            call packHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin), neighbourlist%iNeighbour,&
+                & nNeighbourSK, orb%mOrb, denseDesc%iAtomStart, iSparseStart, img2CentCell)
+          end if
+          call env%globalTimer%stopTimer(globalTimers%denseToSparse)
+        end if
+      #:endif
+
+        if (allocated(rhoSqrReal)) then
+          rhoSqrReal(:,:,iSpin) = work
+        end if
+      end do
 
     #:if WITH_SCALAPACK
-
       if (.not. associated(deltaRhoOutSqr)) then
-        call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, denseDesc%blacsOrbSqr,&
-            & filling(:,iSpin), eigvecs(:,:,iKS), work)
-        call env%globalTimer%startTimer(globalTimers%denseToSparse)
-        if (tHelical) then
-          call packRhoHelicalRealBlacs(env%blacs, denseDesc, work, neighbourList%iNeighbour,&
-              & nNeighbourSK, iSparseStart, img2CentCell, orb, species, coord, rhoPrim(:,iSpin))
-        else
-          call packRhoRealBlacs(env%blacs, denseDesc, work, neighbourList%iNeighbour,&
-              & nNeighbourSK, orb%mOrb, iSparseStart, img2CentCell, rhoPrim(:,iSpin))
-        end if
-        call env%globalTimer%stopTimer(globalTimers%denseToSparse)
-      else
-        ! Range-separated case: pack delta density matrix
-        call makeDensityMatrix(deltaRhoOutSqr(:,:,iSpin), eigvecs(:,:,iKS), filling(:,iSpin))
-        call env%globalTimer%startTimer(globalTimers%denseToSparse)
-        if (tHelical) then
-          call packHelicalHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin),&
-              & neighbourlist%iNeighbour, nNeighbourSK, denseDesc%iAtomStart, iSparseStart,&
-              & img2CentCell, orb, species, coord)
-        else
-          call packHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin), neighbourlist%iNeighbour,&
-              & nNeighbourSK, orb%mOrb, denseDesc%iAtomStart, iSparseStart, img2CentCell)
-        end if
-        call env%globalTimer%stopTimer(globalTimers%denseToSparse)
-      end if
-    #:else
-      ! Either pack density matrix or delta density matrix
-      if (.not. associated(deltaRhoOutSqr)) then
-        call makeDensityMatrix(work, eigvecs(:,:,iKS), filling(:,iSpin))
-        call env%globalTimer%startTimer(globalTimers%denseToSparse)
-        if (tHelical) then
-          call packHelicalHS(rhoPrim(:,iSpin), work, neighbourlist%iNeighbour, nNeighbourSK,&
-              & denseDesc%iAtomStart, iSparseStart, img2CentCell, orb, species, coord)
-        else
-          call packHS(rhoPrim(:,iSpin), work, neighbourlist%iNeighbour, nNeighbourSK, orb%mOrb,&
-              & denseDesc%iAtomStart, iSparseStart, img2CentCell)
-        end if
-        call env%globalTimer%stopTimer(globalTimers%denseToSparse)
-      else
-        ! Range-separated case: pack delta density matrix
-        call makeDensityMatrix(deltaRhoOutSqr(:,:,iSpin), eigvecs(:,:,iKS), filling(:,iSpin))
-        call env%globalTimer%startTimer(globalTimers%denseToSparse)
-        if (tHelical) then
-          call packHelicalHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin),&
-              & neighbourlist%iNeighbour, nNeighbourSK, denseDesc%iAtomStart, iSparseStart,&
-              & img2CentCell, orb, species, coord)
-        else
-          call packHS(rhoPrim(:,iSpin), deltaRhoOutSqr(:,:,iSpin), neighbourlist%iNeighbour,&
-              & nNeighbourSK, orb%mOrb, denseDesc%iAtomStart, iSparseStart, img2CentCell)
-        end if
-        call env%globalTimer%stopTimer(globalTimers%denseToSparse)
+        ! Add up and distribute density matrix contribution from each group
+        call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
       end if
     #:endif
 
-      if (allocated(rhoSqrReal)) then
-        rhoSqrReal(:,:,iSpin) = work
-      end if
-    end do
-
-  #:if WITH_SCALAPACK
-    if (.not. (associated(deltaRhoOutSqr) .and. tPeriodic)) then
-      ! Add up and distribute density matrix contribution from each group
-      call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
     end if
-  #:endif
 
   end subroutine getDensityFromRealEigvecs
 

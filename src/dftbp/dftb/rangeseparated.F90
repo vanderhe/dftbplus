@@ -2573,18 +2573,6 @@ contains
     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
     ! call getLatticePoints(cellVecsG, latVecs, recVecs2p, this%gSummationCutoff, posExtension=1,&
     !     & negExtension=1)
-    ! allocate(rCellVecsG(3, size(cellVecsG, dim=2)))
-    ! do ii = 1, size(rCellVecsG, dim=2)
-    !   rCellVecsG(:,ii) = matmul(latVecs, cellVecsG(:,ii))
-    ! end do
-    ! do ii = 1, size(cellVecsG, dim=2)
-    !   print '(3F10.6)', cellVecsG(:, ii)
-    ! end do
-
-    ! print *, 'this%gSummationCutoff', this%gSummationCutoff
-    ! print *, 'maxval(cellVecsG(3, :))', maxval(cellVecsG(3, :))
-    ! rCellVecsG = -rCellVecsG
-    ! cellVecsG = -cellVecsG
 
     allocate(gammaMN(size(cellVecsG, dim=2)))
     allocate(gammaMB(size(cellVecsG, dim=2)))
@@ -2751,55 +2739,6 @@ contains
           tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
               & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
               & + tot(1:descM(iNOrb), 1:descN(iNOrb))
-
-          ! loopG: do iG = 1, size(rCellVecsG, dim=2)
-          !   bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iG) + vecH + vecL)
-          !   phase = exp((0.0_dp, 1.0_dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iG)))
-
-          !   pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
-          !       & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
-          !   ! call gemm(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSam, Pab(:,:, bvKIndex(1),&
-          !   !     & bvKIndex(2), bvKIndex(3)), transA='T', transB='N')
-          !   Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
-          !       & bvKIndex(3)), pSbn)
-          !   ! call gemm(Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)), Pab(:,:, bvKIndex(1), bvKIndex(2),&
-          !   !     & bvKIndex(3)), pSbn, transA='N', transB='N')
-
-          !   ! term #1
-          !   pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
-          !       & 1:descB(iNOrb)), pSbn)
-          !   ! call gemm(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-          !   !     & 1:descB(iNOrb)), pSbn, transA='N', transB='N')
-
-          !   tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-          !       & * gammaMN(iG)
-
-          !   ! term #2
-          !   tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-          !   & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(iG), pSbn)
-          !   ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab(1:descM(iNOrb),&
-          !   !     & 1:descB(iNOrb)) * gammaMB(iG), pSbn, transA='N', transB='N', beta=1.0_dp)
-
-          !   ! term #3
-          !   tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-          !       & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(iG))
-          !   ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSam, Pab_Sbn(1:descA(iNOrb),&
-          !   !     & 1:descN(iNOrb)) * gammaAN(iG), transA='T', transB='N', beta=1.0_dp)
-
-          !   ! term #4
-          !   pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
-          !       & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG))
-          !   ! call gemm(pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)), pSam, Pab(:,:,&
-          !   !     & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG), transA='T', transB='N')
-          !   tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-          !       & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
-          !   ! call gemm(tot(1:descM(iNOrb), 1:descN(iNOrb)), pSamT_Pab_gammaAB(1:descM(iNOrb),&
-          !   !     & 1:descB(iNOrb)), pSbn, transA='N', transB='N', beta=1.0_dp)
-
-          !   tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-          !       & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-          !       & + tot(1:descM(iNOrb), 1:descN(iNOrb)) * phase
-          ! end do loopG
 
         end do loopA
       end do loopB

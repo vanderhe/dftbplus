@@ -1461,15 +1461,13 @@ contains
   #:endif
 
   #:if WITH_SCALAPACK
-    if (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic)) then
-      call initBlacs(input%ctrl%parallelOpts%blacsOpts, this%nAtom, this%nOrb,&
-          & this%t2Component, env, errStatus)
-      if (errStatus%hasError()) then
-        if (errStatus%code == -1) then
-          call warning("Insufficient atoms for this number of MPI processors")
-        end if
-        call error(errStatus%message)
+    call initBlacs(input%ctrl%parallelOpts%blacsOpts, this%nAtom, this%nOrb,&
+        & this%t2Component, env, errStatus)
+    if (errStatus%hasError()) then
+      if (errStatus%code == -1) then
+        call warning("Insufficient atoms for this number of MPI processors")
       end if
+      call error(errStatus%message)
     end if
   #:endif
     call TParallelKS_init(this%parallelKS, env, this%nKPoint, nIndepHam)
@@ -4125,7 +4123,7 @@ contains
 
       ! Check if obtained supercell folding matrix meets current requirements
       ! if (this%isRangeSep .and. (.not. this%tRealHS)) then
-      if (this%isRangeSep) then
+      if (this%isRangeSep .and. this%tPeriodic) then
         allocate(this%supercellFoldingDiag(3))
         call checkSupercellFoldingMatrix(this%supercellFoldingMatrix,&
             & supercellFoldingDiagOut=this%supercellFoldingDiag)

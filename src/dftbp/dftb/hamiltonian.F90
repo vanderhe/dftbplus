@@ -362,7 +362,7 @@ contains
     real(dp), allocatable, intent(inout) :: iHam(:,:)
 
     integer :: nAtom
-    real(dp), allocatable :: dipoleAtom(:, :)
+    real(dp), allocatable :: dipoleAtom(:,:)
 
     nAtom = size(orb%nOrbAtom)
 
@@ -371,14 +371,16 @@ contains
       ham(:,1) = h0
     end if
 
-    call addShift(ham, ints%overlap, nNeighbourSK, neighbourList%iNeighbour, species, orb, iSparseStart,&
-        & nAtom, img2CentCell, potential%intBlock)
+    call addShift(ham, ints%overlap, nNeighbourSK, neighbourList%iNeighbour, species, orb,&
+        & iSparseStart, nAtom, img2CentCell, potential%intBlock)
 
     if (allocated(potential%intOnSiteAtom)) then
-      call addOnSiteShift(ham, ints%overlap, species, orb, iSparseStart, nAtom, potential%intOnSiteAtom)
+      call addOnSiteShift(ham, ints%overlap, species, orb, iSparseStart, nAtom,&
+          & potential%intOnSiteAtom)
     end if
     if (allocated(potential%extOnSiteAtom)) then
-      call addOnSiteShift(ham, ints%overlap, species, orb, iSparseStart, nAtom, potential%extOnSiteAtom)
+      call addOnSiteShift(ham, ints%overlap, species, orb, iSparseStart, nAtom,&
+          & potential%extOnSiteAtom)
     end if
 
     if (allocated(potential%dipoleAtom)) then
