@@ -2661,6 +2661,7 @@ contains
           ! Periodic system (Gamma-point only), dense Hamiltonian and overlap are real-valued
           call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
               & input%ctrl%rangeSepInp%cutoffRed,&
+              & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
               & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
         elseif (.not. this%tRealHS) then
           ! Dense Hamiltonian and overlap are complex-valued (general k-point case)
@@ -3526,8 +3527,6 @@ contains
               & input%ctrl%rangeSepInp%screeningThreshold
           write(stdOut, "(2X,A,':',T30,E14.6)") "Coulomb Truncation",&
               & this%cutOff%gammaCutoff
-        end if
-        if (.not. this%tRealHS) then
           write(stdOut, "(2X,A,':',T30,E14.6)") "G-Summation Cutoff",&
               & this%cutOff%gSummationCutoff
         end if
@@ -5590,7 +5589,8 @@ contains
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff_gamma(cutOff, latVecs, cutoffRed, gammaCutoff)
+  subroutine getRangeSeparatedCutOff_gamma(cutOff, latVecs, cutoffRed, gSummationCutoff,&
+      & gammaCutoff)
 
     !> Resulting cutoff
     type(TCutoffs), intent(inout) :: cutOff
@@ -5600,6 +5600,9 @@ contains
 
     !> CAM-neighbour list cutoff reduction
     real(dp), intent(in) :: cutoffRed
+
+    !> Cutoff for real-space g-summation
+    real(dp), intent(in), optional :: gSummationCutoff
 
     !> Coulomb truncation cutoff for Gamma electrostatics
     real(dp), intent(in), optional :: gammaCutoff
@@ -5625,6 +5628,13 @@ contains
       cutOff%gammaCutoff = gammaCutoff
     else
       cutOff%gammaCutoff = minLatVecNorm2 * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+    end if
+
+    if (present(gSummationCutoff)) then
+      cutOff%gSummationCutoff = gSummationCutoff
+    else
+      ! This would correspond to "the savest option"
+      cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
     end if
 
   end subroutine getRangeSeparatedCutOff_gamma
@@ -5686,7 +5696,7 @@ contains
       cutOff%gSummationCutoff = gSummationCutoff
     else
       ! This would correspond to "the savest option"
-      cutOff%gSummationCutoff = 2.0_dp * cutOff%camCutOff + cutOff%gammaCutoff
+      cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
     end if
 
   end subroutine getRangeSeparatedCutOff_kpts
