@@ -132,6 +132,9 @@ module dftbp_dftbplus_inputdata
     !> Coulomb truncation cutoff of Gamma electrostatics
     real(dp), allocatable :: gammaCutoff
 
+    !> Auxiliary gamma damping/screening parameter
+    real(dp), allocatable :: auxiliaryScreening
+
   end type TRangeSepInp
 
 

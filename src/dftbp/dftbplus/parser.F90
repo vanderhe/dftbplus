@@ -7690,6 +7690,11 @@ contains
             call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
             call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
           end if
+          call getChild(value2, "AuxiliaryScreening", child=child3, requested=.false.)
+          if (associated(child3)) then
+            allocate(input%auxiliaryScreening)
+            call getChildValue(child3, "", input%auxiliaryScreening)
+          end if
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         end if
       case ("thresholded")
@@ -7773,6 +7778,11 @@ contains
             call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
             call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
           end if
+          call getChild(value2, "AuxiliaryScreening", child=child3, requested=.false.)
+          if (associated(child3)) then
+            allocate(input%auxiliaryScreening)
+            call getChildValue(child3, "", input%auxiliaryScreening)
+          end if
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         end if
       case ("thresholded")
@@ -7816,6 +7826,11 @@ contains
             allocate(input%gammaCutoff)
             call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
             call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
+          end if
+          call getChild(value2, "AuxiliaryScreening", child=child3, requested=.false.)
+          if (associated(child3)) then
+            allocate(input%auxiliaryScreening)
+            call getChildValue(child3, "", input%auxiliaryScreening)
           end if
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         end if

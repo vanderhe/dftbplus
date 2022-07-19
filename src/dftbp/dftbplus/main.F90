@@ -109,6 +109,7 @@ module dftbp_dftbplus_main
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_integral, only : TIntegral
   use dftbp_type_multipole, only : TMultipole
+  use dftbp_dftb_sparse2dense, only : unpackHS_cmplx_kpts_plot
 #:if WITH_SCALAPACK
   use dftbp_dftb_densitymatrix, only : makeDensityMtxRealBlacs, makeDensityMtxCplxBlacs
   use dftbp_dftb_sparse2dense, only : packRhoRealBlacs, packRhoCplxBlacs, packRhoPauliBlacs,&
@@ -2021,6 +2022,7 @@ contains
     integer :: sparseSize
 
     coord0Fold(:,:) = coord0
+
     call boundaryCond%foldCoordsToCell(coord0Fold, latVec)
 
     if (tHelical) then
@@ -3613,6 +3615,9 @@ contains
     !! Integer BvK real-space shift in relative coordinates
     integer :: bvKIndex(3)
 
+    integer :: fd, ioStat
+    open(newunit=fd, file='P.dat', action='write', form='formatted', iostat=ioStat)
+
     rhoPrim(:,:) = 0.0_dp
 
     if (associated(deltaRhoOutSqrCplx)) then
@@ -3655,8 +3660,15 @@ contains
         ! Store square density matrix P(iKS), since currently needed for q0 substraction
         call hermitianSquareMatrix(work)
         deltaRhoOutSqrCplx(:,:, iKS) = work
+        if (env%tGlobalLead) then
+          call unpackHS_cmplx_kpts_plot(fd, rhoPrim(:,iSpin), kPoint(:,iK), neighbourList%iNeighbour,&
+              & nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart, img2CentCell,&
+              & coord)
+        end if
       end if
     end do
+
+    close(fd)
 
   #:if WITH_SCALAPACK
     ! Add up and distribute density matrix contribution from each group
@@ -6232,9 +6244,12 @@ contains
               & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
         else
-          call rangeSep%addCamGradients(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont, coord,&
-              & species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour,&
-              & nNeighbourSK)
+          ! call rangeSep%addCamGradients(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont, coord,&
+          !     & species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour,&
+          !     & nNeighbourSK)
+          call rangeSep%addCamGradients_cluster(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont,&
+              & coord, species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour,&
+              & nNeighbourSK, nNeighbourCamSym, symNeighbourList)
         end if
       end if
     end if

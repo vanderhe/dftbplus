@@ -174,6 +174,9 @@ module dftbp_dftbplus_initprogram
     !> Cutoff for truncated long-range Gamma integral
     real(dp), allocatable :: gammaCutoff
 
+    !> Auxiliary gamma damping/screening parameter
+    real(dp), allocatable :: auxiliaryScreening
+
     !> Max. of all cutoffs
     real(dp) :: mCutOff
 
@@ -2662,14 +2665,15 @@ contains
           call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
               & input%ctrl%rangeSepInp%cutoffRed,&
               & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-              & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
+              & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
+              & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
         elseif (.not. this%tRealHS) then
           ! Dense Hamiltonian and overlap are complex-valued (general k-point case)
           call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed,&
+              & input%ctrl%rangeSepInp%cutoffRed, this%supercellFoldingDiag,&
               & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
               & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-              & supercellFoldingDiag=this%supercellFoldingDiag)
+              & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
         end if
       end if
 
@@ -2710,14 +2714,15 @@ contains
         ! Periodic system (Gamma-point only), dense Hamiltonian and overlap are real-valued
         call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
             & input%ctrl%rangeSepInp%cutoffRed,&
-            & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff)
+            & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
+            & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
       elseif (.not. this%tRealHS) then
         ! Dense Hamiltonian and overlap are complex-valued (general k-point case)
         call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-            & input%ctrl%rangeSepInp%cutoffRed,&
+            & input%ctrl%rangeSepInp%cutoffRed, this%supercellFoldingDiag,&
             & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
             & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-            & supercellFoldingDiag=this%supercellFoldingDiag)
+            & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
       end if
     end if
 
@@ -2728,7 +2733,8 @@ contains
           & input%ctrl%rangeSepInp%camAlpha, input%ctrl%rangeSepInp%camBeta,&
           & this%tSpin, allocated(this%reks), input%ctrl%rangeSepInp%rangeSepAlg,&
           & coeffsDiag=this%supercellFoldingDiag, gammaCutoff=this%cutOff%gammaCutoff,&
-          & gSummationCutoff=this%cutOff%gSummationCutoff)
+          & gSummationCutoff=this%cutOff%gSummationCutoff,&
+          & auxiliaryScreening=this%cutOff%auxiliaryScreening)
       ! now all information are present to properly allocate density matrices and associate pointers
       call this%reallocateRangeSeparated()
       ! reset number of mixer elements, so that there is enough space for density matrices
@@ -5584,13 +5590,14 @@ contains
     ! dummy cutoff values
     cutOff%gammaCutoff = 1.0_dp
     cutOff%gSummationCutoff = 1.0_dp
+    cutOff%auxiliaryScreening = 1.0_dp
 
   end subroutine getRangeSeparatedCutOff_cluster
 
 
   !> Determine range separated cut-off and also update maximal cutoff
   subroutine getRangeSeparatedCutOff_gamma(cutOff, latVecs, cutoffRed, gSummationCutoff,&
-      & gammaCutoff)
+      & gammaCutoff, auxiliaryScreening)
 
     !> Resulting cutoff
     type(TCutoffs), intent(inout) :: cutOff
@@ -5606,6 +5613,9 @@ contains
 
     !> Coulomb truncation cutoff for Gamma electrostatics
     real(dp), intent(in), optional :: gammaCutoff
+
+    !> Auxiliary gamma damping/screening parameter
+    real(dp), intent(in), optional :: auxiliaryScreening
 
     !! Lowest euclidean norm of all lattice vectors
     real(dp) :: minLatVecNorm2
@@ -5624,9 +5634,16 @@ contains
 
     minLatVecNorm2 = minval(norm2(latVecs, dim=2))
 
+    if (present(auxiliaryScreening)) then
+      cutOff%auxiliaryScreening = auxiliaryScreening
+    else
+      cutOff%auxiliaryScreening = - log(1.0e-06_dp) / minLatVecNorm2
+    end if
+
     if (present(gammaCutoff)) then
       cutOff%gammaCutoff = gammaCutoff
     else
+      ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp
       cutOff%gammaCutoff = minLatVecNorm2 * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
     end if
 
@@ -5641,8 +5658,8 @@ contains
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff_kpts(cutOff, latVecs, cutoffRed, gSummationCutoff,&
-      & gammaCutoff, supercellFoldingDiag)
+  subroutine getRangeSeparatedCutOff_kpts(cutOff, latVecs, cutoffRed, supercellFoldingDiag,&
+      & gSummationCutoff, gammaCutoff, auxiliaryScreening)
 
     !> Resulting cutoff
     type(TCutoffs), intent(inout) :: cutOff
@@ -5653,17 +5670,29 @@ contains
     !> CAM-neighbour list cutoff reduction
     real(dp), intent(in) :: cutoffRed
 
+    !> Supercell folding coefficients and shifts
+    integer, intent(in) :: supercellFoldingDiag(:)
+
     !> Cutoff for real-space g-summation
     real(dp), intent(in), optional :: gSummationCutoff
 
     !> Coulomb truncation cutoff for Gamma electrostatics
     real(dp), intent(in), optional :: gammaCutoff
 
-    !> Supercell folding coefficients and shifts
-    integer, intent(in), optional :: supercellFoldingDiag(:)
+    !> Auxiliary gamma damping/screening parameter
+    real(dp), intent(in), optional :: auxiliaryScreening
 
-    !! Lowest euclidean norm of all lattice vectors
-    real(dp) :: minLatVecNorm2
+    !! Norm of all lattice vectors
+    real(dp) :: latVecNorm2(3)
+
+    !! Product of lattice vector norm and number of k-points in this direction
+    real(dp) :: latVecNorm2TimesNKpt(3)
+
+    !! Minimum product lattice vector norm * number of k-points
+    real(dp) :: minNormTimesNKpt
+
+    ! !! Index of minimum lattice vector norm * number of k-points
+    ! integer :: minDirectionIdx, minLatVecNorm2, minNKpt
 
     if (cutoffRed < 0.0_dp) then
       call error("Cutoff reduction for range-separated neighbours should be zero or positive.")
@@ -5677,19 +5706,37 @@ contains
 
     cutOff%mCutoff = max(cutOff%mCutOff, cutoff%camCutOff)
 
-    minLatVecNorm2 = minval(norm2(latVecs, dim=2))
+    latVecNorm2(:) = norm2(latVecs, dim=2)
+
+    latVecNorm2TimesNKpt(:) = latVecNorm2 * supercellFoldingDiag
+    minNormTimesNKpt = minval(latVecNorm2TimesNKpt)
+
+    ! minDirectionIdx = minloc(latVecNorm2TimesNKpt, dim=1)
+    ! minLatVecNorm2 = latVecNorm2(minDirectionIdx)
+    ! minNKpt = supercellFoldingDiag(minDirectionIdx)
+
+    if (present(auxiliaryScreening)) then
+      cutOff%auxiliaryScreening = auxiliaryScreening
+    else
+      ! if (.not. present(supercellFoldingDiag)) then
+      !   call error('Error while inferring Coulomb truncation cutoff from supercell folding&
+      !       & matrix. Diagonal elements not present.')
+      ! end if
+      cutOff%auxiliaryScreening = - log(1.0e-03_dp) / minNormTimesNKpt
+    end if
 
     if (present(gammaCutoff)) then
       cutOff%gammaCutoff = gammaCutoff
     else
-      if (.not. present(supercellFoldingDiag)) then
-        call error('Error while inferring Coulomb truncation cutoff from supercell folding&
-            & matrix. Diagonal elements not present.')
-      end if
+      ! if (.not. present(supercellFoldingDiag)) then
+      !   call error('Error while inferring Coulomb truncation cutoff from supercell folding&
+      !       & matrix. Diagonal elements not present.')
+      ! end if
       ! cutOff%gammaCutoff = (3.0_dp * determinant33(latVecs) * product(supercellFoldingDiag)&
       !     & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
-      cutOff%gammaCutoff = minLatVecNorm2 * (3.0_dp * product(supercellFoldingDiag)&
-          & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp&
+      !     & * product(supercellFoldingDiag)**(1.0_dp / 3.0_dp)
+      cutOff%gammaCutoff = minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
     end if
 
     if (present(gSummationCutoff)) then
@@ -5698,6 +5745,8 @@ contains
       ! This would correspond to "the savest option"
       cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
     end if
+
+    write(stdOut, *) 'cutOff%auxiliaryScreening', cutOff%auxiliaryScreening
 
   end subroutine getRangeSeparatedCutOff_kpts
 
