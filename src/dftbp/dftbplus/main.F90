@@ -6125,108 +6125,108 @@ contains
     tExtChrg = allocated(chrgForces)
     nAtom = size(derivs, dim=2)
 
-    if (allocated(tblite)) then
-      dipoleAtom = potential%dipoleAtom
-      if (allocated(potential%extDipoleAtom)) then
-        dipoleAtom(:, :) = dipoleAtom + potential%extDipoleAtom
-      end if
-    end if
+    ! if (allocated(tblite)) then
+    !   dipoleAtom = potential%dipoleAtom
+    !   if (allocated(potential%extDipoleAtom)) then
+    !     dipoleAtom(:, :) = dipoleAtom + potential%extDipoleAtom
+    !   end if
+    ! end if
 
-    allocate(tmpDerivs(3, nAtom))
-    derivs(:,:) = 0.0_dp
+    ! allocate(tmpDerivs(3, nAtom))
+    ! derivs(:,:) = 0.0_dp
 
-    if (.not. (tSccCalc .or. isExtField)) then
-      ! No external or internal potentials
-      if (allocated(tblite)) then
-        call tblite%buildDerivativeShift(env, rhoPrim, ERhoPrim, coord, species, &
-          & nNeighbourSK, neighbourList%iNeighbour, img2CentCell, iSparseStart, orb, &
-          & potential%intBlock, dipoleAtom, potential%quadrupoleAtom)
-        call tblite%addGradients(env, neighbourList, species, coord, img2centCell, derivs)
-      else
-        if (tImHam) then
-          call derivative_shift(env, derivs, nonSccDeriv, rhoPrim, iRhoPrim, ERhoPrim, skHamCont,&
-              & skOverCont, coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell,&
-              & iSparseStart, orb, potential%intBlock, potential%iorbitalBlock)
-        else
-          call derivative_shift(env, derivs, nonSccDeriv, rhoPrim(:,1), ERhoPrim, skHamCont,&
-              & skOverCont, coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell,&
-              & iSparseStart, orb, tHelical)
-        end if
-      end if
-    else
-      if (allocated(tblite)) then
-        call tblite%buildDerivativeShift(env, rhoPrim, ERhoPrim, coord, species, &
-          & nNeighbourSK, neighbourList%iNeighbour, img2CentCell, iSparseStart, orb, &
-          & potential%intBlock, dipoleAtom, potential%quadrupoleAtom)
-        call tblite%addGradients(env, neighbourList, species, coord, img2centCell, derivs)
-      else
-        if (tImHam) then
-          call derivative_shift(env, derivs, nonSccDeriv, rhoPrim, iRhoPrim, ERhoPrim, skHamCont,&
-              & skOverCont, coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell,&
-              & iSparseStart, orb, potential%intBlock, potential%iorbitalBlock)
-        else
-          call derivative_shift(env, derivs, nonSccDeriv, rhoPrim, ERhoPrim, skHamCont, skOverCont,&
-              & coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart,&
-              & orb, potential%intBlock)
-        end if
-      end if
+    ! if (.not. (tSccCalc .or. isExtField)) then
+    !   ! No external or internal potentials
+    !   if (allocated(tblite)) then
+    !     call tblite%buildDerivativeShift(env, rhoPrim, ERhoPrim, coord, species, &
+    !       & nNeighbourSK, neighbourList%iNeighbour, img2CentCell, iSparseStart, orb, &
+    !       & potential%intBlock, dipoleAtom, potential%quadrupoleAtom)
+    !     call tblite%addGradients(env, neighbourList, species, coord, img2centCell, derivs)
+    !   else
+    !     if (tImHam) then
+    !       call derivative_shift(env, derivs, nonSccDeriv, rhoPrim, iRhoPrim, ERhoPrim, skHamCont,&
+    !           & skOverCont, coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell,&
+    !           & iSparseStart, orb, potential%intBlock, potential%iorbitalBlock)
+    !     else
+    !       call derivative_shift(env, derivs, nonSccDeriv, rhoPrim(:,1), ERhoPrim, skHamCont,&
+    !           & skOverCont, coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell,&
+    !           & iSparseStart, orb, tHelical)
+    !     end if
+    !   end if
+    ! else
+    !   if (allocated(tblite)) then
+    !     call tblite%buildDerivativeShift(env, rhoPrim, ERhoPrim, coord, species, &
+    !       & nNeighbourSK, neighbourList%iNeighbour, img2CentCell, iSparseStart, orb, &
+    !       & potential%intBlock, dipoleAtom, potential%quadrupoleAtom)
+    !     call tblite%addGradients(env, neighbourList, species, coord, img2centCell, derivs)
+    !   else
+    !     if (tImHam) then
+    !       call derivative_shift(env, derivs, nonSccDeriv, rhoPrim, iRhoPrim, ERhoPrim, skHamCont,&
+    !           & skOverCont, coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell,&
+    !           & iSparseStart, orb, potential%intBlock, potential%iorbitalBlock)
+    !     else
+    !       call derivative_shift(env, derivs, nonSccDeriv, rhoPrim, ERhoPrim, skHamCont, skOverCont,&
+    !           & coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart,&
+    !           & orb, potential%intBlock)
+    !     end if
+    !   end if
 
-      if (tExtChrg) then
-        chrgForces(:,:) = 0.0_dp
-        if (isXlbomd) then
-          call error("XLBOMD does not work with external charges yet!")
-        else
-          call sccCalc%addForceDc(env, derivs, species, neighbourList%iNeighbour, img2CentCell,&
-              & chrgForces)
-        end if
-      else if (tSccCalc) then
-        if (isXlbomd) then
-          call sccCalc%addForceDcXlbomd(env, species, orb, neighbourList%iNeighbour,&
-              & img2CentCell, qOutput, q0, derivs)
-        else
-          call sccCalc%addForceDc(env, derivs, species, neighbourList%iNeighbour, img2CentCell)
-        end if
-      end if
+    !   if (tExtChrg) then
+    !     chrgForces(:,:) = 0.0_dp
+    !     if (isXlbomd) then
+    !       call error("XLBOMD does not work with external charges yet!")
+    !     else
+    !       call sccCalc%addForceDc(env, derivs, species, neighbourList%iNeighbour, img2CentCell,&
+    !           & chrgForces)
+    !     end if
+    !   else if (tSccCalc) then
+    !     if (isXlbomd) then
+    !       call sccCalc%addForceDcXlbomd(env, species, orb, neighbourList%iNeighbour,&
+    !           & img2CentCell, qOutput, q0, derivs)
+    !     else
+    !       call sccCalc%addForceDc(env, derivs, species, neighbourList%iNeighbour, img2CentCell)
+    !     end if
+    !   end if
 
-      if (allocated(thirdOrd)) then
-        if (isXlbomd) then
-          call thirdOrd%addGradientDcXlbomd(neighbourList, species, coord, img2CentCell, qOutput,&
-              & q0, orb, derivs)
-        else
-          call thirdOrd%addGradientDc(neighbourList, species, coord, img2CentCell, derivs)
-        end if
-      end if
+    !   if (allocated(thirdOrd)) then
+    !     if (isXlbomd) then
+    !       call thirdOrd%addGradientDcXlbomd(neighbourList, species, coord, img2CentCell, qOutput,&
+    !           & q0, orb, derivs)
+    !     else
+    !       call thirdOrd%addGradientDc(neighbourList, species, coord, img2CentCell, derivs)
+    !     end if
+    !   end if
 
-      if (allocated(qDepExtPot)) then
-        allocate(dQ(orb%mShell, nAtom, size(qOutput, dim=3)))
-        call getChargePerShell(qOutput, orb, species, dQ, qRef=q0)
-        call qDepExtPot%addGradientDc(sum(dQ(:,:,1), dim=1), dQ(:,:,1), derivs)
-      end if
+    !   if (allocated(qDepExtPot)) then
+    !     allocate(dQ(orb%mShell, nAtom, size(qOutput, dim=3)))
+    !     call getChargePerShell(qOutput, orb, species, dQ, qRef=q0)
+    !     call qDepExtPot%addGradientDc(sum(dQ(:,:,1), dim=1), dQ(:,:,1), derivs)
+    !   end if
 
-      if (isExtField) then
-        do iAt = 1, nAtom
-          derivs(:, iAt) = derivs(:, iAt)&
-              & + sum(qOutput(:, iAt, 1) - q0(:, iAt, 1)) * potential%extGrad(:, iAt)
-        end do
-      end if
+    !   if (isExtField) then
+    !     do iAt = 1, nAtom
+    !       derivs(:, iAt) = derivs(:, iAt)&
+    !           & + sum(qOutput(:, iAt, 1) - q0(:, iAt, 1)) * potential%extGrad(:, iAt)
+    !     end do
+    !   end if
 
-    end if
+    ! end if
 
-    if (allocated(solvation)) then
-      if (isXlbomd) then
-        call error("XLBOMD does not work with solvation yet!")
-      else
-        call solvation%addGradients(env, neighbourList, species, coord, img2CentCell, derivs)
-      end if
-    end if
+    ! if (allocated(solvation)) then
+    !   if (isXlbomd) then
+    !     call error("XLBOMD does not work with solvation yet!")
+    !   else
+    !     call solvation%addGradients(env, neighbourList, species, coord, img2CentCell, derivs)
+    !   end if
+    ! end if
 
-    if (allocated(dispersion)) then
-      call dispersion%addGradients(env, neighbourList, img2CentCell, coord, species, derivs)
-    end if
+    ! if (allocated(dispersion)) then
+    !   call dispersion%addGradients(env, neighbourList, img2CentCell, coord, species, derivs)
+    ! end if
 
-    if (allocated(halogenXCorrection)) then
-      call halogenXCorrection%addGradients(derivs, coord, species, neighbourList, img2CentCell)
-    end if
+    ! if (allocated(halogenXCorrection)) then
+    !   call halogenXCorrection%addGradients(derivs, coord, species, neighbourList, img2CentCell)
+    ! end if
 
     if (allocated(rangeSep)) then
       if (tHelical) then
@@ -6254,13 +6254,13 @@ contains
       end if
     end if
 
-    if (allocated(repulsive)) then
-      call repulsive%getGradients(coord, species, img2CentCell, neighbourList, tmpDerivs)
-    else
-      tmpDerivs(:,:) = 0.0_dp
-    end if
+    ! if (allocated(repulsive)) then
+    !   call repulsive%getGradients(coord, species, img2CentCell, neighbourList, tmpDerivs)
+    ! else
+    !   tmpDerivs(:,:) = 0.0_dp
+    ! end if
 
-    derivs(:,:) = derivs + tmpDerivs
+    ! derivs(:,:) = derivs + tmpDerivs
 
     call boundaryConds%alignVectorCentralCell(derivs, coord, coord0, nAtom)
 
