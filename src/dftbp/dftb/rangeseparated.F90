@@ -4289,9 +4289,9 @@ contains
     loopK: do iAtK = 1, nAtom0
       iSpK = this%species0(iAtK)
       loopM: do iAtM = 1, nAtom0
+        iSpM = this%species0(iAtM)
+        descM = getDescriptor(iAtM, iSquare)
         loopN: do iAtN = 1, nAtom0
-          iSpM = this%species0(iAtM)
-          descM = getDescriptor(iAtM, iSquare)
           iSpN = this%species0(iAtN)
           descN = getDescriptor(iAtN, iSquare)
           ! \gamma_{\mu\nu}(\vec{g})
@@ -4299,17 +4299,9 @@ contains
               & cellVecsG, rCellVecsG)
           dGammaMN(:) = 0.0_dp
           if (iAtK == iAtM .and. iAtM /= iAtN) then
-            dGammaMN(:) = getGammaPrimeGSum(this, iAtK, iAtN, iSpK, iSpN, this%rCoords, rCellVecsG)
+            dGammaMN(:) = getGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN, this%rCoords, rCellVecsG)
           elseif (iAtK == iAtN .and. iAtM /= iAtN) then
-            dGammaMN(:) = getGammaPrimeGSum(this, iAtM, iAtK, iSpM, iSpK, this%rCoords, rCellVecsG)
-          end if
-          SbnPrimeKequalsB(:,:,:) = 0.0_dp
-          if (iAtK /= iAtN .and. iAtK == iAtBfold) then
-          ! if (iAtK /= iAtN .and. iAtK == iAtB) then
-            call derivator%getFirstDeriv(SbnPrimeKequalsB, skOverCont, this%rCoords,&
-                & symNeighbourList%species, iAtK, iAtN, orb)
-            ! print *, 'SbnPrimeKequalsB'
-            ! print "(4F10.6)", transpose(SbnPrimeKequalsB(:,:, 1))
+            dGammaMN(:) = -getGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN, this%rCoords, rCellVecsG)
           end if
           Pmn = tmpDeltaRhoSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)
           loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
@@ -4327,21 +4319,20 @@ contains
                 & cellVecsG, rCellVecsG)
             dGammaMB(:) = 0.0_dp
             if (iAtK == iAtM .and. iAtM /= iAtBfold) then
-            ! if (iAtK == iAtM .and. iAtM /= iAtB) then
-              dGammaMB(:) = getGammaPrimeGSum(this, iAtK, iAtBfold, iSpK, iSpB, this%rCoords,&
+              dGammaMB(:) = getGammaPrimeGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords,&
                   & rCellVecsG)
-            ! elseif (iAtK == iAtB .and. iAtM /= iAtB) then
             elseif (iAtK == iAtBfold .and. iAtM /= iAtBfold) then
-              dGammaMB(:) = getGammaPrimeGSum(this, iAtM, iAtK, iSpM, iSpK, this%rCoords,&
+              dGammaMB(:) = -getGammaPrimeGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords,&
                   & rCellVecsG)
             end if
+            SbnPrimeKequalsB(:,:,:) = 0.0_dp
             SbnPrimeKequalsN(:,:,:) = 0.0_dp
-            if (iAtK /= iAtBfold .and. iAtK == iAtN) then
-            ! if (iAtK /= iAtB .and. iAtK == iAtN) then
+            if (iAtK == iAtBfold .and. iAtN /= iAtBfold) then
+              call derivator%getFirstDeriv(SbnPrimeKequalsB, skOverCont, this%rCoords,&
+                  & symNeighbourList%species, iAtB, iAtN, orb)
+            elseif (iAtK == iAtN .and. iAtN /= iAtBfold) then
               call derivator%getFirstDeriv(SbnPrimeKequalsN, skOverCont, this%rCoords,&
-                  & symNeighbourList%species, iAtB, iAtK, orb)
-              ! print *, 'SbnPrimeKequalsN'
-              ! print "(4F10.6)", transpose(SbnPrimeKequalsN(:,:, 1))
+                  & symNeighbourList%species, iAtN, iAtB, orb)
             end if
             loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
               iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
@@ -4353,12 +4344,10 @@ contains
                   & cellVecsG, rCellVecsG)
               dGammaAN(:) = 0.0_dp
               if (iAtK == iAtAfold .and. iAtAfold /= iAtN) then
-              ! if (iAtK == iAtA .and. iAtA /= iAtN) then
-                dGammaAN(:) = getGammaPrimeGSum(this, iAtK, iAtN, iSpK, iSpN, this%rCoords,&
+                dGammaAN(:) = getGammaPrimeGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%rCoords,&
                     & rCellVecsG)
               elseif (iAtK == iAtN .and. iAtAfold /= iAtN) then
-              ! elseif (iAtK == iAtN .and. iAtA /= iAtN) then
-                dGammaAN(:) = getGammaPrimeGSum(this, iAtAfold, iAtK, iSpA, iSpK, this%rCoords,&
+                dGammaAN(:) = -getGammaPrimeGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%rCoords,&
                     & rCellVecsG)
               end if
               ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
@@ -4366,13 +4355,11 @@ contains
                   & this%rCoords, cellVecsG, rCellVecsG)
               dGammaAB(:) = 0.0_dp
               if (iAtK == iAtAfold .and. iAtAfold /= iAtBfold) then
-              ! if (iAtK == iAtA .and. iAtA /= iAtB) then
-                dGammaAB(:) = getGammaPrimeGSum(this, iAtK, iAtBfold, iSpK, iSpB, this%rCoords,&
-                    & rCellVecsG)
+                dGammaAB(:) = getGammaPrimeGSum(this, iAtAfold, iAtBfold, iSpA, iSpB,&
+                    & this%rCoords, rCellVecsG)
               elseif (iAtK == iAtBfold .and. iAtAfold /= iAtBfold) then
-              ! elseif (iAtK == iAtB .and. iAtA /= iAtB) then
-                dGammaAB(:) = getGammaPrimeGSum(this, iAtAfold, iAtK, iSpA, iSpK, this%rCoords,&
-                    & rCellVecsG)
+                dGammaAB(:) = -getGammaPrimeGSum(this, iAtAfold, iAtBfold, iSpA, iSpB,&
+                    & this%rCoords, rCellVecsG)
               end if
               ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
               ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
@@ -4380,7 +4367,7 @@ contains
               nOrbNeigh = descA(iNOrb)
               pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
               ! \transpose{S_{\alpha\mu}(\vec{h})}
-              SamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
+              ! SamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
 
               Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :)
 
@@ -4388,25 +4375,17 @@ contains
               dGammaTot(:) = dGammaMN + dGammaMB + dGammaAN + dGammaAB
 
               SamPrimeKequalsA(:,:,:) = 0.0_dp
-              ! print *, iAtK, iAtM, iAtK, iAtA, iAtAfold
-              if (iAtK /= iAtM .and. iAtK == iAtAfold) then
-                call derivator%getFirstDeriv(SamPrimeKequalsA, skOverCont, this%rCoords,&
-                    & symNeighbourList%species, iAtM, iAtK, orb)
-                ! print *, 'SamPrimeKequalsA', iAtK, iAtM, iAtK, iAtAfold
-                ! print "(4F10.6)", transpose(SamPrimeKequalsA(:,:, 1))
-              end if
-
               SamPrimeKequalsM(:,:,:) = 0.0_dp
-              if (iAtK /= iAtAfold .and. iAtK == iAtM) then
-              ! if (iAtK /= iAtA .and. iAtK == iAtM) then
+              if (iAtK == iAtAfold .and. iAtAfold /= iAtM) then
+                call derivator%getFirstDeriv(SamPrimeKequalsA, skOverCont, this%rCoords,&
+                    & symNeighbourList%species, iAtA, iAtM, orb)
+              elseif (iAtK == iAtM .and. iAtAfold /= iAtM) then
                 call derivator%getFirstDeriv(SamPrimeKequalsM, skOverCont, this%rCoords,&
-                    & symNeighbourList%species, iAtK, iAtA, orb)
-                ! print *, 'SamPrimeKequalsM'
-                ! print "(4F10.6)", transpose(SamPrimeKequalsM(:,:, 1))
+                    & symNeighbourList%species, iAtM, iAtA, orb)
               end if
 
-              dPabdPmnSamSbn = 0.0_dp
-              tmpGradients1(:) = 0.0_dp
+              ! dPabdPmnSamSbn = 0.0_dp
+              ! tmpGradients1(:) = 0.0_dp
               do mu = 1, descM(iNOrb)
                 do nu = 1, descN(iNOrb)
                   do iSpin = 1, nSpin
@@ -4416,37 +4395,27 @@ contains
                       do beta = 1, descB(iNOrb)
                         Sbn = pSbn(beta, nu)
                         dPab = Pab(alpha, beta, iSpin)
-                        dPabdPmnSamSbn = dPabdPmnSamSbn + Sam * Sbn * dPab * dPmn
+                        dPabdPmnSamSbn = Sam * Sbn * dPab * dPmn
 
                         dPabdPmnGammaTot = dPab * dPmn * gammaTot
 
-                        if (iAtK == iAtAfold .and. iAtM /= iAtAfold) then
-                        ! if (iAtK == iAtA .and. iAtM /= iAtA) then
-                          tmpGradients1(:) = tmpGradients1 + dPabdPmnGammaTot * Sbn&
-                              & * SamPrimeKequalsA(alpha, mu, :)
-                        elseif (iAtK == iAtM .and. iAtM /= iAtAfold) then
-                        ! elseif (iAtK == iAtM .and. iAtM /= iAtA) then
-                          tmpGradients1(:) = tmpGradients1 + dPabdPmnGammaTot * Sbn&
-                              & * SamPrimeKequalsM(alpha, mu, :)
-                        end if
+                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                            & + dPabdPmnGammaTot * Sam * SbnPrimeKequalsB(nu, beta, :)
+                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                            & + dPabdPmnGammaTot * Sam * SbnPrimeKequalsN(beta, nu, :)
 
-                        if (iAtK == iAtBfold .and. iAtBfold /= iAtN) then
-                        ! if (iAtK == iAtB .and. iAtB /= iAtN) then
-                          tmpGradients1(:) = tmpGradients1 + dPabdPmnGammaTot * Sam&
-                              & * SbnPrimeKequalsB(beta, nu, :)
-                        elseif (iAtK == iAtN .and. iAtBfold /= iAtN) then
-                        ! elseif (iAtK == iAtN .and. iAtB /= iAtN) then
-                          tmpGradients1(:) = tmpGradients1 + dPabdPmnGammaTot * Sam&
-                              & * SbnPrimeKequalsN(beta, nu, :)
-                        end if
+                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                            & + dPabdPmnGammaTot * Sbn * SamPrimeKequalsA(mu, alpha, :)
+                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                            & + dPabdPmnGammaTot * Sbn * SamPrimeKequalsM(alpha, mu, :)
+
+                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                            & + dPabdPmnSamSbn * dGammaTot
                       end do
                     end do
                   end do
                 end do
               end do
-
-              tmpGradients(:, iAtK) = tmpGradients(:, iAtK) + tmpGradients1
-              tmpGradients(:, iAtK) = tmpGradients(:, iAtK) + dPabdPmnSamSbn * dGammaTot
 
             end do loopA
           end do loopB
@@ -4460,6 +4429,7 @@ contains
       gradients(:,:) = gradients - 0.0625_dp * this%camBeta * nSpin * tmpGradients
     end if
 
+    print *, 'tmpGradients'
     print '(3F25.16)', tmpGradients
 
   end subroutine addLrGradients_gamma
