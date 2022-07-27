@@ -110,10 +110,10 @@ module dftbp_dftb_rangeseparated
     real(dp), allocatable :: rCoords(:,:)
 
     !> Evaluated long-range gamma of Atom1 and Atom2 (central cell only)
-    real(dp), allocatable :: lrGammaEval0(:,:)
+    real(dp), allocatable :: lrGammaEval0(:,:), lrdGammaEval0(:,:,:)
 
     !> Evaluated Hartree-Fock gamma of Atom1 and Atom2 (central cell only)
-    real(dp), allocatable :: hfGammaEval0(:,:)
+    real(dp), allocatable :: hfGammaEval0(:,:), hfdGammaEval0(:,:,:)
 
     !> Range-separation parameter
     real(dp) :: omega
@@ -190,7 +190,10 @@ module dftbp_dftb_rangeseparated
     real(dp) :: auxiliaryScreening
 
     !> Value, 1st and 2nd derivative of gamma integral at damping distance
-    real(dp), allocatable :: gammaAtDamping(:,:), dGammaAtDamping(:,:), ddGammaAtDamping(:,:)
+    real(dp), allocatable :: lrGammaAtDamping(:,:), lrdGammaAtDamping(:,:), lrddGammaAtDamping(:,:)
+
+    !> Value, 1st and 2nd derivative of gamma integral at damping distance
+    real(dp), allocatable :: hfGammaAtDamping(:,:), hfdGammaAtDamping(:,:), hfddGammaAtDamping(:,:)
 
     !> K-point compatible BvK real-space shifts in relative coordinates (units of latVecs)
     real(dp), allocatable :: bvKShifts(:,:)
@@ -200,7 +203,7 @@ module dftbp_dftb_rangeseparated
 
   contains
 
-    procedure :: updateCoords
+    procedure :: updateCoords_cluster, updateCoords_gamma
 
     procedure :: foldToBvK => TRangeSepFunc_foldToBvK
     procedure :: foldToBvKIndex => TRangeSepFunc_foldToBvKIndex
@@ -318,17 +321,32 @@ contains
 
       ! Tabulate truncated Gamma properties for all (symmetric) combinations of species
       call getNumberOfUniqueInt(this%species0, nUniqueSpecies)
-      allocate(this%gammaAtDamping(nUniqueSpecies, nUniqueSpecies))
-      allocate(this%dGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
-      allocate(this%ddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      allocate(this%lrGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      allocate(this%lrdGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      allocate(this%lrddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
       do iSp2 = 1, nUniqueSpecies
         do iSp1 = 1, nUniqueSpecies
-          this%gammaAtDamping(iSp1, iSp2) = getAnalyticalGammaValue(this, iSp1, iSp2,&
+          this%lrGammaAtDamping(iSp1, iSp2) = getAnalyticalLrGammaValue(this, iSp1, iSp2,&
               & this%omega, this%gammaDamping)
-          this%dGammaAtDamping(iSp1, iSp2) = getdAnalyticalGammaDeriv(this, iSp1, iSp2,&
+          this%lrdGammaAtDamping(iSp1, iSp2) = getdAnalyticalLrGammaDeriv(this, iSp1, iSp2,&
               & this%gammaDamping)
-          this%ddGammaAtDamping(iSp1, iSp2) = getddNumericalGammaDeriv(this, iSp1, iSp2,&
+          this%lrddGammaAtDamping(iSp1, iSp2) = getddNumericalLrGammaDeriv(this, iSp1, iSp2,&
               & this%gammaDamping, 1e-08_dp)
+        end do
+      end do
+
+      call getNumberOfUniqueInt(this%species0, nUniqueSpecies)
+      allocate(this%hfGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      allocate(this%hfdGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      allocate(this%hfddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
+      do iSp2 = 1, nUniqueSpecies
+        do iSp1 = 1, nUniqueSpecies
+          this%hfGammaAtDamping(iSp1, iSp2) = getAnalyticalHartreeFockGammaValue(this, iSp1, iSp2,&
+              & this%gammaDamping)
+          this%hfdGammaAtDamping(iSp1, iSp2) = getdAnalyticalHfGammaDeriv(this, iSp1,&
+              & iSp2, this%gammaDamping)
+          this%hfddGammaAtDamping(iSp1, iSp2) = getddNumericalHartreeFockGammaDeriv(this, iSp1,&
+              & iSp2, this%gammaDamping, 1e-08_dp)
         end do
       end do
     end if
@@ -365,10 +383,16 @@ contains
     this%coords(:,:) = 0.0_dp
     allocate(this%rCoords(3, nAtom))
     this%rCoords(:,:) = 0.0_dp
+
     allocate(this%lrGammaEval0(nAtom, nAtom))
     this%lrGammaEval0(:,:) = 0.0_dp
+    allocate(this%lrdGammaEval0(nAtom, nAtom, 3))
+    this%lrdGammaEval0(:,:,:) = 0.0_dp
+
     allocate(this%hfGammaEval0(nAtom, nAtom))
     this%hfGammaEval0(:,:) = 0.0_dp
+    allocate(this%hfdGammaEval0(nAtom, nAtom, 3))
+    this%hfdGammaEval0(:,:,:) = 0.0_dp
 
     ! Check for current restrictions
     if (this%tSpin .and. this%rsAlg == rangeSepTypes%threshold) then
@@ -566,8 +590,50 @@ contains
 
 
   !> Updates the rangeSep module on coordinate change.
-  subroutine updateCoords(this, env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
-      & latVecs, isPeriodic)
+  subroutine updateCoords_cluster(this, rCoords)
+
+    !> class instance
+    class(TRangeSepFunc), intent(inout) :: this
+
+    !> Atomic coordinates in absolute units
+    real(dp), intent(in) :: rCoords(:,:)
+
+    !! Indices of interacting atoms in central cell, as well as their global species index
+    integer :: iAtom1, iAtom2, iSp1, iSp2
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    !! Distance between two interacting atoms
+    real(dp) :: dist
+
+    this%rCoords(:,:) = rCoords
+    nAtom0 = size(this%species0)
+
+    do iAtom1 = 1, nAtom0
+      do iAtom2 = 1, iAtom1
+        iSp1 = this%species0(iAtom1)
+        iSp2 = this%species0(iAtom2)
+        dist = norm2(this%coords(:, iAtom1) - this%coords(:, iAtom2))
+        this%lrGammaEval0(iAtom1, iAtom2) = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega,&
+            & dist)
+        this%lrGammaEval0(iAtom2, iAtom1) = this%lrGammaEval0(iAtom1, iAtom2)
+      end do
+    end do
+
+    if (this%tScreeningInited) then
+      this%hPrev(:,:) = 0.0_dp
+      this%dRhoPrev(:,:) = 0.0_dp
+      this%lrEnergy = 0.0_dp
+      this%hfEnergy = 0.0_dp
+    end if
+
+  end subroutine updateCoords_cluster
+
+
+  !> Updates the rangeSep module on coordinate change.
+  subroutine updateCoords_gamma(this, env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
+      & latVecs, recVecs2p)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -588,46 +654,33 @@ contains
     type(TOrbitals), intent(in) :: orb
 
     !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in), optional :: latVecs(:,:)
+    real(dp), intent(in) :: latVecs(:,:)
 
-    !> True, if system has periodic boundary conditions
-    logical, intent(in), optional :: isPeriodic
+    !> Reciprocal lattice vectors in units of 2pi
+    real(dp), intent(in) :: recVecs2p(:,:)
 
-    !> True, if system has periodic boundary conditions (default: .false.)
-    logical :: tPeriodic
+    !! Translation vectors to lattice cells in units of lattice constants
+    real(dp), allocatable :: cellVecsG(:,:)
+
+    !! Translation vectors to lattice cells in absolute units
+    real(dp), allocatable :: rCellVecsG(:,:)
 
     !! Number of atoms in central cell
     integer :: nAtom0
 
     !! Indices of interacting atoms in central cell, as well as their global species index
-    integer :: iAtom1, iAtom2, iSp1, iSp2
-
-    !! Distance between two interacting atoms
-    real(dp) :: dist
-
-    !! Auxiliary variable
-    integer :: ii
-
-    if (present(isPeriodic)) then
-      tPeriodic = isPeriodic
-    else
-      tPeriodic = .false.
-    end if
+    integer :: iAtM, iAtN, iSpM, iSpN
 
     ! range-separated type is initialized with nAtom0 coordinates, therefore re-allocate for
     ! periodic systems, where images beyond the central cell are accounted for
-    if (tPeriodic) then
-      if (allocated(this%coords)) deallocate(this%coords)
-      if (allocated(this%rCoords)) deallocate(this%rCoords)
-      this%rCoords = symNeighbourList%coord
-      allocate(this%coords(size(this%rCoords, dim=1), size(this%rCoords, dim=2)))
-    else
-      this%rCoords(:,:) = symNeighbourList%coord
-    end if
+    if (allocated(this%coords)) deallocate(this%coords)
+    if (allocated(this%rCoords)) deallocate(this%rCoords)
+    this%rCoords = symNeighbourList%coord
+    allocate(this%coords(size(this%rCoords, dim=1), size(this%rCoords, dim=2)))
 
     ! Calculate neighbour list coordinates in relative units
     this%coords(:,:) = this%rCoords
-    if (present(latVecs)) call cart2frac(this%coords, latVecs)
+    call cart2frac(this%coords, latVecs)
 
     ! re-allocate sparse overlap for symmetric neighbour list
     if (allocated(this%overSym)) deallocate(this%overSym)
@@ -636,37 +689,44 @@ contains
     ! get number of atoms in central cell
     nAtom0 = size(this%species0)
 
-    if (.not. tPeriodic) then
+    ! get all cell translations within given cutoff
+    call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
 
-      if (this%tLc .or. this%tCam) then
-        do iAtom1 = 1, nAtom0
-          do iAtom2 = 1, iAtom1
-            iSp1 = this%species0(iAtom1)
-            iSp2 = this%species0(iAtom2)
-            dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
-            this%lrGammaEval0(iAtom1, iAtom2) = getAnalyticalGammaValue(this, iSp1, iSp2,&
-                & this%omega, dist)
-            this%lrGammaEval0(iAtom2, iAtom1) = this%lrGammaEval0(iAtom1, iAtom2)
-          end do
+    if (this%tLc .or. this%tCam) then
+      do iAtM = 1, nAtom0
+        iSpM = this%species0(iAtM)
+        do iAtN = 1, nAtom0
+          iSpN = this%species0(iAtN)
+          this%lrGammaEval0(iAtM, iAtN) = getLrGammaGSum(this, iAtM, iAtN, iSpM, iSpN,&
+              & rCellVecsG)
+          this%lrGammaEval0(iAtN, iAtM) = getLrGammaGSum(this, iAtN, iAtM, iSpN, iSpM,&
+              & rCellVecsG)
+          this%lrdGammaEval0(iAtM, iAtN, :) = getLrGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN,&
+              & rCellVecsG)
+          this%lrdGammaEval0(iAtN, iAtM, :) = getLrGammaPrimeGSum(this, iAtN, iAtM, iSpN, iSpM,&
+              & rCellVecsG)
         end do
-      end if
-
-      if (this%tHyb .or. this%tCam) then
-        do iAtom1 = 1, nAtom0
-          do iAtom2 = 1, iAtom1
-            iSp1 = this%species0(iAtom1)
-            iSp2 = this%species0(iAtom2)
-            dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
-            this%hfGammaEval0(iAtom1, iAtom2) = getAnalyticalHartreeFockGammaValue(this, iSp1,&
-                & iSp2, dist)
-            this%hfGammaEval0(iAtom2, iAtom1) = this%hfGammaEval0(iAtom1, iAtom2)
-          end do
-        end do
-      end if
-
+      end do
     end if
 
-    ! build full, sparse overlap
+    if (this%tHyb .or. this%tCam) then
+      do iAtM = 1, nAtom0
+        iSpM = this%species0(iAtM)
+        do iAtN = 1, nAtom0
+          iSpN = this%species0(iAtN)
+          this%hfGammaEval0(iAtM, iAtN) = getHfGammaGSum(this, iAtM, iAtN, iSpM, iSpN,&
+              & rCellVecsG)
+          this%hfGammaEval0(iAtN, iAtM) = getHfGammaGSum(this, iAtN, iAtM, iSpN, iSpM,&
+              & rCellVecsG)
+          this%hfdGammaEval0(iAtM, iAtN, :) = getHfGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN,&
+              & rCellVecsG)
+          this%hfdGammaEval0(iAtN, iAtM, :) = getHfGammaPrimeGSum(this, iAtN, iAtM, iSpN, iSpM,&
+              & rCellVecsG)
+        end do
+      end do
+    end if
+
+    ! build symmetric, sparse overlap
     call buildS(env, this%overSym, skOverCont, this%rCoords, nNeighbourCamSym,&
         & symNeighbourList%neighbourList%iNeighbour, symNeighbourList%species,&
         & symNeighbourList%iPair, orb)
@@ -678,7 +738,165 @@ contains
       this%hfEnergy = 0.0_dp
     end if
 
-  end subroutine updateCoords
+  end subroutine updateCoords_gamma
+
+
+  ! !> Updates the rangeSep module on coordinate change.
+  ! subroutine updateCoords(this, env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
+  !     & latVecs, isPeriodic)
+
+  !   !> Class instance
+  !   class(TRangeSepFunc), intent(inout) :: this
+
+  !   !> Environment settings
+  !   type(TEnvironment), intent(in) :: env
+
+  !   !> List of neighbours for each atom (symmetric version)
+  !   type(TSymNeighbourList), intent(in) :: symNeighbourList
+
+  !   !> Symmetric neighbour list version of nNeighbourCam
+  !   integer, intent(in) :: nNeighbourCamSym(:)
+
+  !   !> Sparse overlap part
+  !   type(TSlakoCont), intent(in) :: skOverCont
+
+  !   !> Orbital information
+  !   type(TOrbitals), intent(in) :: orb
+
+  !   !> Lattice vectors of (periodic) geometry
+  !   real(dp), intent(in), optional :: latVecs(:,:)
+
+  !   !> True, if system has periodic boundary conditions
+  !   logical, intent(in), optional :: isPeriodic
+
+  !   !> True, if system has periodic boundary conditions (default: .false.)
+  !   logical :: tPeriodic
+
+  !   !! Number of atoms in central cell
+  !   integer :: nAtom0
+
+  !   !! Indices of interacting atoms in central cell, as well as their global species index
+  !   integer :: iAtom1, iAtom2, iSp1, iSp2
+
+  !   !! Indices for tabulating Gamma integrals in Gamma-only cases
+  !   integer :: iAtA, iAtM, iAtAfold, iNeighM, iSpA, iSpM
+
+  !   !! Distance between two interacting atoms
+  !   real(dp) :: dist
+
+  !   !! Auxiliary variable
+  !   integer :: ii
+
+  !   if (present(isPeriodic)) then
+  !     tPeriodic = isPeriodic
+  !   else
+  !     tPeriodic = .false.
+  !   end if
+
+  !   ! range-separated type is initialized with nAtom0 coordinates, therefore re-allocate for
+  !   ! periodic systems, where images beyond the central cell are accounted for
+  !   if (tPeriodic) then
+  !     if (allocated(this%coords)) deallocate(this%coords)
+  !     if (allocated(this%rCoords)) deallocate(this%rCoords)
+  !     this%rCoords = symNeighbourList%coord
+  !     allocate(this%coords(size(this%rCoords, dim=1), size(this%rCoords, dim=2)))
+  !   else
+  !     this%rCoords(:,:) = symNeighbourList%coord
+  !   end if
+
+  !   ! Calculate neighbour list coordinates in relative units
+  !   this%coords(:,:) = this%rCoords
+  !   if (present(latVecs)) call cart2frac(this%coords, latVecs)
+
+  !   ! re-allocate sparse overlap for symmetric neighbour list
+  !   if (allocated(this%overSym)) deallocate(this%overSym)
+  !   allocate(this%overSym(symNeighbourList%sparseSize))
+
+  !   ! get number of atoms in central cell
+  !   nAtom0 = size(this%species0)
+
+  !   if (.not. tPeriodic) then
+
+  !     ! Non-periodic, cluster case
+
+  !     if (this%tLc .or. this%tCam) then
+  !       do iAtom1 = 1, nAtom0
+  !         do iAtom2 = 1, iAtom1
+  !           iSp1 = this%species0(iAtom1)
+  !           iSp2 = this%species0(iAtom2)
+  !           dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
+  !           this%lrGammaEval0(iAtom1, iAtom2) = getAnalyticalLrGammaValue(this, iSp1, iSp2,&
+  !               & this%omega, dist)
+  !           this%lrGammaEval0(iAtom2, iAtom1) = this%lrGammaEval0(iAtom1, iAtom2)
+  !         end do
+  !       end do
+  !     end if
+
+  !     if (this%tHyb .or. this%tCam) then
+  !       do iAtom1 = 1, nAtom0
+  !         do iAtom2 = 1, iAtom1
+  !           iSp1 = this%species0(iAtom1)
+  !           iSp2 = this%species0(iAtom2)
+  !           dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
+  !           this%hfGammaEval0(iAtom1, iAtom2) = getAnalyticalHartreeFockGammaValue(this, iSp1,&
+  !               & iSp2, dist)
+  !           this%hfGammaEval0(iAtom2, iAtom1) = this%hfGammaEval0(iAtom1, iAtom2)
+  !         end do
+  !       end do
+  !     end if
+
+  !   elseif (tPeriodic .and. tRealHS) then
+
+  !     ! Periodic, gamma-only case
+
+  !     ! get all cell translations within given cutoff
+  !     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
+
+  !     if (this%tLc .or. this%tCam) then
+  !       do iAtM = 1, nAtom0
+  !         iSpM = this%species0(iAtM)
+  !         do iNeighM = 0, nNeighbourCamSym(iAtM)
+  !           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
+  !           iAtAfold = symNeighbourList%img2CentCell(iAtA)
+  !           iSpA = this%species0(iAtAfold)
+  !           this%lrGammaEval0(iAtM, iAtAfold) = getLrGammaGSum(this, iAtM, iAtAfold, iSpM, iSpA,&
+  !               & this%rCoords, rCellVecsG)
+  !           this%lrGammaEval0(iAtAfold, iAtM) = getLrGammaGSum(this, iAtAfold, iAtM, iSpA, iSpM,&
+  !               & this%rCoords, rCellVecsG)
+  !         end do
+  !       end do
+  !     end if
+
+  !     if (this%tHyb .or. this%tCam) then
+  !       do iAtM = 1, nAtom0
+  !         iSpM = this%species0(iAtM)
+  !         do iNeighM = 0, nNeighbourCamSym(iAtM)
+  !           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
+  !           iAtAfold = symNeighbourList%img2CentCell(iAtA)
+  !           iSpA = this%species0(iAtAfold)
+  !           ! this%hfGammaEval0(iAtM, iAtAfold) = getHfGammaGSum(this, iAtM, iAtAfold, iSpM, iSpA,&
+  !           !     & this%rCoords, rCellVecsG)
+  !           ! this%hfGammaEval0(iAtM, iAtAfold) = getHfGammaGSum(this, iAtAfold, iAtM, iSpA, iSpM,&
+  !           !     & this%rCoords, rCellVecsG)
+  !         end do
+  !       end do
+  !     end if
+
+  !   end if
+
+  !   ! build full, sparse overlap
+  !   call buildS(env, this%overSym, skOverCont, this%rCoords, nNeighbourCamSym,&
+  !       & symNeighbourList%neighbourList%iNeighbour, symNeighbourList%species,&
+  !       & symNeighbourList%iPair, orb)
+
+  !   if (this%tScreeningInited) then
+  !     this%hPrev(:,:) = 0.0_dp
+  !     this%dRhoPrev(:,:) = 0.0_dp
+  !     this%lrEnergy = 0.0_dp
+  !     this%hfEnergy = 0.0_dp
+  !   end if
+
+  ! end subroutine updateCoords
 
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian
@@ -2232,8 +2450,8 @@ contains
       iSpN = this%species0(iAtN)
       descN = getDescriptor(iAtN, iSquare)
       ! \gamma_{\mu\nu}(\vec{g})
-      gammaMN = getGammaGSum(this, iAtM, iAtN, iSpM, iSpN, this%coords, this%rCoords,&
-          & cellVecsG, rCellVecsG)
+      ! gammaMN = getLrGammaGSum(this, iAtM, iAtN, iSpM, iSpN, this%rCoords, rCellVecsG)
+      gammaMN = this%lrGammaEval0(iAtM, iAtN)
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
         iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
         pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
@@ -2249,8 +2467,8 @@ contains
         nOrbNeigh = descB(iNOrb)
         pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
         ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
-        gammaMB = getGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%coords, this%rCoords,&
-            & cellVecsG, rCellVecsG)
+        ! gammaMB = getLrGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords, rCellVecsG)
+        gammaMB = this%lrGammaEval0(iAtM, iAtBfold)
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
           maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
@@ -2262,11 +2480,11 @@ contains
           ! get continuous 2D copy of Pab density matrix block
           Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
           ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
-          gammaAN = getGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%coords, this%rCoords,&
-              & cellVecsG, rCellVecsG)
+          ! gammaAN = getLrGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%rCoords, rCellVecsG)
+          gammaAN = this%lrGammaEval0(iAtAfold, iAtN)
           ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
-          gammaAB = getGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%coords, this%rCoords,&
-              & cellVecsG, rCellVecsG)
+          ! gammaAB = getLrGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%rCoords, rCellVecsG)
+          gammaAB = this%lrGammaEval0(iAtAfold, iAtBfold)
           ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
           ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
           nOrbAt = descM(iNOrb)
@@ -3035,7 +3253,7 @@ contains
 
 
   !> Returns the numerical second derivative of gamma, by means of a central finite difference.
-  function getddNumericalGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
+  function getddNumericalLrGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3055,14 +3273,41 @@ contains
     !> Numerical gamma derivative
     real(dp) :: ddGamma
 
-    ddGamma = (getdAnalyticalGammaDeriv(this, iSp1, iSp2, dist + delta)&
-        & - getdAnalyticalGammaDeriv(this, iSp1, iSp2, dist - delta)) / (2.0_dp * delta)
+    ddGamma = (getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist + delta)&
+        & - getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist - delta)) / (2.0_dp * delta)
 
-  end function getddNumericalGammaDeriv
+  end function getddNumericalLrGammaDeriv
+
+
+  !> Returns the numerical second derivative of gamma, by means of a central finite difference.
+  function getddNumericalHartreeFockGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
+
+    !> Instance
+    type(TRangeSepFunc), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Delta for finite differences
+    real(dp), intent(in) :: delta
+
+    !> Numerical gamma derivative
+    real(dp) :: ddGamma
+
+    ddGamma = (getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist + delta)&
+        & - getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist - delta)) / (2.0_dp * delta)
+
+  end function getddNumericalHartreeFockGammaDeriv
 
 
   !> Calculates analytical, screened Coulomb, long-range gamma.
-  function getScreenedGammaValue(this, iSp1, iSp2, dist) result(gamma)
+  function getLrScreenedGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3079,14 +3324,14 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
-    gamma = getAnalyticalGammaValue(this, iSp1, iSp2, this%omega + this%auxiliaryScreening, dist)&
-        & - getAnalyticalGammaValue(this, iSp1, iSp2, this%auxiliaryScreening, dist)
+    gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega + this%auxiliaryScreening, dist)&
+        & - getAnalyticalLrGammaValue(this, iSp1, iSp2, this%auxiliaryScreening, dist)
 
-  end function getScreenedGammaValue
+  end function getLrScreenedGammaValue
 
 
   !> Calculates analytical, truncated Coulomb, long-range gamma.
-  function getTruncatedGammaValue(this, iSp1, iSp2, dist, distVec) result(gamma)
+  function getLrTruncatedGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3099,45 +3344,67 @@ contains
 
     !> Distance between atoms
     real(dp), intent(in) :: dist
-
-    !> Distance vector (relative coordinates) between atoms
-    real(dp), intent(in) :: distVec(:)
 
     !> Resulting truncated gamma
     real(dp) :: gamma
 
     if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-      gamma = poly5zero(this%gammaAtDamping(iSp1, iSp2), this%dGammaAtDamping(iSp1, iSp2),&
-          & this%ddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
+      gamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
+          & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
           & tDerivative=.false.)
     elseif (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
-      gamma = getAnalyticalGammaValue(this, iSp1, iSp2, this%omega, dist)
+      gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
     end if
 
-    ! #############hard cutoff#################
     ! if (dist >= this%gammaCutoff) then
     !   gamma = 0.0_dp
     ! else
-    !   gamma = getAnalyticalGammaValue(this, iSp1, iSp2, this%omega, dist)
+    !   gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
     ! end if
 
-    ! ! ##############-0.5 rel 0.5 approach###################
-    ! if (.not. ((all(distVec > -0.5_dp * this%coeffsDiag)&
-    !     & .and. all(distVec < 0.5_dp * this%coeffsDiag))&
-    !     & .or. (all(-distVec > -0.5_dp * this%coeffsDiag)&
-    !     & .and. all(-distVec < 0.5_dp * this%coeffsDiag)))) then
+  end function getLrTruncatedGammaValue
+
+
+  !> Calculates analytical, truncated Coulomb, full-range Hartree-Fock gamma.
+  function getHfTruncatedGammaValue(this, iSp1, iSp2, dist) result(gamma)
+
+    !> Instance
+    type(TRangeSepFunc), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma
+    real(dp) :: gamma
+
+    if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
+      gamma = poly5zero(this%hfGammaAtDamping(iSp1, iSp2), this%hfdGammaAtDamping(iSp1, iSp2),&
+          & this%hfddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
+          & tDerivative=.false.)
+    elseif (dist >= this%gammaCutoff) then
+      gamma = 0.0_dp
+    else
+      gamma = getAnalyticalHartreeFockGammaValue(this, iSp1, iSp2, dist)
+    end if
+
+    ! if (dist >= this%gammaCutoff) then
     !   gamma = 0.0_dp
-    !   return
+    ! else
+    !   gamma = getAnalyticalHartreeFockGammaValue(this, iSp1, iSp2, dist)
     ! end if
-    ! gamma = getAnalyticalGammaValue(this, iSp1, iSp2, this%omega, dist)
 
-  end function getTruncatedGammaValue
+  end function getHfTruncatedGammaValue
 
 
-  function getGammaGSum(this, iAt1, iAt2, iSp1, iSp2, coords, rCoords, cellVecsG, rCellVecsG)&
-      & result(gamma)
+  function getLrGammaGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(gamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3148,14 +3415,39 @@ contains
     !> Index of first and second species
     integer, intent(in) :: iSp1, iSp2
 
-    !> Relative coordinates, including periodic images
-    real(dp), intent(in) :: coords(:,:)
+    !> Vectors to unit cells in absolute units
+    real(dp), intent(in) :: rCellVecsG(:,:)
 
-    !> Absolute coordinates, including periodic images
-    real(dp), intent(in) :: rCoords(:,:)
+    !> Resulting Gamma, summed up for g-vectors
+    real(dp) :: gamma
 
-    !> Vectors to unit cells in relative units
-    real(dp), intent(in) :: cellVecsG(:,:)
+    !! Distance between the two atoms
+    real(dp) :: dist
+
+    !! Index of real-space \vec{g} summation
+    integer :: iG
+
+    gamma = 0.0_dp
+
+    loopG: do iG = 1, size(rCellVecsG, dim=2)
+      dist = norm2(this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG)))
+      gamma = gamma + getLrTruncatedGammaValue(this, iSp1, iSp2, dist)
+      ! gamma = gamma + getLrScreenedGammaValue(this, iSp1, iSp2, dist)
+    end do loopG
+
+  end function getLrGammaGSum
+
+
+  function getHfGammaGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(gamma)
+
+    !> Instance
+    type(TRangeSepFunc), intent(in) :: this
+
+    !> Index of first and second atom
+    integer, intent(in) :: iAt1, iAt2
+
+    !> Index of first and second species
+    integer, intent(in) :: iSp1, iSp2
 
     !> Vectors to unit cells in absolute units
     real(dp), intent(in) :: rCellVecsG(:,:)
@@ -3166,22 +3458,18 @@ contains
     !! Distance between the two atoms
     real(dp) :: dist
 
-    !> Distance vector (relative coordinates) between atoms
-    real(dp) :: distVec(3)
-
     !! Index of real-space \vec{g} summation
     integer :: iG
 
     gamma = 0.0_dp
 
     loopG: do iG = 1, size(rCellVecsG, dim=2)
-      dist = norm2(rCoords(:, iAt1) - (rCoords(:, iAt2) + rCellVecsG(:, iG)))
-      distVec(:) = coords(:, iAt1) - (coords(:, iAt2) + cellVecsG(:, iG))
-      gamma = gamma + getTruncatedGammaValue(this, iSp1, iSp2, dist, distVec)
-      ! gamma = gamma + getScreenedGammaValue(this, iSp1, iSp2, dist)
+      dist = norm2(this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG)))
+      gamma = gamma + getHfTruncatedGammaValue(this, iSp1, iSp2, dist)
+      ! gamma = gamma + getHfScreenedGammaValue(this, iSp1, iSp2, dist)
     end do loopG
 
-  end function getGammaGSum
+  end function getHfGammaGSum
 
 
   function getGammaGResolved(this, iAt1, iAt2, iSp1, iSp2, coords, rCoords, cellVecsG, rCellVecsG,&
@@ -3237,15 +3525,15 @@ contains
       rTotshift(:) = rCellVecsG(:, iG) + rShift
       dist = norm2(rCoords(:, iAt1) - (rCoords(:, iAt2) + rTotshift))
       distVec(:) = coords(:, iAt1) - (coords(:, iAt2) + totshift)
-      gammas(iG) = getTruncatedGammaValue(this, iSp1, iSp2, dist, distVec)
-      ! gammas(iG) = getScreenedGammaValue(this, iSp1, iSp2, dist)
+      gammas(iG) = getLrTruncatedGammaValue(this, iSp1, iSp2, dist)
+      ! gammas(iG) = getLrScreenedGammaValue(this, iSp1, iSp2, dist)
     end do loopG
 
   end function getGammaGResolved
 
 
   !> Calculates analytical, truncated Coulomb, long-range gamma derivative.
-  function getTruncatedGammaPrimeValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getTruncatedLrGammaPrimeValue(this, iSp1, iSp2, dist) result(dgamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3263,19 +3551,50 @@ contains
     real(dp) :: dgamma
 
     if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-      dgamma = poly5zero(this%gammaAtDamping(iSp1, iSp2), this%dGammaAtDamping(iSp1, iSp2),&
-          & this%ddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
+      dgamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
+          & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
           & tDerivative=.true.)
     elseif (dist >= this%gammaCutoff) then
       dgamma = 0.0_dp
     else
-      dgamma = getdAnalyticalGammaDeriv(this, iSp1, iSp2, dist)
+      dgamma = getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist)
     end if
 
-  end function getTruncatedGammaPrimeValue
+  end function getTruncatedLrGammaPrimeValue
 
 
-  function getGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCoords, rCellVecsG) result(dgamma)
+  !> Calculates analytical, truncated Coulomb, long-range gamma derivative.
+  function getTruncatedHfGammaPrimeValue(this, iSp1, iSp2, dist) result(dgamma)
+
+    !> Instance
+    type(TRangeSepFunc), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma derivative (1st)
+    real(dp) :: dgamma
+
+    if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
+      dgamma = poly5zero(this%hfGammaAtDamping(iSp1, iSp2), this%hfdGammaAtDamping(iSp1, iSp2),&
+          & this%hfddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
+          & tDerivative=.true.)
+    elseif (dist >= this%gammaCutoff) then
+      dgamma = 0.0_dp
+    else
+      dgamma = getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist)
+    end if
+
+  end function getTruncatedHfGammaPrimeValue
+
+
+  function getLrGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3285,9 +3604,6 @@ contains
 
     !> Index of first and second species
     integer, intent(in) :: iSp1, iSp2
-
-    !> Coordinates, including periodic images (absolute units)
-    real(dp), intent(in) :: rCoords(:,:)
 
     !> Vectors to unit cells in absolute units
     real(dp), intent(in) :: rCellVecsG(:,:)
@@ -3307,17 +3623,55 @@ contains
     dgamma(:) = 0.0_dp
 
     loopG: do iG = 1, size(rCellVecsG, dim=2)
-      distVect(:) = rCoords(:, iAt1) - (rCoords(:, iAt2) + rCellVecsG(:, iG))
+      distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
       dist = norm2(distVect)
       distVect(:) = distVect / dist
-      dgamma(:) = dgamma + distVect * getTruncatedGammaPrimeValue(this, iSp1, iSp2, dist)
+      dgamma(:) = dgamma + distVect * getTruncatedLrGammaPrimeValue(this, iSp1, iSp2, dist)
     end do loopG
 
-  end function getGammaPrimeGSum
+  end function getLrGammaPrimeGSum
+
+
+  function getHfGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgamma)
+
+    !> Instance
+    type(TRangeSepFunc), intent(in) :: this
+
+    !> Index of first and second atom
+    integer, intent(in) :: iAt1, iAt2
+
+    !> Index of first and second species
+    integer, intent(in) :: iSp1, iSp2
+
+    !> Vectors to unit cells in absolute units
+    real(dp), intent(in) :: rCellVecsG(:,:)
+
+    !> Resulting Gamma derivative (1st), summed up for g-vectors
+    real(dp) :: dgamma(3)
+
+    !! Temporary distance vector
+    real(dp) :: distVect(3)
+
+    !! Distance between the two atoms
+    real(dp) :: dist
+
+    !! Index of real-space \vec{g} summation
+    integer :: iG
+
+    dgamma(:) = 0.0_dp
+
+    loopG: do iG = 1, size(rCellVecsG, dim=2)
+      distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
+      dist = norm2(distVect)
+      distVect(:) = distVect / dist
+      dgamma(:) = dgamma + distVect * getTruncatedHfGammaPrimeValue(this, iSp1, iSp2, dist)
+    end do loopG
+
+  end function getHfGammaPrimeGSum
 
 
   !> Calculates analytical long-range gamma.
-  function getAnalyticalGammaValue(this, Sp1, Sp2, omega, dist) result(gamma)
+  function getAnalyticalLrGammaValue(this, Sp1, Sp2, omega, dist) result(gamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3384,7 +3738,7 @@ contains
       end if
     end if
 
-  end function getAnalyticalGammaValue
+  end function getAnalyticalLrGammaValue
 
 
   !> Returns the subexpression for the evaluation of the off-site Y-Gamma-integral.
@@ -3420,7 +3774,7 @@ contains
 
 
   !> Derivative of analytical long-range Gamma
-  function getdAnalyticalGammaDeriv(this, iSp1, iSp2, dist) result(dAnalyticalGammaDeriv)
+  function getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist) result(dAnalyticalGammaDeriv)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3487,7 +3841,7 @@ contains
       end if
     end if
 
-  end function getdAnalyticalGammaDeriv
+  end function getdAnalyticalLrGammaDeriv
 
 
   !> Returns the derivative of the subexpression for the evaluation of the off-site
@@ -3558,7 +3912,7 @@ contains
     vect(:) = coords0(:, iAtom1) - coords0(:, iAtom2)
     dist = sqrt(sum(vect**2))
     vect(:) = vect / dist
-    grad(:) = vect * getdAnalyticalGammaDeriv(this, iSp1, iSp2, dist)
+    grad(:) = vect * getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist)
 
   end subroutine getGammaPrimeValue_cluster
 
@@ -3600,7 +3954,7 @@ contains
     vect(:) = coords(:, iAtom1) - coords(:, iAtom2)
     dist = sqrt(sum(vect**2))
     vect(:) = vect / dist
-    grad(:) = vect * getdAnalyticalGammaDeriv(this, iSp1, iSp2, dist)
+    grad(:) = vect * getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist)
 
   end subroutine getGammaPrimeValue_periodic
 
@@ -4253,9 +4607,6 @@ contains
     !! Product dPab * dPmn * gammaTot
     real(dp) :: dPabdPmnGammaTot
 
-    !! Temporary gradient storage
-    real(dp) :: tmpGradients1(3)
-
     !! Composite index iAtM/iAtN
     integer :: ii, iAtMN(2, size(this%species0)**2)
 
@@ -4288,139 +4639,137 @@ contains
 
     loopK: do iAtK = 1, nAtom0
       iSpK = this%species0(iAtK)
-      loopM: do iAtM = 1, nAtom0
+      loopMN: do ii = 1, nAtom0**2
+        iAtM = iAtMN(1, ii)
+        iAtN = iAtMN(2, ii)
         iSpM = this%species0(iAtM)
         descM = getDescriptor(iAtM, iSquare)
-        loopN: do iAtN = 1, nAtom0
-          iSpN = this%species0(iAtN)
-          descN = getDescriptor(iAtN, iSquare)
-          ! \gamma_{\mu\nu}(\vec{g})
-          gammaMN = getGammaGSum(this, iAtM, iAtN, iSpM, iSpN, this%coords, this%rCoords,&
-              & cellVecsG, rCellVecsG)
-          dGammaMN(:) = 0.0_dp
-          if (iAtK == iAtM .and. iAtM /= iAtN) then
-            dGammaMN(:) = getGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN, this%rCoords, rCellVecsG)
-          elseif (iAtK == iAtN .and. iAtM /= iAtN) then
-            dGammaMN(:) = -getGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN, this%rCoords, rCellVecsG)
+        iSpN = this%species0(iAtN)
+        descN = getDescriptor(iAtN, iSquare)
+        ! \gamma_{\mu\nu}(\vec{g})
+        ! gammaMN = getLrGammaGSum(this, iAtM, iAtN, iSpM, iSpN, this%rCoords, rCellVecsG)
+        gammaMN = this%lrGammaEval0(iAtM, iAtN)
+        dGammaMN(:) = 0.0_dp
+        if (iAtK == iAtM .and. iAtM /= iAtN) then
+          ! dGammaMN(:) = getLrGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN, rCellVecsG)
+          dGammaMN(:) = this%lrdGammaEval0(iAtM, iAtN, :)
+        elseif (iAtK == iAtN .and. iAtM /= iAtN) then
+          ! dGammaMN(:) = -getLrGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN, rCellVecsG)
+          dGammaMN(:) = -this%lrdGammaEval0(iAtM, iAtN, :)
+        end if
+        Pmn = tmpDeltaRhoSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)
+        loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
+          iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
+          iAtBfold = symNeighbourList%img2CentCell(iAtB)
+          iSpB = this%species0(iAtBfold)
+          descB = getDescriptor(iAtBfold, iSquare)
+          ! get 2D pointer to Sbn overlap block
+          ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
+          nOrbAt = descN(iNOrb)
+          nOrbNeigh = descB(iNOrb)
+          pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+          ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
+          ! gammaMB = getLrGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords, rCellVecsG)
+          gammaMB = this%lrGammaEval0(iAtM, iAtBfold)
+          dGammaMB(:) = 0.0_dp
+          if (iAtK == iAtM .and. iAtM /= iAtBfold) then
+            ! dGammaMB(:) = getLrGammaPrimeGSum(this, iAtM, iAtBfold, iSpM, iSpB, rCellVecsG)
+            dGammaMB(:) = this%lrdGammaEval0(iAtM, iAtBfold, :)
+          elseif (iAtK == iAtBfold .and. iAtM /= iAtBfold) then
+            ! dGammaMB(:) = -getLrGammaPrimeGSum(this, iAtM, iAtBfold, iSpM, iSpB, rCellVecsG)
+            dGammaMB(:) = -this%lrdGammaEval0(iAtM, iAtBfold, :)
           end if
-          Pmn = tmpDeltaRhoSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)
-          loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
-            iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
-            iAtBfold = symNeighbourList%img2CentCell(iAtB)
-            iSpB = this%species0(iAtBfold)
-            descB = getDescriptor(iAtBfold, iSquare)
-            ! get 2D pointer to Sbn overlap block
-            ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
-            nOrbAt = descN(iNOrb)
-            nOrbNeigh = descB(iNOrb)
-            pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-            ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
-            gammaMB = getGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%coords, this%rCoords,&
-                & cellVecsG, rCellVecsG)
-            dGammaMB(:) = 0.0_dp
-            if (iAtK == iAtM .and. iAtM /= iAtBfold) then
-              dGammaMB(:) = getGammaPrimeGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords,&
-                  & rCellVecsG)
-            elseif (iAtK == iAtBfold .and. iAtM /= iAtBfold) then
-              dGammaMB(:) = -getGammaPrimeGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords,&
-                  & rCellVecsG)
+          SbnPrimeKequalsB(:,:,:) = 0.0_dp
+          SbnPrimeKequalsN(:,:,:) = 0.0_dp
+          if (iAtK == iAtBfold .and. iAtN /= iAtBfold) then
+            call derivator%getFirstDeriv(SbnPrimeKequalsB, skOverCont, this%rCoords,&
+                & symNeighbourList%species, iAtB, iAtN, orb)
+          elseif (iAtK == iAtN .and. iAtN /= iAtBfold) then
+            call derivator%getFirstDeriv(SbnPrimeKequalsN, skOverCont, this%rCoords,&
+                & symNeighbourList%species, iAtN, iAtB, orb)
+          end if
+          loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
+            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
+            iAtAfold = symNeighbourList%img2CentCell(iAtA)
+            iSpA = this%species0(iAtAfold)
+            descA = getDescriptor(iAtAfold, iSquare)
+            ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
+            ! gammaAN = getLrGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%rCoords, rCellVecsG)
+            gammaAN = this%lrGammaEval0(iAtAfold, iAtN)
+            dGammaAN(:) = 0.0_dp
+            if (iAtK == iAtAfold .and. iAtAfold /= iAtN) then
+              ! dGammaAN(:) = getLrGammaPrimeGSum(this, iAtAfold, iAtN, iSpA, iSpN, rCellVecsG)
+              dGammaAN(:) = this%lrdGammaEval0(iAtAfold, iAtN, :)
+            elseif (iAtK == iAtN .and. iAtAfold /= iAtN) then
+              ! dGammaAN(:) = -getLrGammaPrimeGSum(this, iAtAfold, iAtN, iSpA, iSpN, rCellVecsG)
+              dGammaAN(:) = -this%lrdGammaEval0(iAtAfold, iAtN, :)
             end if
-            SbnPrimeKequalsB(:,:,:) = 0.0_dp
-            SbnPrimeKequalsN(:,:,:) = 0.0_dp
-            if (iAtK == iAtBfold .and. iAtN /= iAtBfold) then
-              call derivator%getFirstDeriv(SbnPrimeKequalsB, skOverCont, this%rCoords,&
-                  & symNeighbourList%species, iAtB, iAtN, orb)
-            elseif (iAtK == iAtN .and. iAtN /= iAtBfold) then
-              call derivator%getFirstDeriv(SbnPrimeKequalsN, skOverCont, this%rCoords,&
-                  & symNeighbourList%species, iAtN, iAtB, orb)
+            ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
+            ! gammaAB = getLrGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%rCoords, rCellVecsG)
+            gammaAB = this%lrGammaEval0(iAtAfold, iAtBfold)
+            dGammaAB(:) = 0.0_dp
+            if (iAtK == iAtAfold .and. iAtAfold /= iAtBfold) then
+              ! dGammaAB(:) = getLrGammaPrimeGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, rCellVecsG)
+              dGammaAB(:) = this%lrdGammaEval0(iAtAfold, iAtBfold, :)
+            elseif (iAtK == iAtBfold .and. iAtAfold /= iAtBfold) then
+              ! dGammaAB(:) = -getLrGammaPrimeGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, rCellVecsG)
+              dGammaAB(:) = -this%lrdGammaEval0(iAtAfold, iAtBfold, :)
             end if
-            loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
-              iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
-              iAtAfold = symNeighbourList%img2CentCell(iAtA)
-              iSpA = this%species0(iAtAfold)
-              descA = getDescriptor(iAtAfold, iSquare)
-              ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
-              gammaAN = getGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%coords, this%rCoords,&
-                  & cellVecsG, rCellVecsG)
-              dGammaAN(:) = 0.0_dp
-              if (iAtK == iAtAfold .and. iAtAfold /= iAtN) then
-                dGammaAN(:) = getGammaPrimeGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%rCoords,&
-                    & rCellVecsG)
-              elseif (iAtK == iAtN .and. iAtAfold /= iAtN) then
-                dGammaAN(:) = -getGammaPrimeGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%rCoords,&
-                    & rCellVecsG)
-              end if
-              ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
-              gammaAB = getGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%coords,&
-                  & this%rCoords, cellVecsG, rCellVecsG)
-              dGammaAB(:) = 0.0_dp
-              if (iAtK == iAtAfold .and. iAtAfold /= iAtBfold) then
-                dGammaAB(:) = getGammaPrimeGSum(this, iAtAfold, iAtBfold, iSpA, iSpB,&
-                    & this%rCoords, rCellVecsG)
-              elseif (iAtK == iAtBfold .and. iAtAfold /= iAtBfold) then
-                dGammaAB(:) = -getGammaPrimeGSum(this, iAtAfold, iAtBfold, iSpA, iSpB,&
-                    & this%rCoords, rCellVecsG)
-              end if
-              ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
-              ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
-              nOrbAt = descM(iNOrb)
-              nOrbNeigh = descA(iNOrb)
-              pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-              ! \transpose{S_{\alpha\mu}(\vec{h})}
-              ! SamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
+            ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
+            ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
+            nOrbAt = descM(iNOrb)
+            nOrbNeigh = descA(iNOrb)
+            pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
 
-              Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :)
+            Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :)
 
-              gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
-              dGammaTot(:) = dGammaMN + dGammaMB + dGammaAN + dGammaAB
+            gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
+            dGammaTot(:) = dGammaMN + dGammaMB + dGammaAN + dGammaAB
 
-              SamPrimeKequalsA(:,:,:) = 0.0_dp
-              SamPrimeKequalsM(:,:,:) = 0.0_dp
-              if (iAtK == iAtAfold .and. iAtAfold /= iAtM) then
-                call derivator%getFirstDeriv(SamPrimeKequalsA, skOverCont, this%rCoords,&
-                    & symNeighbourList%species, iAtA, iAtM, orb)
-              elseif (iAtK == iAtM .and. iAtAfold /= iAtM) then
-                call derivator%getFirstDeriv(SamPrimeKequalsM, skOverCont, this%rCoords,&
-                    & symNeighbourList%species, iAtM, iAtA, orb)
-              end if
+            SamPrimeKequalsA(:,:,:) = 0.0_dp
+            SamPrimeKequalsM(:,:,:) = 0.0_dp
+            if (iAtK == iAtAfold .and. iAtAfold /= iAtM) then
+              call derivator%getFirstDeriv(SamPrimeKequalsA, skOverCont, this%rCoords,&
+                  & symNeighbourList%species, iAtA, iAtM, orb)
+            elseif (iAtK == iAtM .and. iAtAfold /= iAtM) then
+              call derivator%getFirstDeriv(SamPrimeKequalsM, skOverCont, this%rCoords,&
+                  & symNeighbourList%species, iAtM, iAtA, orb)
+            end if
 
-              ! dPabdPmnSamSbn = 0.0_dp
-              ! tmpGradients1(:) = 0.0_dp
-              do mu = 1, descM(iNOrb)
-                do nu = 1, descN(iNOrb)
-                  do iSpin = 1, nSpin
-                    dPmn = Pmn(mu, nu, iSpin)
-                    do alpha = 1, descA(iNOrb)
-                      Sam = pSam(alpha, mu)
-                      do beta = 1, descB(iNOrb)
-                        Sbn = pSbn(beta, nu)
-                        dPab = Pab(alpha, beta, iSpin)
-                        dPabdPmnSamSbn = Sam * Sbn * dPab * dPmn
+            do mu = 1, descM(iNOrb)
+              do nu = 1, descN(iNOrb)
+                do iSpin = 1, nSpin
+                  dPmn = Pmn(mu, nu, iSpin)
+                  do alpha = 1, descA(iNOrb)
+                    Sam = pSam(alpha, mu)
+                    do beta = 1, descB(iNOrb)
+                      Sbn = pSbn(beta, nu)
+                      dPab = Pab(alpha, beta, iSpin)
+                      dPabdPmnSamSbn = Sam * Sbn * dPab * dPmn
 
-                        dPabdPmnGammaTot = dPab * dPmn * gammaTot
+                      dPabdPmnGammaTot = dPab * dPmn * gammaTot
 
-                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                            & + dPabdPmnGammaTot * Sam * SbnPrimeKequalsB(nu, beta, :)
-                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                            & + dPabdPmnGammaTot * Sam * SbnPrimeKequalsN(beta, nu, :)
+                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                          & + dPabdPmnGammaTot * Sam * SbnPrimeKequalsB(nu, beta, :)
+                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                          & + dPabdPmnGammaTot * Sam * SbnPrimeKequalsN(beta, nu, :)
 
-                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                            & + dPabdPmnGammaTot * Sbn * SamPrimeKequalsA(mu, alpha, :)
-                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                            & + dPabdPmnGammaTot * Sbn * SamPrimeKequalsM(alpha, mu, :)
+                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                          & + dPabdPmnGammaTot * Sbn * SamPrimeKequalsA(mu, alpha, :)
+                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                          & + dPabdPmnGammaTot * Sbn * SamPrimeKequalsM(alpha, mu, :)
 
-                        tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                            & + dPabdPmnSamSbn * dGammaTot
-                      end do
+                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                          & + dPabdPmnSamSbn * dGammaTot
                     end do
                   end do
                 end do
               end do
+            end do
 
-            end do loopA
-          end do loopB
-        end do loopN
-      end do loopM
+          end do loopA
+        end do loopB
+      end do loopMN
     end do loopK
 
     if (this%tREKS) then
@@ -4428,9 +4777,6 @@ contains
     else
       gradients(:,:) = gradients - 0.0625_dp * this%camBeta * nSpin * tmpGradients
     end if
-
-    print *, 'tmpGradients'
-    print '(3F25.16)', tmpGradients
 
   end subroutine addLrGradients_gamma
 
@@ -4892,7 +5238,7 @@ contains
 
 
   !> Derivative of analytical full-range Hartree-Fock gamma.
-  function getdAnalyticalHartreeFockGammaDeriv(this, Sp1, Sp2, dist) result(dGamma)
+  function getdAnalyticalHfGammaDeriv(this, Sp1, Sp2, dist) result(dGamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -4942,7 +5288,7 @@ contains
       end if
     end if
 
-  end function getdAnalyticalHartreeFockGammaDeriv
+  end function getdAnalyticalHfGammaDeriv
 
 
   !> !> Returns the derivative of full-range Hartree-Fock gamma for iAtom1, iAtom2
@@ -4980,7 +5326,7 @@ contains
     vect(:) = coords0(:, iAtom1) - coords0(:, iAtom2)
     dist = sqrt(sum(vect**2))
     vect(:) = vect / dist
-    grad(:) = vect * getdAnalyticalHartreeFockGammaDeriv(this, iSp1, iSp2, dist)
+    grad(:) = vect * getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist)
 
   end subroutine getHartreeFockGammaPrimeValue_cluster
 
@@ -5024,7 +5370,7 @@ contains
     vect(:) = coords(:, iAtom1) - coords(:, iAtom2)
     dist = sqrt(sum(vect**2))
     vect(:) = vect / dist
-    grad(:) = vect * getdAnalyticalHartreeFockGammaDeriv(this, iSp1, iSp2, dist)
+    grad(:) = vect * getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist)
 
   end subroutine getHartreeFockGammaPrimeValue_periodic
 

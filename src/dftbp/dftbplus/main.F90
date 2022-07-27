@@ -706,8 +706,8 @@ contains
 
     if (this%tCoordsChanged) then
       call handleCoordinateChange(env, this%boundaryCond, this%coord0, this%latVec, this%invLatVec,&
-          & this%species0, this%cutOff, this%orb, this%tPeriodic, this%tHelical, this%scc,&
-          & this%tblite, this%repulsive, this%dispersion,this%solvation, this%thirdOrd,&
+          & this%species0, this%cutOff, this%orb, this%tPeriodic, this%tRealHS, this%tHelical,&
+          & this%scc, this%tblite, this%repulsive, this%dispersion,this%solvation, this%thirdOrd,&
           & this%rangeSep, this%reks, this%img2CentCell, this%iCellVec, this%neighbourList,&
           & this%symNeighbourList, this%nAllAtom, this%coord0Fold, this%coord,this%species,&
           & this%rCellVec, this%nNeighbourSk, this%nNeighbourCam, this%nNeighbourCamSym, this%ints,&
@@ -1895,10 +1895,11 @@ contains
 
   !> Does the operations that are necessary after atomic coordinates change
   subroutine handleCoordinateChange(env, boundaryCond, coord0, latVec, invLatVec, species0, cutOff,&
-      & orb, tPeriodic, tHelical, sccCalc, tblite, repulsive, dispersion, solvation, thirdOrd,&
-      & rangeSep, reks, img2CentCell, iCellVec, neighbourList, symNeighbourList, nAllAtom,&
-      & coord0Fold, coord, species, rCellVec, nNeighbourSK, nNeighbourCam, nNeighbourCamSym, ints,&
-      & H0, rhoPrim, iRhoPrim, ERhoPrim, iSparseStart, cm5Cont, skOverCont, errStatus)
+      & orb, tPeriodic, tRealHS, tHelical, sccCalc, tblite, repulsive, dispersion, solvation,&
+      & thirdOrd, rangeSep, reks, img2CentCell, iCellVec, neighbourList, symNeighbourList,&
+      & nAllAtom, coord0Fold, coord, species, rCellVec, nNeighbourSK, nNeighbourCam,&
+      & nNeighbourCamSym, ints, H0, rhoPrim, iRhoPrim, ERhoPrim, iSparseStart, cm5Cont, skOverCont,&
+      & errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -1926,6 +1927,9 @@ contains
 
     !> Is the geometry periodic
     logical, intent(in) :: tPeriodic
+
+    !> Is the hamiltonian real (no k-points/molecule/gamma point)?
+    logical, intent(in) :: tRealHS
 
     !> Is the geometry helical
     logical, intent(in) :: tHelical
@@ -2080,8 +2084,14 @@ contains
       call thirdOrd%updateCoords(neighbourList, species)
     end if
     if (allocated(rangeSep)) then
-      call rangeSep%updateCoords(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
-          & latVecs=latVec, isPeriodic=tPeriodic)
+      if (.not. tPeriodic) then
+        call rangeSep%updateCoords_cluster(coord)
+      elseif (tPeriodic .and. tRealHS) then
+        call rangeSep%updateCoords_gamma(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
+            & latVec, invLatVec)
+      elseif (tPeriodic .and. (.not. tRealHS)) then
+        ! call rangeSep%updateCoords_kpts()
+      end if
     end if
     if (allocated(cm5Cont)) then
        call cm5Cont%updateCoords(neighbourList, img2CentCell, coord, species)
