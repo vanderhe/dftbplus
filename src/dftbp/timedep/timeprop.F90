@@ -3183,8 +3183,8 @@ contains
     end if
 
     if (this%isRangeSep) then
-      call rangeSep%addCamGradients(derivs, this%derivator, real(deltaRho), skOverCont, coordAll,&
-          & this%speciesAll, orb, iSquare, real(sSqr(:,:,1)), neighbourList%iNeighbour,&
+      call rangeSep%addCamGradients_cluster(derivs, this%derivator, real(deltaRho), skOverCont,&
+          & coordAll, this%speciesAll, orb, iSquare, real(sSqr(:,:,1)), neighbourList%iNeighbour,&
           & nNeighbourSK)
     end if
 

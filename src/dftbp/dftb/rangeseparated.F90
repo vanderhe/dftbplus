@@ -211,8 +211,6 @@ module dftbp_dftb_rangeseparated
     procedure :: addCamHamiltonian_cluster
     procedure :: addCamHamiltonian_gamma
     procedure :: addCamHamiltonian_kpts
-    ! generic :: addCamHamiltonian => addCamHamiltonian_cluster, addCamHamiltonian_gamma,&
-    !     & addCamHamiltonian_kpts
 
     procedure :: addLrHamiltonianMatrixCmplx
 
@@ -220,7 +218,6 @@ module dftbp_dftb_rangeseparated
 
     procedure :: addCamGradients_cluster
     procedure :: addCamGradients_gamma
-    generic :: addCamGradients => addCamGradients_cluster, addCamGradients_gamma
 
     procedure :: getCentralCellSpecies
     procedure :: getLrGammaCluster
@@ -799,9 +796,8 @@ contains
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian
   !! (periodic systems at the gamma point only).
-  subroutine addCamHamiltonian_gamma(this, env, densSqr, squareOver, symNeighbourList, iNeighbour,&
-      & iPair, img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs,&
-      & latVecs, recVecs2p, iSquare, orb, iKS, nKS, HH)
+  subroutine addCamHamiltonian_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym,&
+      & iSquare, orb, iKS, nKS, HH)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -812,42 +808,11 @@ contains
     !> Square (unpacked) density matrix
     real(dp), intent(in) :: densSqr(:,:)
 
-    !> Square real overlap matrix
-    real(dp), intent(in) :: squareOver(:,:)
-
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
 
-    !> Neighbour indices
-    integer, intent(in) :: iNeighbour(0:,:)
-
-    !> iPair Position of each (neighbour, atom) pair in the sparse matrix
-    !> Shape: (0:maxNeighbour, nAtom)
-    integer, intent(in) :: iPair(0:,:)
-
-    !> Map images of atoms to the central cell
-    integer, intent(in) :: img2CentCell(:)
-
-    !> Nr. of neighbours for each atom (non-symmetric version)
-    integer, intent(in) :: nNeighbourCam(:)
-
     !> Nr. of neighbours for each atom (symmetric version)
     integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> Shift vector index for every interacting atom, including periodic images
-    integer, intent(in) :: iCellVec(:)
-
-    !> Vectors to neighboring unit cells in relative units
-    real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Vectors to neighboring unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2pi
-    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -869,9 +834,8 @@ contains
     ! Add long-range contribution if needed.
     ! For pure Hyb, camBeta would be zero anyway, but we want to save as much time as possible.
     if (this%tLc .or. this%tCam) then
-      call addLrHamiltonian_gamma(this, env, densSqr, symNeighbourList, iNeighbour, iPair,&
-          & img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs,&
-          & recVecs2p, iSquare, orb, iKS, nKS, HH)
+      call addLrHamiltonian_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym, iSquare,&
+          & orb, iKS, nKS, HH)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
@@ -1022,9 +986,8 @@ contains
 
 
   !> Interface routine for adding LC range-separated contributions to the Hamiltonian.
-  subroutine addLrHamiltonian_gamma(this, env, densSqr, symNeighbourList, iNeighbour, iPair,&
-      & img2CentCell, nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs,&
-      & recVecs2p, iSquare, orb, iKS, nKS, HH)
+  subroutine addLrHamiltonian_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym,&
+      & iSquare, orb, iKS, nKS, HH)
 
     !> Instance
     type(TRangeSepFunc), intent(inout) :: this
@@ -1038,36 +1001,8 @@ contains
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
 
-    !> Neighbour indices
-    integer, intent(in) :: iNeighbour(0:,:)
-
-    !> iPair Position of each (neighbour, atom) pair in the sparse matrix
-    !> Shape: (0:maxNeighbour, nAtom)
-    integer, intent(in) :: iPair(0:,:)
-
-    !> Map images of atoms to the central cell
-    integer, intent(in) :: img2CentCell(:)
-
-    !> Nr. of neighbours for each atom (non-symmetric version)
-    integer, intent(in) :: nNeighbourCam(:)
-
     !> Nr. of neighbours for each atom (symmetric version)
     integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> Shift vector index for every interacting atom, including periodic images
-    integer, intent(in) :: iCellVec(:)
-
-    !> Vectors to neighboring unit cells in relative units
-    real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Vectors to neighboring unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2pi
-    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -1089,7 +1024,7 @@ contains
       call error('Thresholded algorithm not implemented for periodic systems.')
     case (rangeSepTypes%neighbour)
       call addLrHamiltonianNeighbour_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym,&
-          & iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, iKS, nKS, HH)
+          & iSquare, orb, iKS, nKS, HH)
     case (rangeSepTypes%matrixBased)
       call error('Matrix based algorithm not implemented for periodic systems.')
     end select
@@ -1879,8 +1814,7 @@ contains
 
   !> Updates the Hamiltonian with the range separated contribution.
   subroutine addLrHamiltonianNeighbour_gamma(this, env, deltaRhoSqr, symNeighbourList,&
-      & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, iKS,&
-      & nKS, HSqr)
+      & nNeighbourCamSym, iSquare, orb, iKS, nKS, HSqr)
 
     !> Instance
     type(TRangeSepFunc), intent(inout), target :: this
@@ -1896,21 +1830,6 @@ contains
 
     !> Nr. of neighbours for each atom.
     integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> Shift vector index for every interacting atom, including periodic images
-    integer, intent(in) :: iCellVec(:)
-
-    !> Vectors to neighboring unit cells in relative units
-    real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Vectors to neighboring unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2pi
-    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -1945,22 +1864,13 @@ contains
     type(TRealArray1D), allocatable :: testSquareOver(:)
     type(TIntArray1D), allocatable :: overlapIndices(:)
 
-    !! Number of atoms in central cell
-    integer :: nAtom0
-
-    !! Translation vectors to lattice cells in units of lattice constants
-    real(dp), allocatable :: cellVecsG(:,:)
-
-    !! Vectors to unit cells in absolute units
-    real(dp), allocatable :: rCellVecsG(:,:)
-
-    !! Temporary arrays for gemm operations
+    !! Temporary arrays for matrix-matrix operations
     real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab, pSamT_Pab_pSbn, Pab_Sbn
     real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB, tot
 
-    !! \gamma_{\mu\nu}(\vec{g}), \gamma_{\mu\beta}(\vec{g} - \vec{l}),
-    !! \gamma_{\alpha\nu}(\vec{g} - \vec{h}), \gamma_{\alpha\beta}(\vec{g} - \vec{l} - \vec{h})
-    real(dp) :: gammaMN, gammaMB, gammaAN, gammaAB, gammaTot
+    !! \tilde{\gamma}_{\mu\nu}, \tilde{\gamma}_{\mu\beta},
+    !! \tilde{\gamma}_{\alpha\nu}, \tilde{\gamma}_{\alpha\beta}
+    real(dp) :: gammaMNMB, gammaTot
 
     !! Overlap matrix elements
     real(dp) :: Sam, Sbn
@@ -1973,9 +1883,6 @@ contains
 
     !! Product Sam * dPab * Sbn * gammaTot
     real(dp) :: SamdPabSbnGammaTot
-
-    !! Species of atom where orbitals \alpha, \beta, \mu and \nu are located
-    integer :: iSpA, iSpB, iSpM, iSpN
 
     !! Atom indices (central cell)
     integer :: iAtM, iAtN
@@ -1992,6 +1899,9 @@ contains
     !! Auxiliary variables for setting up 2D pointer to sparse overlap
     integer :: ind, nOrbAt, nOrbNeigh
 
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
     !! Size of square matrices (e.g. Hamiltonian)
     integer :: squareSize
 
@@ -1999,16 +1909,11 @@ contains
     !! max overlap estimates
     real(dp) :: pMax, pMaxSbn, pMaxSbnSam, maxEstimate, pSbnMax, pMaxpSbnMax
 
-    !! Dummy array with zeros
-    real(dp) :: zeros(3)
-
     !! Start and end index for MPI parallelization, if applicable
     integer :: iParallelStart, iParallelEnd
 
     !! Composite index iAtM/iAtN
     integer :: ii, iAtMN(2, size(this%species0)**2)
-
-    zeros(:) = 0.0_dp
 
     squareSize = size(HSqr, dim=1)
     nAtom0 = size(this%species0)
@@ -2091,19 +1996,11 @@ contains
           & = overlapIndices(iAtN)%array(size(overlapIndices(iAtN)%array):1:-1)
     end do
 
-    ! get all cell translations within given cutoff
-    call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
-
     loopMN: do ii = iParallelStart, iParallelEnd
       iAtM = iAtMN(1, ii)
       iAtN = iAtMN(2, ii)
-      iSpM = this%species0(iAtM)
       descM = getDescriptor(iAtM, iSquare)
-      iSpN = this%species0(iAtN)
       descN = getDescriptor(iAtN, iSquare)
-      ! \gamma_{\mu\nu}(\vec{g})
-      ! gammaMN = getLrGammaGSum(this, iAtM, iAtN, iSpM, iSpN, rCellVecsG)
-      gammaMN = this%lrGammaEval0(iAtM, iAtN)
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
         iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
         pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
@@ -2111,39 +2008,31 @@ contains
         if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
         iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
         iAtBfold = symNeighbourList%img2CentCell(iAtB)
-        iSpB = this%species0(iAtBfold)
         descB = getDescriptor(iAtBfold, iSquare)
         ! get 2D pointer to S_{\beta\nu}(\vec{l}) overlap block
         ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
         nOrbAt = descN(iNOrb)
         nOrbNeigh = descB(iNOrb)
         pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-        ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
-        ! gammaMB = getLrGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, rCellVecsG)
-        gammaMB = this%lrGammaEval0(iAtM, iAtBfold)
+        ! \tilde{\gamma}_{\mu\nu} + \tilde{\gamma}_{\mu\beta}
+        gammaMNMB = this%lrGammaEval0(iAtM, iAtN) + this%lrGammaEval0(iAtM, iAtBfold)
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
           maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
           if (maxEstimate < this%pScreeningThreshold) exit loopA
           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
           iAtAfold = symNeighbourList%img2CentCell(iAtA)
-          iSpA = this%species0(iAtAfold)
           descA = getDescriptor(iAtAfold, iSquare)
           ! get continuous 2D copy of Pab density matrix block
           Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
-          ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
-          ! gammaAN = getLrGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, rCellVecsG)
-          gammaAN = this%lrGammaEval0(iAtAfold, iAtN)
-          ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
-          ! gammaAB = getLrGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, rCellVecsG)
-          gammaAB = this%lrGammaEval0(iAtAfold, iAtBfold)
           ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
           ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
           nOrbAt = descM(iNOrb)
           nOrbNeigh = descA(iNOrb)
           pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
 
-          gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
+          gammaTot = gammaMNMB + this%lrGammaEval0(iAtAfold, iAtN)&
+              & + this%lrGammaEval0(iAtAfold, iAtBfold)
 
           do mu = 1, descM(iNOrb)
             do nu = 1, descN(iNOrb)
@@ -2161,7 +2050,6 @@ contains
               end do
             end do
           end do
-
 
           ! \transpose{S_{\alpha\mu}(\vec{-h})}
           ! pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
@@ -3686,9 +3574,8 @@ contains
 
 
   !> Adds CAM gradients due to full-/long-range HF-contributions (Gamma-point version).
-  subroutine addCamGradients_gamma(this, deltaRhoSqr, skOverCont, coords0, symNeighbourList,&
-      & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb,&
-      & derivator, gradients)
+  subroutine addCamGradients_gamma(this, deltaRhoSqr, skOverCont, symNeighbourList,&
+      & nNeighbourCamSym, iSquare, orb, derivator, gradients)
 
     !> Class instance
     class(TRangeSepFunc), intent(in), target :: this
@@ -3696,32 +3583,14 @@ contains
     !> Square (unpacked) delta density matrix
     real(dp), intent(in) :: deltaRhoSqr(:,:,:)
 
-    !> Sparse overlap container
+    !> SK overlap container
     type(TSlakoCont), intent(in) :: skOverCont
 
-    !> Atomic coordinates in central cell
-    real(dp), intent(in) :: coords0(:,:)
-
-    !> list of neighbours for each atom (symmetric version)
+    !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
 
     !> Nr. of neighbours for each atom.
     integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> Shift vector index for every interacting atom, including periodic images
-    integer, intent(in) :: iCellVec(:)
-
-    !> Vectors to neighboring unit cells in relative units
-    real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Vectors to neighboring unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2pi
-    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -3739,7 +3608,7 @@ contains
     ! For pure Hyb, camBeta would be zero anyway, but we want to save as much time as possible.
     if (this%tLc .or. this%tCam) then
       call addLrGradients_gamma(this, deltaRhoSqr, skOverCont, symNeighbourList, nNeighbourCamSym,&
-          & iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, derivator, gradients)
+          & iSquare, orb, derivator, gradients)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
@@ -3938,8 +3807,7 @@ contains
 
   !> Adds gradients due to long-range HF-contribution (Gamma-point version).
   subroutine addLrGradients_gamma(this, deltaRhoSqr, skOverCont, symNeighbourList,&
-      & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb,&
-      & derivator, gradients)
+      & nNeighbourCamSym, iSquare, orb, derivator, gradients)
 
     !> Instance
     type(TRangeSepFunc), intent(in), target :: this
@@ -3955,21 +3823,6 @@ contains
 
     !> Nr. of neighbours for each atom.
     integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> Shift vector index for every interacting atom, including periodic images
-    integer, intent(in) :: iCellVec(:)
-
-    !> Vectors to neighboring unit cells in relative units
-    real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Vectors to neighboring unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2pi
-    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -3988,10 +3841,6 @@ contains
 
     !! Atom blocks from sparse, real-space overlap matrices S_{\alpha\mu}, S_{\beta\nu}
     real(dp), pointer :: pSam(:,:), pSbn(:,:)
-    real(dp), allocatable :: SamT(:,:)
-
-    !! Diatomic block from square (k-space) delta density matrix
-    real(dp), allocatable :: Pab(:,:,:), Pmn(:,:,:)
 
     !! Stores start/end index and number of orbitals of square matrices
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
@@ -4001,12 +3850,6 @@ contains
 
     !! Number of atoms in central cell
     integer :: nAtom0
-
-    !! Translation vectors to lattice cells in units of lattice constants
-    real(dp), allocatable :: cellVecsG(:,:)
-
-    !! Vectors to unit cells in absolute units
-    real(dp), allocatable :: rCellVecsG(:,:)
 
     !! Overlap matrix elements
     real(dp) :: Sam, Sbn
@@ -4018,17 +3861,14 @@ contains
     real(dp), dimension(orb%mOrb, orb%mOrb, 3) :: SbnPrimeKequalsB, SbnPrimeKequalsN
     real(dp), dimension(orb%mOrb, orb%mOrb, 3) :: SamPrimeKequalsA, SamPrimeKequalsM
 
-    !! \gamma_{\mu\nu}(\vec{g}), \gamma_{\mu\beta}(\vec{g} - \vec{l}),
-    !! \gamma_{\alpha\nu}(\vec{g} - \vec{h}), \gamma_{\alpha\beta}(\vec{g} - \vec{l} - \vec{h})
-    real(dp) :: gammaMN, gammaMB, gammaAN, gammaAB, gammaTot
+    !! \tilde{\gamma}_{\mu\nu}, \tilde{\gamma}_{\mu\beta},
+    !! \tilde{\gamma}_{\alpha\nu}, \tilde{\gamma}_{\alpha\beta}
+    real(dp) :: gammaMN, gammaAN, gammaAB, gammaMNMB, gammaTot
 
     !! 1st derivatives of
-    !! \gamma_{\mu\nu}(\vec{g}), \gamma_{\mu\beta}(\vec{g} - \vec{l}),
-    !! \gamma_{\alpha\nu}(\vec{g} - \vec{h}), \gamma_{\alpha\beta}(\vec{g} - \vec{l} - \vec{h})
-    real(dp) :: dGammaMN(3), dGammaMB(3), dGammaAN(3), dGammaAB(3), dGammaTot(3)
-
-    !! Species of atom where orbitals \alpha, \beta, \mu, \nu and K are located
-    integer :: iSpA, iSpB, iSpM, iSpN, iSpK
+    !! \tilde{\gamma}_{\mu\nu}, \tilde{\gamma}_{\mu\beta},
+    !! \tilde{\gamma}_{\alpha\nu}, \tilde{\gamma}_{\alpha\beta}
+    real(dp), dimension(3) :: dGammaMN, dGammaMB, dGammaAN, dGammaAB, dGammaMNMB, dGammaTot
 
     !! Atom to calculate energy gradient components for
     integer :: iAtK
@@ -4045,9 +3885,6 @@ contains
     !! Auxiliary variables for setting up 2D pointer to sparse overlap
     integer :: ind, nOrbAt, nOrbNeigh
 
-    !! Dummy array with 3 zeros
-    real(dp) :: zeros(3)
-
     !! Spin index and total number of spin channels
     integer :: iSpin, nSpin
 
@@ -4062,8 +3899,6 @@ contains
 
     !! Composite index iAtM/iAtN
     integer :: ii, iAtMN(2, size(this%species0)**2)
-
-    zeros(:) = 0.0_dp
 
     nAtom0 = size(this%species0)
     nSpin = size(deltaRhoSqr, dim=3)
@@ -4087,51 +3922,38 @@ contains
       call symmetrizeHS(tmpDeltaRhoSqr(:,:, iSpin))
     end do
 
-    ! get all cell translations within given cutoff
-    ! call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
-
     loopK: do iAtK = 1, nAtom0
-      iSpK = this%species0(iAtK)
       loopMN: do ii = 1, nAtom0**2
         iAtM = iAtMN(1, ii)
         iAtN = iAtMN(2, ii)
-        iSpM = this%species0(iAtM)
         descM = getDescriptor(iAtM, iSquare)
-        iSpN = this%species0(iAtN)
         descN = getDescriptor(iAtN, iSquare)
-        ! \gamma_{\mu\nu}(\vec{g})
-        ! gammaMN = getLrGammaGSum(this, iAtM, iAtN, iSpM, iSpN, this%rCoords, rCellVecsG)
+        ! \tilde{\gamma}_{\mu\nu}(\vec{g})
         gammaMN = this%lrGammaEval0(iAtM, iAtN)
         dGammaMN(:) = 0.0_dp
         if (iAtK == iAtM .and. iAtM /= iAtN) then
-          ! dGammaMN(:) = getLrGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN, rCellVecsG)
           dGammaMN(:) = this%lrdGammaEval0(iAtM, iAtN, :)
         elseif (iAtK == iAtN .and. iAtM /= iAtN) then
-          ! dGammaMN(:) = -getLrGammaPrimeGSum(this, iAtM, iAtN, iSpM, iSpN, rCellVecsG)
           dGammaMN(:) = -this%lrdGammaEval0(iAtM, iAtN, :)
         end if
-        Pmn = tmpDeltaRhoSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)
         loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
           iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
           iAtBfold = symNeighbourList%img2CentCell(iAtB)
-          iSpB = this%species0(iAtBfold)
           descB = getDescriptor(iAtBfold, iSquare)
           ! get 2D pointer to Sbn overlap block
           ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
           nOrbAt = descN(iNOrb)
           nOrbNeigh = descB(iNOrb)
           pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-          ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
-          ! gammaMB = getLrGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords, rCellVecsG)
-          gammaMB = this%lrGammaEval0(iAtM, iAtBfold)
+          ! \tilde{\gamma}_{\mu\beta}
+          gammaMNMB = gammaMN + this%lrGammaEval0(iAtM, iAtBfold)
           dGammaMB(:) = 0.0_dp
           if (iAtK == iAtM .and. iAtM /= iAtBfold) then
-            ! dGammaMB(:) = getLrGammaPrimeGSum(this, iAtM, iAtBfold, iSpM, iSpB, rCellVecsG)
             dGammaMB(:) = this%lrdGammaEval0(iAtM, iAtBfold, :)
           elseif (iAtK == iAtBfold .and. iAtM /= iAtBfold) then
-            ! dGammaMB(:) = -getLrGammaPrimeGSum(this, iAtM, iAtBfold, iSpM, iSpB, rCellVecsG)
             dGammaMB(:) = -this%lrdGammaEval0(iAtM, iAtBfold, :)
           end if
+          dGammaMNMB(:) = dGammaMN + dGammaMB
           SbnPrimeKequalsB(:,:,:) = 0.0_dp
           SbnPrimeKequalsN(:,:,:) = 0.0_dp
           if (iAtK == iAtBfold .and. iAtN /= iAtBfold) then
@@ -4144,28 +3966,21 @@ contains
           loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
             iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
             iAtAfold = symNeighbourList%img2CentCell(iAtA)
-            iSpA = this%species0(iAtAfold)
             descA = getDescriptor(iAtAfold, iSquare)
-            ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
-            ! gammaAN = getLrGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%rCoords, rCellVecsG)
+            ! \tilde{\gamma}_{\alpha\nu}
             gammaAN = this%lrGammaEval0(iAtAfold, iAtN)
             dGammaAN(:) = 0.0_dp
             if (iAtK == iAtAfold .and. iAtAfold /= iAtN) then
-              ! dGammaAN(:) = getLrGammaPrimeGSum(this, iAtAfold, iAtN, iSpA, iSpN, rCellVecsG)
               dGammaAN(:) = this%lrdGammaEval0(iAtAfold, iAtN, :)
             elseif (iAtK == iAtN .and. iAtAfold /= iAtN) then
-              ! dGammaAN(:) = -getLrGammaPrimeGSum(this, iAtAfold, iAtN, iSpA, iSpN, rCellVecsG)
               dGammaAN(:) = -this%lrdGammaEval0(iAtAfold, iAtN, :)
             end if
-            ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
-            ! gammaAB = getLrGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%rCoords, rCellVecsG)
+            ! \tilde{\gamma}_{\alpha\beta}
             gammaAB = this%lrGammaEval0(iAtAfold, iAtBfold)
             dGammaAB(:) = 0.0_dp
             if (iAtK == iAtAfold .and. iAtAfold /= iAtBfold) then
-              ! dGammaAB(:) = getLrGammaPrimeGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, rCellVecsG)
               dGammaAB(:) = this%lrdGammaEval0(iAtAfold, iAtBfold, :)
             elseif (iAtK == iAtBfold .and. iAtAfold /= iAtBfold) then
-              ! dGammaAB(:) = -getLrGammaPrimeGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, rCellVecsG)
               dGammaAB(:) = -this%lrdGammaEval0(iAtAfold, iAtBfold, :)
             end if
             ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
@@ -4174,10 +3989,8 @@ contains
             nOrbNeigh = descA(iNOrb)
             pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
 
-            Pab = tmpDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :)
-
-            gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
-            dGammaTot(:) = dGammaMN + dGammaMB + dGammaAN + dGammaAB
+            gammaTot = gammaMNMB + gammaAN + gammaAB
+            dGammaTot(:) = dGammaMNMB + dGammaAN + dGammaAB
 
             SamPrimeKequalsA(:,:,:) = 0.0_dp
             SamPrimeKequalsM(:,:,:) = 0.0_dp
@@ -4192,12 +4005,13 @@ contains
             do mu = 1, descM(iNOrb)
               do nu = 1, descN(iNOrb)
                 do iSpin = 1, nSpin
-                  dPmn = Pmn(mu, nu, iSpin)
+                  dPmn = tmpDeltaRhoSqr(descM(iStart) + mu - 1, descN(iStart) + nu - 1, iSpin)
                   do alpha = 1, descA(iNOrb)
                     Sam = pSam(alpha, mu)
                     do beta = 1, descB(iNOrb)
                       Sbn = pSbn(beta, nu)
-                      dPab = Pab(alpha, beta, iSpin)
+                      dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
+                          & descB(iStart) + beta - 1, iSpin)
                       dPabdPmnSamSbn = Sam * Sbn * dPab * dPmn
 
                       dPabdPmnGammaTot = dPab * dPmn * gammaTot

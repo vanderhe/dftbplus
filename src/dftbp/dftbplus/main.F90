@@ -2948,10 +2948,8 @@ contains
         call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
         ! Add CAM contribution (periodic case)
-        call rangeSep%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
-            & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
-            & nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
-            & denseDesc%iAtomStart, orb, iKS, parallelKS%nLocalKS, HSqrReal)
+        call rangeSep%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), symNeighbourList,&
+            & nNeighbourCamSym, denseDesc%iAtomStart, orb, iKS, parallelKS%nLocalKS, HSqrReal)
 
         ! Warning: SSqrReal gets overwritten here
         call diagDenseMtx(env, electronicSolver, 'V', HSqrReal, SSqrReal, eigen(:, iSpin),&
@@ -6249,9 +6247,8 @@ contains
         call error("Range separated forces do not support non-colinear spin")
       else
         if (tPeriodic) then
-          call rangeSep%addCamGradients(deltaRhoOutSqr, skOverCont, coord0, symNeighbourList,&
-              & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
-              & denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
+          call rangeSep%addCamGradients_gamma(deltaRhoOutSqr, skOverCont, symNeighbourList,&
+              & nNeighbourCamSym, denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
         else
           call rangeSep%addCamGradients_cluster(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont,&
               & coord, species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour,&
@@ -7783,14 +7780,9 @@ contains
       do iL = 1, reks%Lmax
         ! Add range-separated contribution to Hamiltonian
         if (reks%tPeriodic) then
-          call rangeSep%addCamHamiltonian_gamma(env, reks%deltaRhoSqrL(:,:,1,iL), reks%overSqr,&
-              & symNeighbourList, neighbourList%iNeighbour, iSparseStart, img2CentCell,&
-              & nNeighbourCam, nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
-              & denseDesc%iAtomStart, orb, 1, 1, reks%hamSqrL(:,:,1,iL))
+          call rangeSep%addCamHamiltonian_gamma(env, reks%deltaRhoSqrL(:,:,1,iL), symNeighbourList,&
+              & nNeighbourCamSym, denseDesc%iAtomStart, orb, 1, 1, reks%hamSqrL(:,:,1,iL))
         else
-          ! call rangeSep%addCamHamiltonian(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
-          !     & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
-          !     & reks%hamSqrL(:,:,1,iL), reks%overSqr)
           call rangeSep%addCamHamiltonian_cluster(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
               & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
               & reks%hamSqrL(:,:,1,iL), reks%overSqr)
