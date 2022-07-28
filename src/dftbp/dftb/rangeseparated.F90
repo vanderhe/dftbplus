@@ -2910,21 +2910,21 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
-    ! if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-    !   gamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
-    !       & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
-    !       & tDerivative=.false.)
-    ! elseif (dist >= this%gammaCutoff) then
-    !   gamma = 0.0_dp
-    ! else
-    !   gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
-    ! end if
-
-    if (dist >= this%gammaCutoff) then
+    if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
+      gamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
+          & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
+          & tDerivative=.false.)
+    elseif (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
       gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
     end if
+
+    ! if (dist >= this%gammaCutoff) then
+    !   gamma = 0.0_dp
+    ! else
+    !   gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
+    ! end if
 
   end function getLrTruncatedGammaValue
 
@@ -2956,6 +2956,12 @@ contains
     else
       gamma = getAnalyticalHfGammaValue(this, iSp1, iSp2, dist)
     end if
+
+    ! if (dist >= this%gammaCutoff) then
+    !   gamma = 0.0_dp
+    ! else
+    !   gamma = getAnalyticalHfGammaValue(this, iSp1, iSp2, dist)
+    ! end if
 
   end function getHfTruncatedGammaValue
 
@@ -3891,6 +3897,12 @@ contains
     !! Orbital indices
     integer :: mu, nu, alpha, beta
 
+    !! Product dPmn * Sam
+    real(dp) :: dPmnSam
+
+    !! Product dPmn * gammaTot
+    real(dp) :: dPmnGammaTot
+
     !! Product Sam * Sbn * dPab * dPmn
     real(dp) :: dPabdPmnSamSbn
 
@@ -4006,15 +4018,16 @@ contains
               do nu = 1, descN(iNOrb)
                 do iSpin = 1, nSpin
                   dPmn = tmpDeltaRhoSqr(descM(iStart) + mu - 1, descN(iStart) + nu - 1, iSpin)
+                  dPmnGammaTot = dPmn * gammaTot
                   do alpha = 1, descA(iNOrb)
                     Sam = pSam(alpha, mu)
+                    dPmnSam = dPmn * Sam
                     do beta = 1, descB(iNOrb)
                       Sbn = pSbn(beta, nu)
                       dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
                           & descB(iStart) + beta - 1, iSpin)
-                      dPabdPmnSamSbn = Sam * Sbn * dPab * dPmn
-
-                      dPabdPmnGammaTot = dPab * dPmn * gammaTot
+                      dPabdPmnSamSbn = dPmnSam * Sbn * dPab
+                      dPabdPmnGammaTot = dPab * dPmnGammaTot
 
                       tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
                           & + dPabdPmnGammaTot * Sam * SbnPrimeKequalsB(nu, beta, :)
