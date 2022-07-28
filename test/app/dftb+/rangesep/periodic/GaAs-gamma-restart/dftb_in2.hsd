@@ -26,7 +26,8 @@ Hamiltonian = DFTB {
 
   RangeSeparated = LC {
     Screening = NeighbourBased {
-      GammaCutoff = 4.68976
+      GSummationCutoff = 90.758500
+      GammaCutoff = 4.689760
       Threshold = 1e-100
     }
   }

@@ -1,32 +1,32 @@
-Geometry = VaspFormat {
-   <<< POSCAR_Primitive_Cell
+Geometry = GenFormat {
+   <<< Acene_rattled.gen
 }
 
 Hamiltonian = DFTB {
 
   SCC = Yes
   MaxSccIterations = 100
-  SccTolerance = 1e-08
+  SccTolerance = 1e-12
 
   Filling = Fermi {
     Temperature [K] = 0.0
   }
 
   MaxAngularMomentum = {
-    Ga = "d"
-    As = "d"
+    C = "p"
+    H = "s"
   }
 
   SlaterKosterFiles = Type2FileNames {
-    Prefix = "./"
+    Prefix = "slakos/origin/ob2-1-1/shift/"
     Separator = "-"
     Suffix = ".skf"
   }
 
   RangeSeparated = LC {
     Screening = NeighbourBased {
-      GSummationCutoff = 90.758500
-      GammaCutoff = 4.689760
+      GSummationCutoff = 50.985000
+      GammaCutoff = 2.885010
       Threshold = 1e-100
     }
   }
@@ -41,18 +41,10 @@ Hamiltonian = DFTB {
 }
 
 Analysis {
-  CalculateForces = No
+  CalculateForces = Yes
 }
 
 Options {
+  WriteResultsTag = Yes
   WriteAutotestTag = Yes
-}
-
-ParserOptions {
-  ParserVersion = 11
-}
-
-Parallel {
-  UseOmpThreads = No
-  Groups = 1
 }
