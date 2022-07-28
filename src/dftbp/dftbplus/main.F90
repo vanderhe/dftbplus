@@ -406,14 +406,14 @@ contains
       if (this%isEResp) then
         call this%response%wrtEField(env, this%parallelKS, this%filling, this%eigen,&
             & this%eigVecsReal, this%eigvecsCplx, this%ints%hamiltonian, this%ints%overlap,&
-            & this%orb, this%nAtom, this%species, this%neighbourList, this%symNeighbourList,&
-            & this%nNeighbourSK, this%denseDesc, this%iSparseStart, this%img2CentCell, this%coord,&
-            & this%scc, this%maxSccIter, this%sccTol, this%isSccConvRequired, this%nMixElements,&
+            & this%orb, this%nAtom, this%species, this%neighbourList, this%nNeighbourSK,&
+            & this%denseDesc, this%iSparseStart, this%img2CentCell, this%coord, this%scc,&
+            & this%maxSccIter, this%sccTol, this%isSccConvRequired, this%nMixElements,&
             & this%nIneqOrb, this%iEqOrbitals, this%tempElec, this%Ef, this%spinW, this%thirdOrd,&
             & this%dftbU, this%iEqBlockDftbu, this%onSiteElements, this%iEqBlockOnSite,&
-            & this%rangeSep, this%nNeighbourCam, this%nNeighbourCamSym, this%pChrgMixer,&
-            & this%kPoint, this%kWeight, this%iCellVec, this%cellVec, this%polarisability,&
-            & this%dEidE, this%dqOut, this%neFermi, this%dEfdE, errStatus, this%dynRespEFreq)
+            & this%rangeSep, this%nNeighbourCam, this%pChrgMixer, this%kPoint, this%kWeight,&
+            & this%iCellVec, this%cellVec, this%polarisability, this%dEidE, this%dqOut,&
+            & this%neFermi, this%dEfdE, errStatus, this%dynRespEFreq)
         if (errStatus%hasError()) then
           call error(errStatus%message)
         end if
@@ -432,14 +432,13 @@ contains
             & this%tWriteResultsTag, resultsTag, this%taggedWriter, this%tWriteBandDat,&
             & this%fdDetailedOut, this%filling, this%eigen, this%eigVecsReal, this%eigvecsCplx,&
             & this%ints%hamiltonian, this%ints%overlap, this%orb, this%nAtom, this%species,&
-            & this%neighbourList, this%symNeighbourList, this%nNeighbourSK, this%denseDesc,&
-            & this%iSparseStart, this%img2CentCell, this%isRespKernelRPA, this%scc,&
-            & this%maxSccIter, this%sccTol, this%isSccConvRequired, this%nMixElements,&
-            & this%nIneqOrb, this%iEqOrbitals, this%tempElec, this%Ef, this%spinW, this%thirdOrd,&
-            & this%dftbU, this%iEqBlockDftbu, this%onSiteElements, this%iEqBlockOnSite,&
-            & this%rangeSep, this%nNeighbourCam, this%nNeighbourCamSym, this%pChrgMixer,&
-            & this%kPoint, this%kWeight, this%iCellVec, this%cellVec, this%neFermi, errStatus,&
-            & this%dynKernelFreq, this%tHelical, this%coord)
+            & this%neighbourList, this%nNeighbourSK, this%denseDesc, this%iSparseStart,&
+            & this%img2CentCell, this%isRespKernelRPA, this%scc, this%maxSccIter, this%sccTol,&
+            & this%isSccConvRequired, this%nMixElements, this%nIneqOrb, this%iEqOrbitals,&
+            & this%tempElec, this%Ef, this%spinW, this%thirdOrd, this%dftbU, this%iEqBlockDftbu,&
+            & this%onSiteElements, this%iEqBlockOnSite, this%rangeSep, this%nNeighbourCam,&
+            & this%pChrgMixer, this%kPoint, this%kWeight, this%iCellVec, this%cellVec,&
+            & this%neFermi, errStatus, this%dynKernelFreq, this%tHelical, this%coord)
         if (errStatus%hasError()) then
           call error(errStatus%message)
         end if
@@ -2989,8 +2988,8 @@ contains
         ! Add CAM contribution (non-periodic case)
         if (allocated(rangeSep)) then
           call rangeSep%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
-              & symNeighbourList, neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym,&
-              & denseDesc%iAtomStart, iSparseStart, orb, HSqrReal, SSqrReal)
+              & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
+              & HSqrReal, SSqrReal)
         end if
 
         call diagDenseMtxBlacs(electronicSolver, 1, 'V', denseDesc%blacsOrbSqr, HSqrReal, SSqrReal,&
@@ -3014,8 +3013,8 @@ contains
         ! Add CAM contribution (non-periodic case)
         if (allocated(rangeSep)) then
           call rangeSep%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
-              & symNeighbourList, neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym,&
-              & denseDesc%iAtomStart, iSparseStart, orb, HSqrReal, SSqrReal)
+              & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
+              & HSqrReal, SSqrReal)
         end if
 
         ! Warning: SSqrReal gets overwritten here
@@ -6254,12 +6253,9 @@ contains
               & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p,&
               & denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
         else
-          ! call rangeSep%addCamGradients(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont, coord,&
-          !     & species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour,&
-          !     & nNeighbourSK)
           call rangeSep%addCamGradients_cluster(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont,&
               & coord, species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour,&
-              & nNeighbourSK, nNeighbourCamSym, symNeighbourList)
+              & nNeighbourSK)
         end if
       end if
     end if
@@ -7796,8 +7792,8 @@ contains
           !     & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
           !     & reks%hamSqrL(:,:,1,iL), reks%overSqr)
           call rangeSep%addCamHamiltonian_cluster(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
-              & symNeighbourList, neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym,&
-              & denseDesc%iAtomStart, iSparseStart, orb, reks%hamSqrL(:,:,1,iL), reks%overSqr)
+              & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
+              & reks%hamSqrL(:,:,1,iL), reks%overSqr)
         end if
         ! Calculate range-separated exchange energy for spin up
         call rangeSep%addCamEnergy(env, tmpEn(iL))

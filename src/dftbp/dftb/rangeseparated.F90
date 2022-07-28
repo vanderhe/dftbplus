@@ -46,8 +46,8 @@ module dftbp_dftb_rangeseparated
 
   !> Returns the derivative of long-range gamma.
   interface getGammaPrimeValue
-    module procedure getGammaPrimeValue_cluster
-    module procedure getGammaPrimeValue_periodic
+    module procedure getLrGammaPrimeValue_cluster
+    module procedure getLrGammaPrimeValue_periodic
   end interface getGammaPrimeValue
 
 
@@ -225,8 +225,8 @@ module dftbp_dftb_rangeseparated
     procedure :: getCentralCellSpecies
     procedure :: getLrGammaCluster
     procedure :: getLrGammaDerivCluster
-    procedure :: getHartreeFockGammaCluster
-    procedure :: getHartreeFockGammaDerivCluster
+    procedure :: getHfGammaCluster
+    procedure :: getHfGammaDerivCluster
 
     procedure :: evaluateLrEnergyDirect_cluster
 
@@ -272,9 +272,6 @@ contains
 
     !> lr-hamiltonian construction algorithm
     integer, intent(in) :: rsAlg
-
-    ! !> True, if Hamiltonian and overlap are real
-    ! logical, intent(in) :: tRealHS
 
     !> Cutoff for truncated Gamma
     real(dp), intent(in), optional :: gammaCutoff
@@ -341,11 +338,11 @@ contains
       allocate(this%hfddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
       do iSp2 = 1, nUniqueSpecies
         do iSp1 = 1, nUniqueSpecies
-          this%hfGammaAtDamping(iSp1, iSp2) = getAnalyticalHartreeFockGammaValue(this, iSp1, iSp2,&
+          this%hfGammaAtDamping(iSp1, iSp2) = getAnalyticalHfGammaValue(this, iSp1, iSp2,&
               & this%gammaDamping)
           this%hfdGammaAtDamping(iSp1, iSp2) = getdAnalyticalHfGammaDeriv(this, iSp1,&
               & iSp2, this%gammaDamping)
-          this%hfddGammaAtDamping(iSp1, iSp2) = getddNumericalHartreeFockGammaDeriv(this, iSp1,&
+          this%hfddGammaAtDamping(iSp1, iSp2) = getddNumericalHfGammaDeriv(this, iSp1,&
               & iSp2, this%gammaDamping, 1e-08_dp)
         end do
       end do
@@ -563,16 +560,11 @@ contains
 
     bvKShift(:) = modulo(nint(vector), this%coeffsDiag)
 
-    ! do ii = 1, 3
-    !   bvKShift(ii) = modulo(nint(vector(ii)) + this%coeffsDiag(ii), 2 * this%coeffsDiag(ii) + 1)&
-    !       & - this%coeffsDiag(ii)
-    ! end do
-
   end function TRangeSepFunc_foldToBvK
 
 
   !> Folds relative real-space vector back to BvK region and returns indices of density matrix.
-  pure function TRangeSepFunc_foldToBvKIndex(this, vector) result(bvKShift)
+  pure function TRangeSepFunc_foldToBvKIndex(this, vector) result(bvKIndex)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -580,11 +572,11 @@ contains
     !> Vector (in relative coordinates) to fold back to BvK cell
     real(dp), intent(in) :: vector(:)
 
-    !> Corresponding BvK vector
-    integer :: bvKShift(3)
+    !> Corresponding BvK indexing
+    integer :: bvKIndex(3)
 
     ! additionally shift by 1, so that indices start at 1 and not at 0
-    bvKShift(:) = modulo(nint(vector) + this%coeffsDiag, this%coeffsDiag) + 1
+    bvKIndex(:) = modulo(nint(vector) + this%coeffsDiag, this%coeffsDiag) + 1
 
   end function TRangeSepFunc_foldToBvKIndex
 
@@ -614,7 +606,7 @@ contains
       do iAtom2 = 1, iAtom1
         iSp1 = this%species0(iAtom1)
         iSp2 = this%species0(iAtom2)
-        dist = norm2(this%coords(:, iAtom1) - this%coords(:, iAtom2))
+        dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
         this%lrGammaEval0(iAtom1, iAtom2) = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega,&
             & dist)
         this%lrGammaEval0(iAtom2, iAtom1) = this%lrGammaEval0(iAtom1, iAtom2)
@@ -741,168 +733,10 @@ contains
   end subroutine updateCoords_gamma
 
 
-  ! !> Updates the rangeSep module on coordinate change.
-  ! subroutine updateCoords(this, env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
-  !     & latVecs, isPeriodic)
-
-  !   !> Class instance
-  !   class(TRangeSepFunc), intent(inout) :: this
-
-  !   !> Environment settings
-  !   type(TEnvironment), intent(in) :: env
-
-  !   !> List of neighbours for each atom (symmetric version)
-  !   type(TSymNeighbourList), intent(in) :: symNeighbourList
-
-  !   !> Symmetric neighbour list version of nNeighbourCam
-  !   integer, intent(in) :: nNeighbourCamSym(:)
-
-  !   !> Sparse overlap part
-  !   type(TSlakoCont), intent(in) :: skOverCont
-
-  !   !> Orbital information
-  !   type(TOrbitals), intent(in) :: orb
-
-  !   !> Lattice vectors of (periodic) geometry
-  !   real(dp), intent(in), optional :: latVecs(:,:)
-
-  !   !> True, if system has periodic boundary conditions
-  !   logical, intent(in), optional :: isPeriodic
-
-  !   !> True, if system has periodic boundary conditions (default: .false.)
-  !   logical :: tPeriodic
-
-  !   !! Number of atoms in central cell
-  !   integer :: nAtom0
-
-  !   !! Indices of interacting atoms in central cell, as well as their global species index
-  !   integer :: iAtom1, iAtom2, iSp1, iSp2
-
-  !   !! Indices for tabulating Gamma integrals in Gamma-only cases
-  !   integer :: iAtA, iAtM, iAtAfold, iNeighM, iSpA, iSpM
-
-  !   !! Distance between two interacting atoms
-  !   real(dp) :: dist
-
-  !   !! Auxiliary variable
-  !   integer :: ii
-
-  !   if (present(isPeriodic)) then
-  !     tPeriodic = isPeriodic
-  !   else
-  !     tPeriodic = .false.
-  !   end if
-
-  !   ! range-separated type is initialized with nAtom0 coordinates, therefore re-allocate for
-  !   ! periodic systems, where images beyond the central cell are accounted for
-  !   if (tPeriodic) then
-  !     if (allocated(this%coords)) deallocate(this%coords)
-  !     if (allocated(this%rCoords)) deallocate(this%rCoords)
-  !     this%rCoords = symNeighbourList%coord
-  !     allocate(this%coords(size(this%rCoords, dim=1), size(this%rCoords, dim=2)))
-  !   else
-  !     this%rCoords(:,:) = symNeighbourList%coord
-  !   end if
-
-  !   ! Calculate neighbour list coordinates in relative units
-  !   this%coords(:,:) = this%rCoords
-  !   if (present(latVecs)) call cart2frac(this%coords, latVecs)
-
-  !   ! re-allocate sparse overlap for symmetric neighbour list
-  !   if (allocated(this%overSym)) deallocate(this%overSym)
-  !   allocate(this%overSym(symNeighbourList%sparseSize))
-
-  !   ! get number of atoms in central cell
-  !   nAtom0 = size(this%species0)
-
-  !   if (.not. tPeriodic) then
-
-  !     ! Non-periodic, cluster case
-
-  !     if (this%tLc .or. this%tCam) then
-  !       do iAtom1 = 1, nAtom0
-  !         do iAtom2 = 1, iAtom1
-  !           iSp1 = this%species0(iAtom1)
-  !           iSp2 = this%species0(iAtom2)
-  !           dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
-  !           this%lrGammaEval0(iAtom1, iAtom2) = getAnalyticalLrGammaValue(this, iSp1, iSp2,&
-  !               & this%omega, dist)
-  !           this%lrGammaEval0(iAtom2, iAtom1) = this%lrGammaEval0(iAtom1, iAtom2)
-  !         end do
-  !       end do
-  !     end if
-
-  !     if (this%tHyb .or. this%tCam) then
-  !       do iAtom1 = 1, nAtom0
-  !         do iAtom2 = 1, iAtom1
-  !           iSp1 = this%species0(iAtom1)
-  !           iSp2 = this%species0(iAtom2)
-  !           dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
-  !           this%hfGammaEval0(iAtom1, iAtom2) = getAnalyticalHartreeFockGammaValue(this, iSp1,&
-  !               & iSp2, dist)
-  !           this%hfGammaEval0(iAtom2, iAtom1) = this%hfGammaEval0(iAtom1, iAtom2)
-  !         end do
-  !       end do
-  !     end if
-
-  !   elseif (tPeriodic .and. tRealHS) then
-
-  !     ! Periodic, gamma-only case
-
-  !     ! get all cell translations within given cutoff
-  !     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
-
-  !     if (this%tLc .or. this%tCam) then
-  !       do iAtM = 1, nAtom0
-  !         iSpM = this%species0(iAtM)
-  !         do iNeighM = 0, nNeighbourCamSym(iAtM)
-  !           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
-  !           iAtAfold = symNeighbourList%img2CentCell(iAtA)
-  !           iSpA = this%species0(iAtAfold)
-  !           this%lrGammaEval0(iAtM, iAtAfold) = getLrGammaGSum(this, iAtM, iAtAfold, iSpM, iSpA,&
-  !               & this%rCoords, rCellVecsG)
-  !           this%lrGammaEval0(iAtAfold, iAtM) = getLrGammaGSum(this, iAtAfold, iAtM, iSpA, iSpM,&
-  !               & this%rCoords, rCellVecsG)
-  !         end do
-  !       end do
-  !     end if
-
-  !     if (this%tHyb .or. this%tCam) then
-  !       do iAtM = 1, nAtom0
-  !         iSpM = this%species0(iAtM)
-  !         do iNeighM = 0, nNeighbourCamSym(iAtM)
-  !           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
-  !           iAtAfold = symNeighbourList%img2CentCell(iAtA)
-  !           iSpA = this%species0(iAtAfold)
-  !           ! this%hfGammaEval0(iAtM, iAtAfold) = getHfGammaGSum(this, iAtM, iAtAfold, iSpM, iSpA,&
-  !           !     & this%rCoords, rCellVecsG)
-  !           ! this%hfGammaEval0(iAtM, iAtAfold) = getHfGammaGSum(this, iAtAfold, iAtM, iSpA, iSpM,&
-  !           !     & this%rCoords, rCellVecsG)
-  !         end do
-  !       end do
-  !     end if
-
-  !   end if
-
-  !   ! build full, sparse overlap
-  !   call buildS(env, this%overSym, skOverCont, this%rCoords, nNeighbourCamSym,&
-  !       & symNeighbourList%neighbourList%iNeighbour, symNeighbourList%species,&
-  !       & symNeighbourList%iPair, orb)
-
-  !   if (this%tScreeningInited) then
-  !     this%hPrev(:,:) = 0.0_dp
-  !     this%dRhoPrev(:,:) = 0.0_dp
-  !     this%lrEnergy = 0.0_dp
-  !     this%hfEnergy = 0.0_dp
-  !   end if
-
-  ! end subroutine updateCoords
-
-
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian
-  !! (non-periodic systems only).
-  subroutine addCamHamiltonian_cluster(this, env, densSqr, over, symNeighbourList, iNeighbour,&
-      & nNeighbourCam, nNeighbourCamSym, iSquare, iPair, orb, HH, overlap)
+  !! (non-periodic).
+  subroutine addCamHamiltonian_cluster(this, env, densSqr, over, iNeighbour, nNeighbourCam,&
+      & iSquare, iPair, orb, HH, overlap)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -915,9 +749,6 @@ contains
     !> Square (unpacked) density matrix
     real(dp), intent(in), target :: densSqr(:,:)
 
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
-
     !> Sparse (packed) overlap matrix.
     real(dp), intent(in) :: over(:)
 
@@ -926,9 +757,6 @@ contains
 
     !> Nr. of neighbours for each atom.
     integer, intent(in) :: nNeighbourCam(:)
-
-    !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in) :: nNeighbourCamSym(:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -953,14 +781,14 @@ contains
     ! Add long-range contribution if needed.
     ! For pure Hyb, camBeta would be zero anyway, but we want to save as much time as possible.
     if (this%tLc .or. this%tCam) then
-      call addLrHamiltonian_cluster(this, densSqr, over, symNeighbourList, iNeighbour,&
-          & nNeighbourCam, nNeighbourCamSym, iSquare, iPair, orb, HH, overlap)
+      call addLrHamiltonian_cluster(this, densSqr, over, iNeighbour, nNeighbourCam, iSquare, iPair,&
+          & orb, HH, overlap)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
     ! For pure LC, camAlpha would be zero anyway, but we want to save as much time as possible.
     if (this%tHyb .or. this%tCam) then
-      call addHartreeFockHamiltonian_cluster(this, densSqr, over, iNeighbour, nNeighbourCam,&
+      call addHfHamiltonian_cluster(this, densSqr, over, iNeighbour, nNeighbourCam,&
           & iSquare, iPair, orb, HH, overlap)
     end if
 
@@ -1048,10 +876,9 @@ contains
 
     ! Add full-range Hartree-Fock contribution if needed.
     ! For pure LC, camAlpha would be zero anyway, but we want to save as much time as possible.
-    if (this%tHyb .or. this%tCam) then
-      call addHartreeFockHamiltonian_gamma(this, densSqr, squareOver, symNeighbourList,&
-          & nNeighbourCamSym, rCellVecs, latVecs, recVecs2p, iSquare, orb, HH)
-    end if
+    ! if (this%tHyb .or. this%tCam) then
+    !   call addHfHamiltonian_gamma()
+    ! end if
 
     call env%globalTimer%stopTimer(globalTimers%rangeSeparatedH)
 
@@ -1133,7 +960,7 @@ contains
     ! Add full-range Hartree-Fock contribution if needed.
     ! For pure LC, camAlpha would be zero anyway, but we want to save as much time as possible.
     ! if (this%tHyb .or. this%tCam) then
-    !   call addHartreeFockHamiltonian_kpts()
+    !   call addHfHamiltonian_kpts()
     ! end if
 
     call env%globalTimer%stopTimer(globalTimers%rangeSeparatedH)
@@ -1142,8 +969,8 @@ contains
 
 
   !> Interface routine for adding LC range-separated contributions to the Hamiltonian.
-  subroutine addLrHamiltonian_cluster(this, densSqr, over, symNeighbourList, iNeighbour,&
-      & nNeighbourCam, nNeighbourCamSym, iSquare, iPair, orb, HH, overlap)
+  subroutine addLrHamiltonian_cluster(this, densSqr, over, iNeighbour, nNeighbourCam, iSquare,&
+      & iPair, orb, HH, overlap)
 
     !> Instance
     type(TRangeSepFunc), intent(inout) :: this
@@ -1156,17 +983,11 @@ contains
     !> Sparse (packed) overlap matrix.
     real(dp), intent(in) :: over(:)
 
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
-
     !> Neighbour indices.
     integer, intent(in) :: iNeighbour(0:,:)
 
     !> Nr. of neighbours for each atom.
     integer, intent(in) :: nNeighbourCam(:)
-
-    !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in) :: nNeighbourCamSym(:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -1191,10 +1012,8 @@ contains
       call addLrHamiltonianThreshold_cluster(this, overlap, densSqr, iNeighbour, nNeighbourCam,&
           & iSquare, HH, orb)
     case (rangeSepTypes%neighbour)
-      ! call addLrHamiltonianNeighbour_cluster_nonsym(this, densSqr, over, iNeighbour, nNeighbourCam,&
-      !     & iSquare, iPair, orb, HH)
-      call addLrHamiltonianNeighbour_cluster_sym(this, densSqr, symNeighbourList, nNeighbourCamSym,&
-          & iSquare, orb, HH)
+      call addLrHamiltonianNeighbour_cluster(this, densSqr, over, iNeighbour, nNeighbourCam,&
+          & iSquare, iPair, orb, HH)
     case (rangeSepTypes%matrixBased)
       call addLrHamiltonianMatrix_cluster(this, iSquare, overlap, densSqr, HH)
     end select
@@ -1267,13 +1086,12 @@ contains
 
     select case(this%rsAlg)
     case (rangeSepTypes%threshold)
-      call error('Thresholded algorithm not yet implemented for periodic systems.')
+      call error('Thresholded algorithm not implemented for periodic systems.')
     case (rangeSepTypes%neighbour)
-      call addLrHamiltonianNeighbour_gamma_sym(this, env, densSqr, symNeighbourList,&
-          & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, iKS,&
-          & nKS, HH)
+      call addLrHamiltonianNeighbour_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym,&
+          & iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, iKS, nKS, HH)
     case (rangeSepTypes%matrixBased)
-      call error('Matrix based algorithm not yet implemented for periodic systems.')
+      call error('Matrix based algorithm not implemented for periodic systems.')
     end select
 
   end subroutine addLrHamiltonian_gamma
@@ -1343,13 +1161,13 @@ contains
 
     select case(this%rsAlg)
     case (rangeSepTypes%threshold)
-      call error('Thresholded algorithm not yet implemented for periodic systems.')
+      call error('Thresholded algorithm not implemented for periodic systems.')
     case (rangeSepTypes%neighbour)
-      call addLrHamiltonianNeighbour_kpts_sym(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
+      call addLrHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
           & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
           & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
     case (rangeSepTypes%matrixBased)
-      call error('Matrix based algorithm not yet implemented for periodic systems.')
+      call error('Matrix based algorithm not implemented for periodic systems.')
     end select
 
   end subroutine addLrHamiltonian_kpts
@@ -1532,186 +1350,8 @@ contains
 
 
   !> Updates the Hamiltonian with the range separated contribution.
-  subroutine addLrHamiltonianNeighbour_cluster_sym(this, densSqr, symNeighbourList,&
-      & nNeighbourCamSym, iSquare, orb, HH)
-
-    !> instance of object
-    type(TRangeSepFunc), intent(inout) :: this
-
-    !> Square (unpacked) density matrix
-    real(dp), intent(in), target :: densSqr(:,:)
-
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
-
-    !> Nr. of neighbours for each atom.
-    integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom0)
-    integer, intent(in) :: iSquare(:)
-
-    !> Orbital information.
-    type(TOrbitals), intent(in) :: orb
-
-    !> Square (unpacked) Hamiltonian to be updated.
-    real(dp), intent(inout), target :: HH(:,:)
-
-    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
-    real(dp), dimension(orb%mOrb**2), target :: Sma, Sam, Snb, Sbn
-    real(dp), dimension(orb%mOrb**2), target :: Pab
-    real(dp), dimension(:,:), pointer :: pSma, pSbn
-    real(dp), dimension(:,:), pointer :: pPab
-    real(dp) :: gammaANAB, gammaMNMB, gammaTot
-    integer :: nAtom0
-    integer :: iAtM, iAtN, iAtA, iAtB, iNeighN, iNeighA
-    integer, dimension(descLen) :: descA, descB, descM, descN
-    real(dp), dimension(:,:), allocatable, target :: tmpDRho
-    real(dp), dimension(:,:), allocatable, target :: tmpHH
-
-    call allocateAndInit(tmpHH, tmpDRho)
-    call evaluateHamiltonian()
-
-    HH(:,:) = HH + this%camBeta * tmpHH
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHH, tmpDRho)
-
-  contains
-
-    !> Allocate storage for mapping 1D<->2D array sections
-    subroutine allocateAndInit(tmpHH, tmpDRho)
-
-      !> density matrix case
-      real(dp), dimension(:,:), allocatable, target, intent(inout) :: tmpDRho
-
-      !> hamiltonian matrix case
-      real(dp), dimension(:,:), allocatable, target, intent(inout) :: tmpHH
-
-      allocate(tmpHH(size(HH, dim=1), size(HH, dim=2)))
-      tmpHH(:,:) = 0.0_dp
-      allocate(tmpDRho(size(densSqr, dim=1), size(densSqr, dim=1)))
-      tmpDRho(:,:) = densSqr
-      call symmetrizeHS(tmpDRho)
-
-    end subroutine allocateAndInit
-
-
-    !> actually evaluate the neighbour based cut-off hamiltonian
-    subroutine evaluateHamiltonian()
-
-      nAtom0 = size(this%species0)
-
-      loopN: do iAtN = 1, nAtom0
-        descN = getDescriptor(iAtN, iSquare)
-        loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
-          iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
-          descB = getDescriptor(iAtB, iSquare)
-          call copyOverlapBlock(iAtN, iNeighN, descN(iNOrb), descB(iNOrb), Sbn, pSbn)
-          loopA: do iAtA = 1, nAtom0
-            descA = getDescriptor(iAtA, iSquare)
-            call copyDensityBlock(descA, descB, Pab, pPab)
-            gammaANAB = this%lrGammaEval0(iAtA, iAtN) + this%lrGammaEval0(iAtA, iAtB)
-            loopM: do iNeighA = 0, nNeighbourCamSym(iAtA)
-              iAtM = symNeighbourList%neighbourList%iNeighbour(iNeighA, iAtA)
-              descM = getDescriptor(iAtM, iSquare)
-              call copyOverlapBlock(iAtA, iNeighA, descA(iNOrb), descM(iNOrb), Sma, pSma)
-              gammaMNMB = this%lrGammaEval0(iAtM, iAtN) + this%lrGammaEval0(iAtM, iAtB)
-              gammaTot = gammaMNMB + gammaANAB
-
-              call updateHamiltonianBlock(descM, descN, pSma, pSbn, pPab)
-
-            end do loopM
-          end do loopA
-        end do loopB
-      end do loopN
-
-    end subroutine evaluateHamiltonian
-
-
-    !> Copies an atom block from sparse matrix.
-    subroutine copyOverlapBlock(iAt, iNeigh, iNOrbAt, iNOrbNeigh, localBlock, pLocalBlock)
-
-      !> Atom for which this is a neighbour
-      integer, intent(in) :: iAt
-
-      !> Number of neighbour for this block
-      integer, intent(in) :: iNeigh
-
-      !> Number of orbitals on iAt
-      integer, intent(in) :: iNOrbAt
-
-      !> Number of orbitals on neighbour atom
-      integer, intent(in) :: iNOrbNeigh
-
-      !> Local block
-      real(dp), intent(inout), target :: localBlock(:)
-
-      !> Pointer to local block
-      real(dp), intent(out), pointer :: pLocalBlock(:,:)
-
-      integer :: ind
-
-      ind = symNeighbourList%iPair(iNeigh, iAt) + 1
-      localBlock(1:iNOrbNeigh*iNOrbAt) = this%overSym(ind:ind+iNOrbNeigh*iNOrbAt-1)
-      pLocalBlock(1:iNOrbNeigh, 1:iNOrbAt) => localBlock(1:iNOrbNeigh*iNOrbAt)
-
-    end subroutine copyOverlapBlock
-
-
-    !> Copies a density matrix block from sparse matrix.
-    pure subroutine copyDensityBlock(desc1, desc2, localBlock, pLocalBlock)
-
-      !> start, end and range of first block
-      integer, dimension(descLen), intent(in) :: desc1
-
-      !> start, end and range of second block
-      integer, dimension(descLen), intent(in) :: desc2
-
-      !> local block in 1D format
-      real(dp), dimension(:), target, intent(inout) :: localBlock
-
-      !> Pointer to local block
-      real(dp), dimension(:,:), pointer, intent(out) :: pLocalBlock
-
-      pLocalBlock(1:desc1(iNOrb), 1:desc2(iNOrb)) => localBlock(1:desc1(iNOrb) * desc2(iNOrb))
-      pLocalBlock(:,:) = tmpDRho(desc1(iStart):desc1(iEnd), desc2(iStart):desc2(iEnd))
-
-    end subroutine copyDensityBlock
-
-
-    !> Adds a contribution to a Hamiltonian block.
-    subroutine updateHamiltonianBlock(descM, descN, pSma, pSbN, pPab)
-
-      !> start, end and range of row
-      integer, dimension(descLen), intent(in) :: descM
-
-      !> start, end and range of column
-      integer, dimension(descLen), intent(in) :: descN
-
-      !> First overlap block
-      real(dp), dimension(:,:), pointer, intent(in) :: pSma
-
-      !> Second overlap block
-      real(dp), dimension(:,:), pointer, intent(in) :: pSbN
-
-      !> density matrix block
-      real(dp), dimension(:,:), pointer, intent(in) :: pPab
-
-      real(dp), dimension(:,:), pointer :: pHmn
-
-      pHmn => tmpHH(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))
-      if (this%tSpin .or. this%tREKS) then
-        pHmn(:,:) = pHmn - 0.25_dp * gammaTot * matmul(matmul(pSma, pPab), pSbn)
-      else
-        pHmn(:,:) = pHmn - 0.125_dp * gammaTot * matmul(matmul(pSma, pPab), pSbn)
-      end if
-
-    end subroutine updateHamiltonianBlock
-
-  end subroutine addLrHamiltonianNeighbour_cluster_sym
-
-
-  !> Updates the Hamiltonian with the range separated contribution.
-  subroutine addLrHamiltonianNeighbour_cluster_nonsym(this, densSqr, over, iNeighbour,&
-      & nNeighbourCam, iSquare, iPair, orb, HH)
+  subroutine addLrHamiltonianNeighbour_cluster(this, densSqr, over, iNeighbour, nNeighbourCam,&
+      & iSquare, iPair, orb, HH)
 
     !> instance of object
     type(TRangeSepFunc), intent(inout) :: this
@@ -1928,7 +1568,7 @@ contains
 
     end subroutine updateHamiltonianBlock
 
-  end subroutine addLrHamiltonianNeighbour_cluster_nonsym
+  end subroutine addLrHamiltonianNeighbour_cluster
 
 
   !> Update Hamiltonian with long-range contribution using matrix-matrix multiplications
@@ -2238,7 +1878,7 @@ contains
 
 
   !> Updates the Hamiltonian with the range separated contribution.
-  subroutine addLrHamiltonianNeighbour_gamma_sym(this, env, deltaRhoSqr, symNeighbourList,&
+  subroutine addLrHamiltonianNeighbour_gamma(this, env, deltaRhoSqr, symNeighbourList,&
       & nNeighbourCamSym, iCellVec, cellVecs, rCellVecs, latVecs, recVecs2p, iSquare, orb, iKS,&
       & nKS, HSqr)
 
@@ -2320,7 +1960,19 @@ contains
 
     !! \gamma_{\mu\nu}(\vec{g}), \gamma_{\mu\beta}(\vec{g} - \vec{l}),
     !! \gamma_{\alpha\nu}(\vec{g} - \vec{h}), \gamma_{\alpha\beta}(\vec{g} - \vec{l} - \vec{h})
-    real(dp) :: gammaMN, gammaMB, gammaAN, gammaAB
+    real(dp) :: gammaMN, gammaMB, gammaAN, gammaAB, gammaTot
+
+    !! Overlap matrix elements
+    real(dp) :: Sam, Sbn
+
+    !! Density matrix elements
+    real(dp) :: dPmn, dPab
+
+    !! Orbital indices
+    integer :: mu, nu, alpha, beta
+
+    !! Product Sam * dPab * Sbn * gammaTot
+    real(dp) :: SamdPabSbnGammaTot
 
     !! Species of atom where orbitals \alpha, \beta, \mu and \nu are located
     integer :: iSpA, iSpB, iSpM, iSpN
@@ -2450,7 +2102,7 @@ contains
       iSpN = this%species0(iAtN)
       descN = getDescriptor(iAtN, iSquare)
       ! \gamma_{\mu\nu}(\vec{g})
-      ! gammaMN = getLrGammaGSum(this, iAtM, iAtN, iSpM, iSpN, this%rCoords, rCellVecsG)
+      ! gammaMN = getLrGammaGSum(this, iAtM, iAtN, iSpM, iSpN, rCellVecsG)
       gammaMN = this%lrGammaEval0(iAtM, iAtN)
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
         iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
@@ -2467,7 +2119,7 @@ contains
         nOrbNeigh = descB(iNOrb)
         pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
         ! \gamma_{\mu\beta}(\vec{g}-\vec{l})
-        ! gammaMB = getLrGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords, rCellVecsG)
+        ! gammaMB = getLrGammaGSum(this, iAtM, iAtBfold, iSpM, iSpB, rCellVecsG)
         gammaMB = this%lrGammaEval0(iAtM, iAtBfold)
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
@@ -2480,49 +2132,71 @@ contains
           ! get continuous 2D copy of Pab density matrix block
           Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
           ! \gamma_{\alpha\nu}(\vec{g}+\vec{h})
-          ! gammaAN = getLrGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, this%rCoords, rCellVecsG)
+          ! gammaAN = getLrGammaGSum(this, iAtAfold, iAtN, iSpA, iSpN, rCellVecsG)
           gammaAN = this%lrGammaEval0(iAtAfold, iAtN)
           ! \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
-          ! gammaAB = getLrGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, this%rCoords, rCellVecsG)
+          ! gammaAB = getLrGammaGSum(this, iAtAfold, iAtBfold, iSpA, iSpB, rCellVecsG)
           gammaAB = this%lrGammaEval0(iAtAfold, iAtBfold)
           ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
           ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
           nOrbAt = descM(iNOrb)
           nOrbNeigh = descA(iNOrb)
           pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+
+          gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
+
+          do mu = 1, descM(iNOrb)
+            do nu = 1, descN(iNOrb)
+              do beta = 1, descB(iNOrb)
+                Sbn = pSbn(beta, nu)
+                do alpha = 1, descA(iNOrb)
+                  Sam = pSam(alpha, mu)
+                  dPab = Pab(alpha, beta)
+                  SamdPabSbnGammaTot = Sam * dPab * Sbn * gammaTot
+
+                  tmpHSqr(descM(iStart) + mu - 1, descN(iStart) + nu - 1)&
+                      & = tmpHSqr(descM(iStart) + mu - 1, descN(iStart) + nu - 1)&
+                      & + SamdPabSbnGammaTot
+                end do
+              end do
+            end do
+          end do
+
+
           ! \transpose{S_{\alpha\mu}(\vec{-h})}
-          pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
+          ! pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
 
-          pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab)
-          Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab, pSbn)
+          ! pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab)
+          ! Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab, pSbn)
 
-          ! term #1
-          pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-              & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
-          tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-              & * gammaMN
+          ! ! term #1
+          ! pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+          !     & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
+          ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+          !     & * gammaMN
 
-          ! term #2
-          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-              & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB, pSbn)
+          ! ! term #2
+          ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+          !     & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB, pSbn)
 
-          ! term #3
-          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-              & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN)
+          ! ! term #3
+          ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+          !     & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN)
 
-          ! term #4
-          pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab * gammaAB)
-          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-              & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
+          ! ! term #4
+          ! pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab * gammaAB)
+          ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+          !     & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
 
-          tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-              & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-              & + tot(1:descM(iNOrb), 1:descN(iNOrb))
+          ! tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+          !     & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+          !     & + tot(1:descM(iNOrb), 1:descN(iNOrb))
 
         end do loopA
       end do loopB
     end do loopMN
 
+    ! tmpHSqr(:,:) = 0.0_dp
     if (this%tSpin .or. this%tREKS) then
       tmpHSqr(:,:) = -0.25_dp * tmpHSqr
     else
@@ -2545,11 +2219,11 @@ contains
     this%lrEnergy = this%lrEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)
   #:endif
 
-  end subroutine addLrHamiltonianNeighbour_gamma_sym
+  end subroutine addLrHamiltonianNeighbour_gamma
 
 
   !> Updates the Hamiltonian with the range separated contribution (k-points version).
-  subroutine addLrHamiltonianNeighbour_kpts_sym(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
+  subroutine addLrHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
       & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
       & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
 
@@ -3001,7 +2675,7 @@ contains
 
     end function getNumberOfNonZeroElements
 
-  end subroutine addLrHamiltonianNeighbour_kpts_sym
+  end subroutine addLrHamiltonianNeighbour_kpts
 
 
   !> Add the CAM-energy contribution to the total energy.
@@ -3017,7 +2691,7 @@ contains
     real(dp), intent(inout) :: energy
 
     call addLrEnergy(this, env, energy)
-    call addHartreeFockEnergy(this, env, energy)
+    call addHfEnergy(this, env, energy)
 
   end subroutine addCamEnergy
 
@@ -3280,7 +2954,7 @@ contains
 
 
   !> Returns the numerical second derivative of gamma, by means of a central finite difference.
-  function getddNumericalHartreeFockGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
+  function getddNumericalHfGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3303,7 +2977,7 @@ contains
     ddGamma = (getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist + delta)&
         & - getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist - delta)) / (2.0_dp * delta)
 
-  end function getddNumericalHartreeFockGammaDeriv
+  end function getddNumericalHfGammaDeriv
 
 
   !> Calculates analytical, screened Coulomb, long-range gamma.
@@ -3348,21 +3022,21 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
-    if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-      gamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
-          & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
-          & tDerivative=.false.)
-    elseif (dist >= this%gammaCutoff) then
-      gamma = 0.0_dp
-    else
-      gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
-    end if
-
-    ! if (dist >= this%gammaCutoff) then
+    ! if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
+    !   gamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
+    !       & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
+    !       & tDerivative=.false.)
+    ! elseif (dist >= this%gammaCutoff) then
     !   gamma = 0.0_dp
     ! else
     !   gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
     ! end if
+
+    if (dist >= this%gammaCutoff) then
+      gamma = 0.0_dp
+    else
+      gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
+    end if
 
   end function getLrTruncatedGammaValue
 
@@ -3392,14 +3066,8 @@ contains
     elseif (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
-      gamma = getAnalyticalHartreeFockGammaValue(this, iSp1, iSp2, dist)
+      gamma = getAnalyticalHfGammaValue(this, iSp1, iSp2, dist)
     end if
-
-    ! if (dist >= this%gammaCutoff) then
-    !   gamma = 0.0_dp
-    ! else
-    !   gamma = getAnalyticalHartreeFockGammaValue(this, iSp1, iSp2, dist)
-    ! end if
 
   end function getHfTruncatedGammaValue
 
@@ -3797,10 +3465,10 @@ contains
 
     if (dist < tolSameDist) then
       ! on-site case
-      if (abs(tauA - tauB) < MinHubDiff ) then
+      if (abs(tauA - tauB) < MinHubDiff) then
         dAnalyticalGammaDeriv = 0.0_dp
       else
-        call error("Error(RangeSep): R = 0, Ua != Ub")
+        call error("Error(RangeSep1): R = 0, Ua != Ub")
       end if
     else
       ! off-site case, Ua == Ub
@@ -3879,7 +3547,7 @@ contains
 
 
   !> Returns the derivative of long-range gamma for iAtom1, iAtom2 (non-periodic systems only).
-  subroutine getGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
+  subroutine getLrGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3914,11 +3582,12 @@ contains
     vect(:) = vect / dist
     grad(:) = vect * getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist)
 
-  end subroutine getGammaPrimeValue_cluster
+  end subroutine getLrGammaPrimeValue_cluster
 
 
   !> Returns the derivative of long-range gamma for iAtom1, iAtom2 (periodic systems).
-  subroutine getGammaPrimeValue_periodic(this, grad, iAtom1, iAtom2, coords, species0, img2CentCell)
+  subroutine getLrGammaPrimeValue_periodic(this, grad, iAtom1, iAtom2, coords, species0,&
+      & img2CentCell)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -3956,13 +3625,12 @@ contains
     vect(:) = vect / dist
     grad(:) = vect * getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist)
 
-  end subroutine getGammaPrimeValue_periodic
+  end subroutine getLrGammaPrimeValue_periodic
 
 
   !> Adds CAM gradients due to full-/long-range HF-contributions (non-periodic version).
   subroutine addCamGradients_cluster(this, gradients, derivator, deltaRho, skOverCont, coords0,&
-      & species0, orb, iSquare, ovrlapMat, iNeighbour, nNeighbourSK, nNeighbourCamSym,&
-      & symNeighbourList)
+      & species0, orb, iSquare, ovrlapMat, iNeighbour, nNeighbourSK)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -4000,25 +3668,17 @@ contains
     !> Number of atoms neighbouring each site where the overlap is non-zero
     integer, intent(in) :: nNeighbourSK(:)
 
-    !> Nr. of neighbours for each atom.
-    integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
-
     ! Add long-range contribution if needed.
     ! For pure Hyb, camBeta would be zero anyway, but we want to save as much time as possible.
     if (this%tLc .or. this%tCam) then
       call addLrGradients_cluster(this, gradients, derivator, deltaRho, skOverCont, coords0,&
           & species0, orb, iSquare, ovrlapMat, iNeighbour, nNeighbourSK)
-      call addLrGradients_cluster_sym(this, gradients, derivator, deltaRho, skOverCont,&
-          & coords0, orb, iSquare, ovrlapMat, symNeighbourList, nNeighbourCamSym)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
     ! For pure LC, camAlpha would be zero anyway, but we want to save as much time as possible.
     if (this%tHyb .or. this%tCam) then
-      call addHartreeFockGradients_cluster(this, gradients, derivator, deltaRho, skOverCont,&
+      call addHfGradients_cluster(this, gradients, derivator, deltaRho, skOverCont,&
           & coords0, species0, orb, iSquare, ovrlapMat, iNeighbour, nNeighbourSK)
     end if
 
@@ -4085,8 +3745,7 @@ contains
     ! Add full-range Hartree-Fock contribution if needed.
     ! For pure LC, camAlpha would be zero anyway, but we want to save as much time as possible.
     ! if (this%tHyb .or. this%tCam) then
-    !   call addHartreeFockGradients_cluster(this, gradients, derivator, deltaRho, skOverCont,&
-    !       & coords0, species0, orb, iSquare, ovrlapMat, iNeighbour, nNeighbourSK)
+    !   call addHfGradients_cluster()
     ! end if
 
   end subroutine addCamGradients_gamma
@@ -4223,9 +3882,6 @@ contains
       gradients(:,:) = gradients - 0.25_dp * this%camBeta * nSpin * tmpderiv
     end if
 
-    print *, 'Current LR-Gradients (cluster)'
-    print '(3F25.16)', - 0.25_dp * tmpderiv
-
 
   contains
 
@@ -4270,7 +3926,7 @@ contains
       do iAt1 = 1, nAtom0
         do iAt2 = 1, nAtom0
           if (iAt1 /= iAt2) then
-            call getGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
+            call getLrGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
             gammaPrimeTmp(:, iAt1, iAt2) = tmp
           end if
         end do
@@ -4278,209 +3934,6 @@ contains
     end subroutine allocateAndInit
 
   end subroutine addLrGradients_cluster
-
-
-  !> Adds gradients due to long-range HF-contribution (non-periodic version).
-  subroutine addLrGradients_cluster_sym(this, gradients, derivator, deltaRho, skOverCont,&
-      & coords0, orb, iSquare, ovrlapMat, symNeighbourList, nNeighbourCamSym)
-
-    !> Instance
-    type(TRangeSepFunc), intent(in) :: this
-
-    !> Energy gradients
-    real(dp), intent(inout) :: gradients(:,:)
-
-    !> Differentiation object
-    class(TNonSccDiff), intent(in) :: derivator
-
-    !> Density matrix difference from reference q0
-    real(dp), intent(in) :: deltaRho(:,:,:)
-
-    !> Sparse overlap part
-    type(TSlakoCont), intent(in) :: skOverCont
-
-    !> Atomic coordinates in central cell
-    real(dp), intent(in) :: coords0(:,:)
-
-    !> Orbital information for system
-    type(TOrbitals), intent(in) :: orb
-
-    !> Index for dense arrays
-    integer, intent(in) :: iSquare(:)
-
-    !> Overlap matrix
-    real(dp), intent(in) :: ovrlapMat(:,:)
-
-    !> Nr. of neighbours for each atom.
-    integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
-
-    integer :: nAtom0, nSpin, iSpin
-    integer :: iAtK, iAtC, iAtD, iAtA, iAtB
-    integer :: iNeighC, iNeighD
-    integer :: aaa, bbb, mmm, nnn, alpha, beta, mu, nu
-
-    real(dp) :: dPmn, dPmb, dPan, dPab, Sbn, Sma, gammaCD, SmaPrime(3), SbnPrime(3), dGammaCD(3)
-
-    real(dp) :: SmaPrimeTmp1(orb%mOrb, orb%mOrb, 3), SmaPrimeTmp2(orb%mOrb, orb%mOrb, 3)
-    real(dp) :: SbnPrimeTmp1(orb%mOrb, orb%mOrb, 3), SbnPrimeTmp2(orb%mOrb, orb%mOrb, 3)
-
-    real(dp), allocatable :: gammaPrimeTmp(:,:,:), tmpOvr(:,:), tmpRho(:,:,:), tmpderiv(:,:)
-
-    nSpin = size(deltaRho, dim=3)
-    call allocateAndInit(tmpOvr, tmpRho, gammaPrimeTmp, tmpderiv)
-    nAtom0 = size(this%species0)
-    tmpderiv(:,:) = 0.0_dp
-
-    loopK: do iAtK = 1, nAtom0
-      loopC: do iAtC = 1, nAtom0
-        loopD: do iAtD = 1, nAtom0
-          loopA: do iNeighC = 0, nNeighbourCamSym(iAtC)
-            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighC, iAtC)
-
-            SmaPrimeTmp1(:,:,:) = 0.0_dp
-            SmaPrimeTmp2(:,:,:) = 0.0_dp
-            if (iAtK == iAtC .and. iAtC /= iAtA) then
-              call derivator%getFirstDeriv(SmaPrimeTmp1, skOverCont, coords0, this%species0,&
-                  & iAtK, iAtA, orb)
-            elseif (iAtK == iAtA .and. iAtC /= iAtA) then
-              call derivator%getFirstDeriv(SmaPrimeTmp2, skOverCont, coords0, this%species0,&
-                  & iAtK, iAtC, orb)
-            end if
-
-            loopB: do iNeighD = 0, nNeighbourCamSym(iAtD)
-              iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighD, iAtD)
-
-              SbnPrimeTmp1(:,:,:) = 0.0_dp
-              SbnPrimeTmp2(:,:,:) = 0.0_dp
-              if (iAtK == iAtB .and. iAtB /= iAtD) then
-                call derivator%getFirstDeriv(SbnPrimeTmp1, skOverCont, coords0, this%species0,&
-                    & iAtK, iAtD, orb)
-              elseif (iAtK == iAtD .and. iAtB /= iAtD) then
-                call derivator%getFirstDeriv(SbnPrimeTmp2, skOverCont, coords0, this%species0,&
-                    & iAtK, iAtB, orb)
-              end if
-
-              aaa = 0
-              ! aaa = iSquare(iAtA) - 1
-              ! do alpha = 1, nOrb
-              do alpha = iSquare(iAtA), iSquare(iAtA + 1) - 1
-                bbb = 0
-                aaa = aaa + 1
-                do beta = iSquare(iAtB), iSquare(iAtB + 1) - 1
-                  mmm = 0
-                  bbb = bbb + 1
-                  do mu = iSquare(iAtC), iSquare(iAtC + 1) - 1
-                    nnn = 0
-                    mmm = mmm + 1
-                    do nu = iSquare(iAtD), iSquare(iAtD + 1) - 1
-                      nnn = nnn + 1
-
-                      do iSpin = 1, nSpin
-                        dPmn = tmpRho(mu, nu, iSpin)
-                        dPmb = tmpRho(mu, beta, iSpin)
-                        dPan = tmpRho(alpha, nu, iSpin)
-                        dPab = tmpRho(alpha, beta, iSpin)
-
-                        Sbn = tmpOvr(beta, nu)
-                        Sma = tmpOvr(mu, alpha)
-
-                        gammaCD = this%lrGammaEval0(iAtC, iAtD)
-
-                        ! SmaPrime(:) = SmaPrimeTmp1(mmm, aaa, :) + SmaPrimeTmp2(aaa, mmm, :)
-                        ! SbnPrime(:) = SbnPrimeTmp1(bbb, nnn, :) + SbnPrimeTmp2(bbb, nnn, :)
-
-                        dGammaCD(:) = 0.0_dp
-                        if (iAtK == iAtC .and. iAtC /= iAtD) then
-                          dGammaCD(:) = gammaPrimeTmp(:, iAtC, iAtD)
-                        elseif (iAtK == iAtD .and. iAtC /= iAtD) then
-                          dGammaCD(:) = -gammaPrimeTmp(:, iAtC, iAtD)
-                        end if
-
-                        ! term #1 of eq.(3.73)
-                        tmpderiv(:, iAtK) = tmpderiv(:, iAtK)&
-                            & + (dPmn * dPab + dPmb * dPan) * Sbn * gammaCD * SmaPrimeTmp1(aaa, mmm, :)
-                        tmpderiv(:, iAtK) = tmpderiv(:, iAtK)&
-                            & + (dPmn * dPab + dPmb * dPan) * Sbn * gammaCD * SmaPrimeTmp2(mmm, aaa, :)
-
-                        ! term #2 of eq.(3.73)
-                        tmpderiv(:, iAtK) = tmpderiv(:, iAtK)&
-                            & + (dPmn * dPab + dPmb * dPan) * Sma * gammaCD * SbnPrimeTmp1(nnn, bbb, :)
-                        tmpderiv(:, iAtK) = tmpderiv(:, iAtK)&
-                            & + (dPmn * dPab + dPmb * dPan) * Sma * gammaCD * SbnPrimeTmp2(bbb, nnn, :)
-
-                        ! term #3 of eq.(3.73)
-                        tmpderiv(:, iAtK) = tmpderiv(:, iAtK)&
-                            & + (dPmn * dPab + dPmb * dPan) * Sma * Sbn * dGammaCD
-                      end do
-
-                    end do
-                  end do
-                end do
-              end do
-            end do loopB
-          end do loopA
-        end do loopD
-      end do loopC
-    end do loopK
-
-    print *, 'My LR-Gradients (cluster)'
-    print "(3F25.16)", - 0.125_dp * tmpderiv
-
-
-  contains
-
-    !> Initialise the
-    subroutine allocateAndInit(tmpOvr, tmpRho, gammaPrimeTmp, tmpderiv)
-
-      !> Storage for the overlap
-      real(dp), allocatable, intent(inout) :: tmpOvr(:,:)
-
-      !> storage for density matrix
-      real(dp), allocatable, intent(inout) :: tmpRho(:,:,:)
-
-      !> storage for derivative of gamma interaction, shape: [nCoords (x,y,z), nAtom0, nAtom0]
-      real(dp), allocatable, intent(inout) :: gammaPrimeTmp(:,:,:)
-
-      !> workspace for the derivatives
-      real(dp), allocatable, intent(inout) :: tmpderiv(:,:)
-
-      !! Holds long-range gamma derivatives of a single interaction
-      real(dp) :: tmp(3)
-
-      !!
-      integer :: iSpin, iAt1, iAt2, nAtom0
-
-      nAtom0 = size(this%species0)
-
-      allocate(tmpOvr(size(ovrlapMat, dim=1), size(ovrlapMat, dim=1)))
-      allocate(tmpRho(size(deltaRho, dim=1), size(deltaRho, dim=1), size(deltaRho, dim=3)))
-      allocate(gammaPrimeTmp(3, nAtom0, nAtom0))
-      allocate(tmpderiv(3, size(gradients, dim=2)))
-      tmpOvr = ovrlapMat
-      tmpRho = deltaRho
-
-      call symmetrizeHS(tmpOvr)
-
-      do iSpin = 1, size(deltaRho, dim=3)
-        call symmetrizeHS(tmpRho(:,:, iSpin))
-      end do
-
-      ! precompute the gamma derivatives
-      gammaPrimeTmp(:,:,:) = 0.0_dp
-      do iAt1 = 1, nAtom0
-        do iAt2 = 1, nAtom0
-          if (iAt1 /= iAt2) then
-            call getGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, this%species0)
-            gammaPrimeTmp(:, iAt1, iAt2) = tmp
-          end if
-        end do
-      end do
-    end subroutine allocateAndInit
-
-  end subroutine addLrGradients_cluster_sym
 
 
   !> Adds gradients due to long-range HF-contribution (Gamma-point version).
@@ -4635,7 +4088,7 @@ contains
     end do
 
     ! get all cell translations within given cutoff
-    call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
+    ! call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
 
     loopK: do iAtK = 1, nAtom0
       iSpK = this%species0(iAtK)
@@ -4877,7 +4330,7 @@ contains
   end subroutine getLrGammaCluster
 
 
-  !> Calculates long-range gamma derivative integrals (non-periodic systems only).
+  !> Calculates long-range gamma derivative integrals (non-periodic).
   subroutine getLrGammaDerivCluster(this, coords0, species0, lrGammaDeriv0)
 
     !> Class instance
@@ -4903,7 +4356,7 @@ contains
     do iAt1 = 1, nAtom0
       do iAt2 = 1, nAtom0
         if (iAt1 /= iAt2) then
-          call getGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
+          call getLrGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
           lrGammaDeriv0(iAt2, iAt1, :) = tmp
         end if
       end do
@@ -4917,7 +4370,7 @@ contains
   !!
 
   !> Interface routine for the full-range Hartree-Fock contribution to the Hamiltonian.
-  subroutine addHartreeFockHamiltonian_cluster(this, densSqr, over, iNeighbour, nNeighbourCam,&
+  subroutine addHfHamiltonian_cluster(this, densSqr, over, iNeighbour, nNeighbourCam,&
       & iSquare, iPair, orb, HH, overlap)
 
     !> Instance
@@ -4961,60 +4414,14 @@ contains
     case (rangeSepTypes%neighbour)
       call error('Neighbour based algorithm not yet implemented for HF non-periodic systems.')
     case (rangeSepTypes%matrixBased)
-      call addHartreeFockHamiltonianMatrix_cluster(this, iSquare, overlap, densSqr, HH)
+      call addHfHamiltonianMatrix_cluster(this, iSquare, overlap, densSqr, HH)
     end select
 
-  end subroutine addHartreeFockHamiltonian_cluster
-
-
-  !> Interface routine for the full-range Hartree-Fock contribution to the Hamiltonian.
-  subroutine addHartreeFockHamiltonian_gamma(this, densSqr, squareOver, symNeighbourList,&
-      & nNeighbourCamSym, rCellVecsLC, latVecs, recVecs2p, iSquare, orb, HH)
-
-    !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
-
-    !> Square (unpacked) density matrix
-    real(dp), intent(in), target :: densSqr(:,:)
-
-    !> Square real overlap matrix
-    real(dp), intent(in) :: squareOver(:,:)
-
-    !> list of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
-
-    !> Nr. of neighbours for each atom.
-    integer, intent(in) :: nNeighbourCamSym(:)
-
-    !> Vectors to neighboring unit cells in absolute units
-    real(dp), intent(in) :: rCellVecsLC(:,:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2pi
-    real(dp), intent(in) :: recVecs2p(:,:)
-
-    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
-    integer, intent(in) :: iSquare(:)
-
-    !> Orbital information
-    type(TOrbitals), intent(in) :: orb
-
-    !> Square (unpacked) Hamiltonian to be updated
-    real(dp), intent(inout), target :: HH(:,:)
-
-    ! select case(this%rsAlg)
-    ! case (rangeSepTypes%neighbour)
-    !   call addHartreeFockHamiltonianNeighbour_gamma(this, densSqr, over, iNeighbour,&
-    !       & nNeighbourCamSym, iSquare, iPair, orb, HH)
-    ! end select
-
-  end subroutine addHartreeFockHamiltonian_gamma
+  end subroutine addHfHamiltonian_cluster
 
 
   !> Updates Hamiltonian with Hartree-Fock contribution using matrix-matrix multiplications.
-  subroutine addHartreeFockHamiltonianMatrix_cluster(this, iSquare, overlap, densSqr, HH)
+  subroutine addHfHamiltonianMatrix_cluster(this, iSquare, overlap, densSqr, HH)
 
     !> Instance
     type(TRangeSepFunc), intent(inout) :: this
@@ -5155,11 +4562,11 @@ contains
 
     end subroutine evaluateHamiltonian
 
-  end subroutine addHartreeFockHamiltonianMatrix_cluster
+  end subroutine addHfHamiltonianMatrix_cluster
 
 
   !> Add the full-range Hartree-Fock Energy contribution to the total energy.
-  subroutine addHartreeFockEnergy(this, env, energy)
+  subroutine addHfEnergy(this, env, energy)
 
     !> Instance
     type(TRangeSepFunc), intent(inout) :: this
@@ -5184,11 +4591,11 @@ contains
     ! hack for spin unrestricted calculation
     this%hfEnergy = 0.0_dp
 
-  end subroutine addHartreeFockEnergy
+  end subroutine addHfEnergy
 
 
   !> Calculates analytical full-range Hartree-Fock gamma.
-  function getAnalyticalHartreeFockGammaValue(this, iSp1, iSp2, dist) result(gamma)
+  function getAnalyticalHfGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -5234,7 +4641,7 @@ contains
       end if
     end if
 
-  end function getAnalyticalHartreeFockGammaValue
+  end function getAnalyticalHfGammaValue
 
 
   !> Derivative of analytical full-range Hartree-Fock gamma.
@@ -5293,7 +4700,7 @@ contains
 
   !> !> Returns the derivative of full-range Hartree-Fock gamma for iAtom1, iAtom2
   !! (non-periodic systems only).
-  subroutine getHartreeFockGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
+  subroutine getHfGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
 
     !> Instance
     type(TRangeSepFunc), intent(in) :: this
@@ -5328,12 +4735,12 @@ contains
     vect(:) = vect / dist
     grad(:) = vect * getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist)
 
-  end subroutine getHartreeFockGammaPrimeValue_cluster
+  end subroutine getHfGammaPrimeValue_cluster
 
 
   !> !> Returns the derivative of full-range Hartree-Fock gamma for iAtom1, iAtom2
   !! (periodic systems).
-  subroutine getHartreeFockGammaPrimeValue_periodic(this, grad, iAtom1, iAtom2, coords, species0,&
+  subroutine getHfGammaPrimeValue_periodic(this, grad, iAtom1, iAtom2, coords, species0,&
       & img2CentCell)
 
     !> Instance
@@ -5372,11 +4779,11 @@ contains
     vect(:) = vect / dist
     grad(:) = vect * getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist)
 
-  end subroutine getHartreeFockGammaPrimeValue_periodic
+  end subroutine getHfGammaPrimeValue_periodic
 
 
-  !> Returns full-range HartreeFock gamma integrals (non-periodic systems only).
-  pure subroutine getHartreeFockGammaCluster(this, hfGamma0)
+  !> Returns full-range HartreeFock gamma integrals (non-periodic).
+  pure subroutine getHfGammaCluster(this, hfGamma0)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -5386,11 +4793,11 @@ contains
 
     hfGamma0(:,:) = this%hfGammaEval0
 
-  end subroutine getHartreeFockGammaCluster
+  end subroutine getHfGammaCluster
 
 
   !> Calculate long-range gamma derivative integrals.
-  subroutine getHartreeFockGammaDerivCluster(this, coords0, species0, hfGammaDeriv0)
+  subroutine getHfGammaDerivCluster(this, coords0, species0, hfGammaDeriv0)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -5415,17 +4822,17 @@ contains
     do iAt1 = 1, nAtom0
       do iAt2 = 1, nAtom0
         if (iAt1 /= iAt2) then
-          call getHartreeFockGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
+          call getHfGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
           hfGammaDeriv0(iAt2, iAt1, :) = tmp
         end if
       end do
     end do
 
-  end subroutine getHartreeFockGammaDerivCluster
+  end subroutine getHfGammaDerivCluster
 
 
   !> Adds gradients due to full-range Hartree-Fock contribution.
-  subroutine addHartreeFockGradients_cluster(this, gradients, derivator, deltaRho, skOverCont,&
+  subroutine addHfGradients_cluster(this, gradients, derivator, deltaRho, skOverCont,&
       & coords, species, orb, iSquare, overlapMat, iNeighbour, nNeighbourSK)
 
     !> Class instance
@@ -5605,7 +5012,7 @@ contains
       do iAt1 = 1, nAtom0
         do iAt2 = 1, nAtom0
           if (iAt1 /= iAt2) then
-            call getHartreeFockGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords, species)
+            call getHfGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords, species)
             gammaPrimeTmp(:, iAt1, iAt2) = tmp
           end if
         end do
@@ -5613,6 +5020,6 @@ contains
 
     end subroutine allocateAndInit
 
-  end subroutine addHartreeFockGradients_cluster
+  end subroutine addHfGradients_cluster
 
 end module dftbp_dftb_rangeseparated

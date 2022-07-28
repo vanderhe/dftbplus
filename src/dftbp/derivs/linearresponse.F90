@@ -15,7 +15,7 @@ module dftbp_derivs_linearresponse
   use dftbp_common_status, only : TStatus
   use dftbp_derivs_fermihelper, only : theta, deltamn, invDiff
   use dftbp_derivs_rotatedegen, only : TRotateDegen, TRotateDegen_init
-  use dftbp_dftb_periodic, only : TNeighbourList, TSymNeighbourList
+  use dftbp_dftb_periodic, only : TNeighbourList
   use dftbp_dftb_rangeseparated, only : TRangeSepFunc
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_densedescr, only : TDenseDescr
@@ -51,10 +51,9 @@ module dftbp_derivs_linearresponse
 contains
 
   !> Calculate the derivative of density matrix from derivative of hamiltonian at q=0, k=0
-  subroutine dRhoReal(env, dHam, neighbourList, symNeighbourList, nNeighbourSK, iSparseStart,&
-      & img2CentCell, denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals, Ef,&
-      & tempElec, orb, dRhoSparse, dRhoSqr, rangeSep, over, nNeighbourCam, nNeighbourCamSym,&
-      & transform, species,&
+  subroutine dRhoReal(env, dHam, neighbourList, nNeighbourSK, iSparseStart, img2CentCell,&
+      & denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals, Ef, tempElec, orb,&
+      & dRhoSparse, dRhoSqr, rangeSep, over, nNeighbourCam, transform, species,&
     #:if WITH_SCALAPACK
       & desc,&
     #:endif
@@ -68,9 +67,6 @@ contains
 
     !> list of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
-
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
 
     !> Number of neighbours for each of the atoms
     integer, intent(in) :: nNeighbourSK(:)
@@ -125,9 +121,6 @@ contains
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
-
-    !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Transformation structure for degenerate orbitals
     type(TRotateDegen), intent(inout) :: transform
@@ -376,9 +369,8 @@ contains
       end if
       call unpackHS(workLocal, over, neighbourList%iNeighbour, nNeighbourSK,&
           & denseDesc%iAtomStart, iSparseStart, img2CentCell)
-      call rangeSep%addCamHamiltonian_cluster(env, dRhoSqr(:,:,iS), over, symNeighbourList,&
-          & neighbourList%iNeighbour, nNeighbourCam, nNeighbourCamSym, denseDesc%iAtomStart,&
-          & iSparseStart, orb, dRho, workLocal)
+      call rangeSep%addCamHamiltonian_cluster(env, dRhoSqr(:,:,iS), over, neighbourList%iNeighbour,&
+          & nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb, dRho, workLocal)
     end if
 
     ! form |c> H' <c|

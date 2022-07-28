@@ -27,7 +27,7 @@ module dftbp_derivs_perturb
   use dftbp_dftbplus_outputfiles, only : derivVBandOut
   use dftbp_dftb_onsitecorrection, only : addOnsShift, onsblock_expand
   use dftbp_dftb_orbitalequiv, only : OrbitalEquiv_reduce, OrbitalEquiv_expand
-  use dftbp_dftb_periodic, only : TNeighbourList, TSymNeighbourList
+  use dftbp_dftb_periodic, only : TNeighbourList
   use dftbp_dftb_populations, only : mulliken, denseMulliken, getChargePerShell, getOnsitePopulation
   use dftbp_dftb_potentials, only : TPotentials, TPotentials_init
   use dftbp_dftb_rangeseparated, only : TRangeSepFunc
@@ -130,12 +130,11 @@ contains
 
   !> Perturbation at q=0 with respect to a static electric field
   subroutine wrtEField(this, env, parallelKS, filling, eigvals, eigVecsReal, eigVecsCplx, ham,&
-      & over, orb, nAtom, species, neighbourList, symNeighbourList, nNeighbourSK, denseDesc,&
-      & iSparseStart, img2CentCell, coord, sccCalc, maxSccIter, sccTol, isSccConvRequired,&
-      & nMixElements, nIneqMixElements, iEqOrbitals, tempElec, Ef, spinW, thirdOrd, dftbU,&
-      & iEqBlockDftbu, onsMEs, iEqBlockOnSite, rangeSep, nNeighbourCam, nNeighbourCamSym,&
-      & pChrgMixer, kPoint, kWeight, iCellVec, cellVec, polarisability, dEi, dqOut, neFermi, dEfdE,&
-      & errStatus, omega)
+      & over, orb, nAtom, species, neighbourList, nNeighbourSK, denseDesc, iSparseStart,&
+      & img2CentCell, coord, sccCalc, maxSccIter, sccTol, isSccConvRequired, nMixElements,&
+      & nIneqMixElements, iEqOrbitals, tempElec, Ef, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs,&
+      & iEqBlockOnSite, rangeSep, nNeighbourCam, pChrgMixer, kPoint, kWeight, iCellVec, cellVec,&
+      & polarisability, dEi, dqOut, neFermi, dEfdE, errStatus, omega)
 
     !> Instance
     class(TResponse), intent(in) :: this
@@ -175,9 +174,6 @@ contains
 
     !> list of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
-
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
 
     !> Number of neighbours for each of the atoms
     integer, intent(in) :: nNeighbourSK(:)
@@ -245,9 +241,6 @@ contains
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
-
-    !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Charge mixing object
     type(TMixer), intent(inout), allocatable :: pChrgMixer
@@ -394,15 +387,15 @@ contains
 
         dEiTmp(:,:,:) = 0.0_dp
         call response(env, parallelKS, dPotential, nAtom, orb, species, neighbourList,&
-            & symNeighbourList, nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over,&
-            & iEqOrbitals, sccCalc, sccTol, isSccConvRequired, maxSccIter, pChrgMixer,&
-            & nMixElements, nIneqMixElements, dqIn, dqOut(:,:,:,iCart), rangeSep, nNeighbourCam,&
-            & nNeighbourCamSym, sSqrReal, dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut, nSpin, maxFill,&
-            & spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite, dqBlockIn, dqBlockOut,&
-            & eigVals, transform, dEiTmp, dEfdETmp, Ef, this%isEfFixed, dHam, idHam, dRho, idRho,&
-            & tempElec, tMetallic, neFermi, nFilled, nEmpty, kPoint, kWeight, cellVec, iCellVec,&
-            & eigVecsReal, eigVecsCplx, dPsiReal, dPsiCmplx, coord, errStatus, omega(iOmega),&
-            & dDipole=polarisability(:, iCart, iOmega), eta=this%eta)
+            & nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over, iEqOrbitals, sccCalc,&
+            & sccTol, isSccConvRequired, maxSccIter, pChrgMixer, nMixElements, nIneqMixElements,&
+            & dqIn, dqOut(:,:,:,iCart), rangeSep, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr,&
+            & dRhoIn, dRhoOut, nSpin, maxFill, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs,&
+            & iEqBlockOnSite, dqBlockIn, dqBlockOut, eigVals, transform, dEiTmp, dEfdETmp, Ef,&
+            & this%isEfFixed, dHam, idHam, dRho, idRho, tempElec, tMetallic, neFermi, nFilled,&
+            & nEmpty, kPoint, kWeight, cellVec, iCellVec, eigVecsReal, eigVecsCplx, dPsiReal,&
+            & dPsiCmplx, coord, errStatus, omega(iOmega), dDipole=polarisability(:, iCart, iOmega),&
+            & eta=this%eta)
         @:PROPAGATE_ERROR(errStatus)
 
         if (allocated(dEfdE)) then
@@ -452,11 +445,10 @@ contains
   subroutine wrtVAtom(this, env, parallelKS, isAutotestWritten, autotestTagFile,&
       & isTagResultsWritten, resultsTagFile, taggedWriter, isBandWritten, fdDetailedOut,&
       & filling, eigvals, eigVecsReal, eigVecsCplx, ham, over, orb, nAtom, species, neighbourList,&
-      & symNeighbourList, nNeighbourSK, denseDesc, iSparseStart, img2CentCell, isRespKernelRPA,&
-      & sccCalc, maxSccIter, sccTol, isSccConvRequired, nMixElements, nIneqMixElements,&
-      & iEqOrbitals, tempElec, Ef, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite,&
-      & rangeSep, nNeighbourCam, nNeighbourCamSym, pChrgMixer, kPoint, kWeight, iCellVec, cellVec,&
-      & nEFermi, errStatus, omega, isHelical, coord)
+      & nNeighbourSK, denseDesc, iSparseStart, img2CentCell, isRespKernelRPA, sccCalc, maxSccIter,&
+      & sccTol, isSccConvRequired, nMixElements, nIneqMixElements, iEqOrbitals, tempElec, Ef,&
+      & spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite, rangeSep, nNeighbourCam,&
+      & pChrgMixer, kPoint, kWeight, iCellVec, cellVec, nEFermi, errStatus, omega, isHelical, coord)
 
     !> Instance
     class(TResponse), intent(in) :: this
@@ -517,9 +509,6 @@ contains
 
     !> list of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
-
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
 
     !> Number of neighbours for each of the atoms
     integer, intent(in) :: nNeighbourSK(:)
@@ -587,9 +576,6 @@ contains
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
-
-    !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Charge mixing object
     type(TMixer), intent(inout), allocatable :: pChrgMixer
@@ -740,15 +726,14 @@ contains
 
         dEi(:,:,:) = 0.0_dp
         call response(env, parallelKS, dPotential, nAtom, orb, species, neighbourList,&
-            & symNeighbourList, nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over,&
-            & iEqOrbitals, sccCalc, sccTol, isSccRequired, nIter, pChrgMixer, nMixElements,&
-            & nIneqMixElements, dqIn, dqOut, rangeSep, nNeighbourCam, nNeighbourCamSym, sSqrReal,&
-            & dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut, nSpin, maxFill, spinW, thirdOrd, dftbU,&
-            & iEqBlockDftbu, onsMEs, iEqBlockOnSite, dqBlockIn, dqBlockOut, eigVals, transform,&
-            & dEi, dEf, Ef, this%isEfFixed, dHam, idHam, dRho, idRho, tempElec, tMetallic, neFermi,&
-            & nFilled, nEmpty, kPoint, kWeight, cellVec, iCellVec, eigVecsReal, eigVecsCplx,&
-            & dPsiReal, dPsiCmplx, coord, errStatus, omega(iOmega), isHelical=isHelical,&
-            & eta=this%eta)
+            & nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over, iEqOrbitals, sccCalc,&
+            & sccTol, isSccRequired, nIter, pChrgMixer, nMixElements, nIneqMixElements, dqIn,&
+            & dqOut, rangeSep, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut,&
+            & nSpin, maxFill, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite,&
+            & dqBlockIn, dqBlockOut, eigVals, transform, dEi, dEf, Ef, this%isEfFixed, dHam, idHam,&
+            & dRho, idRho, tempElec, tMetallic, neFermi, nFilled, nEmpty, kPoint, kWeight, cellVec,&
+            & iCellVec, eigVecsReal, eigVecsCplx, dPsiReal, dPsiCmplx, coord, errStatus,&
+            & omega(iOmega), isHelical=isHelical, eta=this%eta)
           @:PROPAGATE_ERROR(errStatus)
 
       #:if WITH_SCALAPACK
@@ -837,14 +822,13 @@ contains
 
   !> Evaluates response, given the external perturbation
   subroutine response(env, parallelKS, dPotential, nAtom, orb, species, neighbourList,&
-      & symNeighbourList, nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over, iEqOrbitals,&
-      & sccCalc, sccTol, isSccConvRequired, maxSccIter, pChrgMixer, nMixElements, nIneqMixElements,&
-      & dqIn, dqOut, rangeSep, nNeighbourCam, nNeighbourCamSym, sSqrReal, dRhoInSqr, dRhoOutSqr,&
-      & dRhoIn, dRhoOut, nSpin, maxFill, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs,&
-      & iEqBlockOnSite, dqBlockIn, dqBlockOut, eigVals, transform, dEi, dEf, Ef, isEfFixed, dHam,&
-      & idHam, dRho, idRho, tempElec, tMetallic, neFermi, nFilled, nEmpty, kPoint, kWeight,&
-      & cellVec, iCellVec, eigVecsReal, eigVecsCplx, dPsiReal, dPsiCmplx, coord, errStatus, omega,&
-      & dDipole, isHelical, eta)
+      & nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over, iEqOrbitals, sccCalc, sccTol,&
+      & isSccConvRequired, maxSccIter, pChrgMixer, nMixElements, nIneqMixElements, dqIn, dqOut,&
+      & rangeSep, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut, nSpin, maxFill,&
+      & spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite, dqBlockIn, dqBlockOut,&
+      & eigVals, transform, dEi, dEf, Ef, isEfFixed, dHam, idHam, dRho, idRho, tempElec, tMetallic,&
+      & neFermi, nFilled, nEmpty, kPoint, kWeight, cellVec, iCellVec, eigVecsReal, eigVecsCplx,&
+      & dPsiReal, dPsiCmplx, coord, errStatus, omega, dDipole, isHelical, eta)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -892,17 +876,11 @@ contains
     !> list of neighbours for each atom
     type(TNeighbourList), intent(in) :: neighbourList
 
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
-
     !> Number of neighbours for each of the atoms
     integer, intent(in) :: nNeighbourSK(:)
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
-
-    !> Symmetric neighbour list version of nNeighbourCam
-    integer, intent(in), allocatable :: nNeighbourCamSym(:)
 
     !> Dense matrix descriptor
     type(TDenseDescr), intent(in) :: denseDesc
@@ -1207,10 +1185,10 @@ contains
             dRhoOutSqr(:,:,iS) = dRhoInSqr(:,:,iS)
           end if
 
-          call dRhoReal(env, dHam, neighbourList, symNeighbourList, nNeighbourSK, iSparseStart,&
-              & img2CentCell, denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals,&
-              & Ef, tempElec, orb, drho(:,iS), dRhoOutSqr, rangeSep, over, nNeighbourCam,&
-              & nNeighbourCamSym, transform(iKS), species,&
+          call dRhoReal(env, dHam, neighbourList, nNeighbourSK, iSparseStart, img2CentCell,&
+              & denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals, Ef, tempElec,&
+              & orb, drho(:,iS), dRhoOutSqr, rangeSep, over, nNeighbourCam, transform(iKS),&
+              & species,&
             #:if WITH_SCALAPACK
               & desc,&
             #:endif
