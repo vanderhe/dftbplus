@@ -30,8 +30,6 @@ module dftbp_dftb_sparse2dense
   public :: unpackHelicalHS, packHelicalHS
   public :: getSparseDescriptor
 
-  public :: unpackHS_cmplx_kpts_plot
-
 #:if WITH_SCALAPACK
   public :: unpackHSRealBlacs, unpackHSCplxBlacs, unpackHPauliBlacs, unpackSPauliBlacs
   public :: packRhoRealBlacs, packRhoCplxBlacs, packRhoPauliBlacs, packERhoPauliBlacs
@@ -193,88 +191,6 @@ contains
     end do
 
   end subroutine unpackHS_cmplx_kpts
-
-
-  !> Unpacks sparse matrix to square form (complex version) Note the non on-site blocks are only
-  !> filled in the lower triangle part of the matrix. To fill the matrix completely, apply the
-  !> blockSymmetrizeHS subroutine.
-  subroutine unpackHS_cmplx_kpts_plot(fd, orig, kPoint, iNeighbour, nNeighbourSK, iCellVec, cellVec,&
-      & iAtomStart, iSparseStart, img2CentCell, coords)
-
-    integer, intent(inout) :: fd
-
-    !> Sparse matrix
-    real(dp), intent(in) :: orig(:)
-
-    !> Relative coordinates of the K-point where the sparse matrix should be unfolded.
-    real(dp), intent(in) :: kPoint(:)
-
-    !> Neighbour list for each atom (First index from 0!)
-    integer, intent(in) :: iNeighbour(0:, :)
-
-    !> Nr. of neighbours for each atom (incl. itself).
-    integer, intent(in) :: nNeighbourSK(:)
-
-    !> Index of the cell translation vector for each atom.
-    integer, intent(in) :: iCellVec(:)
-
-    !> Relative coordinates of the cell translation vectors.
-    real(dp), intent(in) :: cellVec(:, :)
-
-    !> Atom offset for the square Hamiltonian
-    integer, intent(in) :: iAtomStart(:)
-
-    !> indexing array for the sparse Hamiltonian
-    integer, intent(in) :: iSparseStart(0:, :)
-
-    !> Map from images of atoms to central cell atoms
-    integer, intent(in) :: img2CentCell(:)
-
-    !> Absolute coordinates, potentially including periodic images
-    real(dp), intent(in) :: coords(:,:)
-
-    complex(dp) :: phase
-    integer :: nAtom
-    integer :: iOrig, ii, jj, iEntry
-    integer :: iNeigh
-    integer :: iOldVec, iVec
-    integer :: iAtom1, iAtom2, iAtom2f
-    integer :: nOrb1, nOrb2
-    real(dp) :: kPoint2p(3), dist
-
-    real(dp), allocatable :: tmpRes(:)
-
-    nAtom = size(iNeighbour, dim=2)
-
-    kPoint2p(:) = 2.0_dp * pi * kPoint
-    iOldVec = 0
-    phase = 1.0_dp
-    do iAtom1 = 1, nAtom
-      ii = iAtomStart(iAtom1)
-      nOrb1 = iAtomStart(iAtom1 + 1) - ii
-      do iNeigh = 0, nNeighbourSK(iAtom1)
-        iOrig = iSparseStart(iNeigh, iAtom1) + 1
-        iAtom2 = iNeighbour(iNeigh, iAtom1)
-        dist = norm2(coords(:, iAtom2) - coords(:, iAtom1))
-        iAtom2f = img2CentCell(iAtom2)
-        jj = iAtomStart(iAtom2f)
-        @:ASSERT(jj >= ii)
-        nOrb2 = iAtomStart(iAtom2f + 1) - jj
-        iVec = iCellVec(iAtom2)
-        if (iVec /= iOldVec) then
-          phase = exp((0.0_dp, 1.0_dp) * dot_product(kPoint2p, cellVec(:, iVec)))
-          iOldVec = iVec
-        end if
-
-        tmpRes = phase * orig(iOrig:iOrig+nOrb1*nOrb2-1)
-
-        do iEntry = 1, size(tmpRes)
-          write(fd, "(2F20.14)") dist, tmpRes(iEntry)
-        end do
-      end do
-    end do
-
-  end subroutine unpackHS_cmplx_kpts_plot
 
 
   !> Unpacks sparse matrix to square form (real version for Gamma point)

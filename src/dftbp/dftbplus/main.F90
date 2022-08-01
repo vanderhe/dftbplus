@@ -109,7 +109,6 @@ module dftbp_dftbplus_main
   use dftbp_type_densedescr, only : TDenseDescr
   use dftbp_type_integral, only : TIntegral
   use dftbp_type_multipole, only : TMultipole
-  use dftbp_dftb_sparse2dense, only : unpackHS_cmplx_kpts_plot
 #:if WITH_SCALAPACK
   use dftbp_dftb_densitymatrix, only : makeDensityMtxRealBlacs, makeDensityMtxCplxBlacs
   use dftbp_dftb_sparse2dense, only : packRhoRealBlacs, packRhoCplxBlacs, packRhoPauliBlacs,&
@@ -709,9 +708,9 @@ contains
           & this%scc, this%tblite, this%repulsive, this%dispersion,this%solvation, this%thirdOrd,&
           & this%rangeSep, this%reks, this%img2CentCell, this%iCellVec, this%neighbourList,&
           & this%symNeighbourList, this%nAllAtom, this%coord0Fold, this%coord,this%species,&
-          & this%rCellVec, this%nNeighbourSk, this%nNeighbourCam, this%nNeighbourCamSym, this%ints,&
-          & this%H0, this%rhoPrim, this%iRhoPrim, this%ERhoPrim, this%iSparseStart, this%cm5Cont,&
-          & this%skOverCont, errStatus)
+          & this%cellVec, this%rCellVec, this%denseDesc, this%nNeighbourSk, this%nNeighbourCam,&
+          & this%nNeighbourCamSym, this%ints, this%H0, this%rhoPrim, this%iRhoPrim, this%ERhoPrim,&
+          & this%iSparseStart, this%cm5Cont, this%skOverCont, errStatus)
         @:PROPAGATE_ERROR(errStatus)
     end if
 
@@ -1896,9 +1895,9 @@ contains
   subroutine handleCoordinateChange(env, boundaryCond, coord0, latVec, invLatVec, species0, cutOff,&
       & orb, tPeriodic, tRealHS, tHelical, sccCalc, tblite, repulsive, dispersion, solvation,&
       & thirdOrd, rangeSep, reks, img2CentCell, iCellVec, neighbourList, symNeighbourList,&
-      & nAllAtom, coord0Fold, coord, species, rCellVec, nNeighbourSK, nNeighbourCam,&
-      & nNeighbourCamSym, ints, H0, rhoPrim, iRhoPrim, ERhoPrim, iSparseStart, cm5Cont, skOverCont,&
-      & errStatus)
+      & nAllAtom, coord0Fold, coord, species, cellVec, rCellVec, denseDescr, nNeighbourSK,&
+      & nNeighbourCam, nNeighbourCamSym, ints, H0, rhoPrim, iRhoPrim, ERhoPrim, iSparseStart,&
+      & cm5Cont, skOverCont, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -1981,8 +1980,14 @@ contains
     !> Species of all atoms including images
     integer, allocatable, intent(inout) :: species(:)
 
+    !> Vectors to units cells in relative units
+    real(dp), allocatable, intent(in) :: cellVec(:,:)
+
     !> Vectors to units cells in absolute units
     real(dp), allocatable, intent(in) :: rCellVec(:,:)
+
+    !> Dense matrix descriptor
+    type(TDenseDescr), intent(in) :: denseDescr
 
     !> Number of neighbours of each real atom
     integer, intent(out) :: nNeighbourSK(:)
@@ -2087,9 +2092,10 @@ contains
         call rangeSep%updateCoords_cluster(coord)
       elseif (tPeriodic .and. tRealHS) then
         call rangeSep%updateCoords_gamma(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
-            & latVec, invLatVec)
-      elseif (tPeriodic .and. (.not. tRealHS)) then
-        ! call rangeSep%updateCoords_kpts()
+            & latVec, invLatVec, denseDescr%iAtomStart)
+      elseif (.not. tRealHS) then
+        call rangeSep%updateCoords_kpts(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
+            & latVec, invLatVec, cellVec, rCellVec, denseDescr%iAtomStart)
       end if
     end if
     if (allocated(cm5Cont)) then
@@ -3667,11 +3673,6 @@ contains
         ! Store square density matrix P(iKS), since currently needed for q0 substraction
         call hermitianSquareMatrix(work)
         deltaRhoOutSqrCplx(:,:, iKS) = work
-        if (env%tGlobalLead) then
-          call unpackHS_cmplx_kpts_plot(fd, rhoPrim(:,iSpin), kPoint(:,iK), neighbourList%iNeighbour,&
-              & nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart, img2CentCell,&
-              & coord)
-        end if
       end if
     end do
 
