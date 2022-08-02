@@ -47,7 +47,7 @@ jobs:
 
     - uses: actions/setup-python@v1
       with:
-        python-version: '3.x'
+        python-version: '3.9'
 
     - name: Install GCC (OSX)
       if: ${{ contains(matrix.os, 'macos') }}
@@ -206,7 +206,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v1
       with:
-        python-version: 3.x
+        python-version: 3.9
 
     - name: Add Intel repository
       if: contains(matrix.os, 'ubuntu')
