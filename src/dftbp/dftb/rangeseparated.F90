@@ -3110,8 +3110,8 @@ contains
       deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin) - this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin)
     end if
 
-    ! pMax = maxval(abs(deltaDeltaRhoSqr))
-    pMax = maxval(abs(deltaRhoSqr))
+    pMax = maxval(abs(deltaDeltaRhoSqr))
+    ! pMax = maxval(abs(deltaRhoSqr))
     ! store delta density matrix only once per spin and SCC iteration
     if (iKS == nKS .or. iCurSpin == 2) then
       this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin) = deltaRhoSqr(:,:,:,:,:, iCurSpin)
@@ -3150,8 +3150,8 @@ contains
           iAtAfold = symNeighbourList%img2CentCell(iAtA)
           descA = getDescriptor(iAtAfold, iSquare)
           ! get continuous 2D copy of Pab density matrix block
-          ! Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:)
-          Pab = deltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iCurSpin)
+          Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:)
+          ! Pab = deltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iCurSpin)
           ! get real-space \vec{h} for gamma arguments
           rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
           vecH(:) = nint(cellVecs(:, symNeighbourList%iCellVec(iAtA)))
@@ -3259,22 +3259,22 @@ contains
     call mpifx_allreduceip(env%mpi%groupComm, tmpHSqr, MPI_SUM)
   #:endif
 
-    HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
+    ! HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
 
-    ! this%hprevCplxHS(:,:, iKS) = this%hprevCplxHS(:,:, iKS) + tmpHSqr
-    ! HSqr(:,:) = HSqr + this%camBeta * this%hprevCplxHS(:,:, iKS)
+    this%hprevCplxHS(:,:, iKS) = this%hprevCplxHS(:,:, iKS) + tmpHSqr
+    HSqr(:,:) = HSqr + this%camBeta * this%hprevCplxHS(:,:, iKS)
 
     ! Add energy contribution but divide by the number of processes working on iKS
   #:if WITH_MPI
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(tmpHSqr, kWeight,&
-        & deltaRhoOutSqrCplx) / real(env%mpi%groupComm%size, dp)
-    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
+    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(tmpHSqr, kWeight,&
     !     & deltaRhoOutSqrCplx) / real(env%mpi%groupComm%size, dp)
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
+        & deltaRhoOutSqrCplx) / real(env%mpi%groupComm%size, dp)
   #:else
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(tmpHSqr, kWeight,&
-        & deltaRhoOutSqrCplx)
-    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
+    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(tmpHSqr, kWeight,&
     !     & deltaRhoOutSqrCplx)
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
+        & deltaRhoOutSqrCplx)
   #:endif
 
   end subroutine addLrHamiltonianNeighbour_kpts
