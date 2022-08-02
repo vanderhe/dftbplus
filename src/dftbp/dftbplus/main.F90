@@ -3628,9 +3628,6 @@ contains
     !! Integer BvK real-space shift in relative coordinates
     integer :: bvKIndex(3)
 
-    integer :: fd, ioStat
-    open(newunit=fd, file='P.dat', action='write', form='formatted', iostat=ioStat)
-
     rhoPrim(:,:) = 0.0_dp
 
     if (associated(deltaRhoOutSqrCplx)) then
@@ -3675,8 +3672,6 @@ contains
         deltaRhoOutSqrCplx(:,:, iKS) = work
       end if
     end do
-
-    close(fd)
 
   #:if WITH_SCALAPACK
     ! Add up and distribute density matrix contribution from each group

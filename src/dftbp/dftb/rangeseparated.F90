@@ -714,6 +714,18 @@ contains
     ! get all cell translations within given cutoff
     call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
 
+    ! build symmetric, sparse overlap
+    call buildS(env, this%overSym, skOverCont, this%rCoords, nNeighbourCamSym,&
+        & symNeighbourList%neighbourList%iNeighbour, symNeighbourList%species,&
+        & symNeighbourList%iPair, orb)
+
+    if (this%tScreeningInited) then
+      this%hPrev(:,:) = 0.0_dp
+      this%dRhoPrev(:,:) = 0.0_dp
+      this%lrEnergy = 0.0_dp
+      this%hfEnergy = 0.0_dp
+    end if
+
     ! ##################### Beginning of \gamma(\bm{g}) pre-tabulation #############################
 
     ! allocate max estimates of square overlap blocks and index array for sorting
@@ -780,18 +792,6 @@ contains
               & rCellVecsG)
         end do
       end do
-    end if
-
-    ! build symmetric, sparse overlap
-    call buildS(env, this%overSym, skOverCont, this%rCoords, nNeighbourCamSym,&
-        & symNeighbourList%neighbourList%iNeighbour, symNeighbourList%species,&
-        & symNeighbourList%iPair, orb)
-
-    if (this%tScreeningInited) then
-      this%hPrev(:,:) = 0.0_dp
-      this%dRhoPrev(:,:) = 0.0_dp
-      this%lrEnergy = 0.0_dp
-      this%hfEnergy = 0.0_dp
     end if
 
   end subroutine updateCoords_gamma
@@ -2459,12 +2459,17 @@ contains
     this%hprev(:,:) = this%hprev + tmpHSqr
     HSqr(:,:) = HSqr + this%camBeta * this%hprev
 
+    ! HSqr(:,:) = HSqr + this%camBeta * tmpHSqr
+
     ! Add energy contribution but divide by the number of processes
   #:if WITH_MPI
     this%lrEnergy = this%lrEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)&
         & / real(env%mpi%groupComm%size, dp)
+    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)&
+    !     & / real(env%mpi%groupComm%size, dp)
   #:else
     this%lrEnergy = this%lrEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)
+    ! this%lrEnergy = this%lrEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)
   #:endif
 
   end subroutine addLrHamiltonianNeighbour_gamma
@@ -2738,8 +2743,7 @@ contains
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
         iNeighNsort = overlapIndices(iAtN)%array(iNeighN + 1) - 1
         pSbnMax = testSquareOver(iAtN)%array(iNeighNsort + 1)
-        pMaxpSbnMax = pMax * pSbnMax
-        if (pMaxpSbnMax < this%pScreeningThreshold) exit loopB
+        if (pSbnMax < this%pScreeningThreshold) exit loopB
         iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
         iAtBfold = symNeighbourList%img2CentCell(iAtB)
         iSpB = this%species0(iAtBfold)
@@ -2761,7 +2765,7 @@ contains
             & this%pScreeningThreshold)
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = overlapIndices(iAtM)%array(iNeighM + 1) - 1
-          maxEstimate = pMaxpSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
+          maxEstimate = pSbnMax * testSquareOver(iAtM)%array(iNeighMsort + 1)
           if (maxEstimate < this%pScreeningThreshold) exit loopA
           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
           iAtAfold = symNeighbourList%img2CentCell(iAtA)
