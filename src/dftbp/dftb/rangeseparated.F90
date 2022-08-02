@@ -1027,7 +1027,7 @@ contains
         call index_heap_sort(gammaSortIdx, lrGammaEvalGTmp)
         gammaSortIdx(:) = gammaSortIdx(size(gammaSortIdx):1:-1)
         lrGammaEvalGTmp(:) = lrGammaEvalGTmp(gammaSortIdx)
-        nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp)
+        nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp, this%pScreeningThreshold)
         this%nNonZeroGammaG(iAtM, iAtN, 0, 0, 0, 0, 0, 0)%array = gammaSortIdx(1:nNonZeroEntries)
         this%lrGammaEvalG(iAtM, iAtN, 0, 0, 0, 0, 0, 0)%array = lrGammaEvalGTmp(1:nNonZeroEntries)
       end if
@@ -1049,7 +1049,7 @@ contains
           call index_heap_sort(gammaSortIdx, lrGammaEvalGTmp)
           gammaSortIdx(:) = gammaSortIdx(size(gammaSortIdx):1:-1)
           lrGammaEvalGTmp(:) = lrGammaEvalGTmp(gammaSortIdx)
-          nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp)
+          nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp, this%pScreeningThreshold)
           this%nNonZeroGammaG(iAtM, iAtBfold, vecL(1), vecL(2), vecL(3), 0, 0, 0)%array&
               & = gammaSortIdx(1:nNonZeroEntries)
           this%lrGammaEvalG(iAtM, iAtBfold, vecL(1), vecL(2), vecL(3), 0, 0, 0)%array&
@@ -1073,7 +1073,7 @@ contains
             call index_heap_sort(gammaSortIdx, lrGammaEvalGTmp)
             gammaSortIdx(:) = gammaSortIdx(size(gammaSortIdx):1:-1)
             lrGammaEvalGTmp(:) = lrGammaEvalGTmp(gammaSortIdx)
-            nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp)
+            nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp, this%pScreeningThreshold)
             this%nNonZeroGammaG(iAtAfold, iAtN, 0, 0, 0, vecH(1), vecH(2), vecH(3))%array&
                 & = gammaSortIdx(1:nNonZeroEntries)
             this%lrGammaEvalG(iAtAfold, iAtN, 0, 0, 0, vecH(1), vecH(2), vecH(3))%array&
@@ -1087,7 +1087,7 @@ contains
             call index_heap_sort(gammaSortIdx, lrGammaEvalGTmp)
             gammaSortIdx(:) = gammaSortIdx(size(gammaSortIdx):1:-1)
             lrGammaEvalGTmp(:) = lrGammaEvalGTmp(gammaSortIdx)
-            nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp)
+            nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp, this%pScreeningThreshold)
             this%nNonZeroGammaG(iAtAfold, iAtBfold, vecL(1), vecL(2), vecL(3), vecH(1), vecH(2),&
                 & vecH(3))%array = gammaSortIdx(1:nNonZeroEntries)
             this%lrGammaEvalG(iAtAfold, iAtBfold, vecL(1), vecL(2), vecL(3), vecH(1), vecH(2),&
@@ -1101,10 +1101,13 @@ contains
   contains
 
     !> Returns the number of non-zero elements in a descending array of reals.
-    function getNumberOfNonZeroElements(array) result(nNonZeroEntries)
+    function getNumberOfNonZeroElements(array, threshold) result(nNonZeroEntries)
 
       !> Descending one-dimensional, real-valued array to search
       real(dp), intent(in) :: array(:)
+
+      !> Screening threshold value
+      real(dp), intent(in) :: threshold
 
       !> Number of non-zero entries
       real(dp) :: nNonZeroEntries
@@ -1115,7 +1118,8 @@ contains
       nNonZeroEntries = 0
 
       do ii = 1, size(array)
-        if (array(ii) < 1e-16_dp) return
+        ! if (array(ii) < 1e-16_dp) return
+        if (array(ii) < threshold) return
         nNonZeroEntries = ii
       end do
 
@@ -3784,8 +3788,8 @@ contains
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       rTotshift(:) = rCellVecsG(:, iG) + rShift
       dist = norm2(rCoords(:, iAt1) - (rCoords(:, iAt2) + rTotshift))
-      gammas(iG) = getLrTruncatedGammaValue(this, iSp1, iSp2, dist)
-      ! gammas(iG) = getLrScreenedGammaValue(this, iSp1, iSp2, dist)
+      ! gammas(iG) = getLrTruncatedGammaValue(this, iSp1, iSp2, dist)
+      gammas(iG) = getLrScreenedGammaValue(this, iSp1, iSp2, dist)
     end do loopG
 
   end function getGammaGResolved

@@ -3527,14 +3527,16 @@ contains
       case (rangeSepTypes%neighbour)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "NeighbourBased"
         write(stdOut, "(2X,A,':',T30,E14.6,A)") "Spatially cutoff at",&
-            & input%ctrl%rangeSepInp%cutoffRed * Bohr__AA," A"
+            & input%ctrl%rangeSepInp%cutoffRed * Bohr__AA, " A"
         if (this%tPeriodic) then
           write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
               & input%ctrl%rangeSepInp%screeningThreshold
-          write(stdOut, "(2X,A,':',T30,E14.6)") "Coulomb Truncation",&
-              & this%cutOff%gammaCutoff
-          write(stdOut, "(2X,A,':',T30,E14.6)") "G-Summation Cutoff",&
-              & this%cutOff%gSummationCutoff
+          write(stdOut, "(2X,A,':',T30,E14.6,A)") "Coulomb Truncation",&
+              & this%cutOff%gammaCutoff, " Bohr"
+          write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
+              & this%cutOff%gSummationCutoff, " Bohr"
+          write(stdOut, "(2X,A,':',T30,E14.6,A)") "Auxiliary Screening",&
+              & this%cutOff%auxiliaryScreening, " a.u."
         end if
       case (rangeSepTypes%threshold)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "Thresholded"
@@ -5637,7 +5639,7 @@ contains
     if (present(auxiliaryScreening)) then
       cutOff%auxiliaryScreening = auxiliaryScreening
     else
-      cutOff%auxiliaryScreening = - log(1.0e-06_dp) / minLatVecNorm2
+      cutOff%auxiliaryScreening = -log(1.0e-06_dp) / minLatVecNorm2
     end if
 
     if (present(gammaCutoff)) then
@@ -5722,7 +5724,7 @@ contains
       !   call error('Error while inferring Coulomb truncation cutoff from supercell folding&
       !       & matrix. Diagonal elements not present.')
       ! end if
-      cutOff%auxiliaryScreening = - log(1.0e-03_dp) / minNormTimesNKpt
+      cutOff%auxiliaryScreening = -log(1.0e-03_dp) / minNormTimesNKpt
     end if
 
     if (present(gammaCutoff)) then
