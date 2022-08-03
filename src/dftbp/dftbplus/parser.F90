@@ -2819,8 +2819,8 @@ contains
         !   deallocate(ctrl%supercellFoldingDiag, ctrl%supercellFoldingMatrix)
         ! end if
       end if
-      ! tReduceByInversion = (.not. ctrl%tSpinOrbit)
-      tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))
+      tReduceByInversion = (.not. ctrl%tSpinOrbit)
+      ! tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))
       call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
           & ctrl%kPoint, ctrl%kWeight, reduceByInversion=tReduceByInversion)
       ctrl%nKPoint = size(ctrl%kPoint, dim=2)

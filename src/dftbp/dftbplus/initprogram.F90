@@ -5653,7 +5653,8 @@ contains
       cutOff%gSummationCutoff = gSummationCutoff
     else
       ! This would correspond to "the savest option"
-      cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
+      ! cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
+      cutOff%gSummationCutoff = 2.0_dp * cutOff%gammaCutoff
     end if
 
   end subroutine getRangeSeparatedCutOff_gamma
@@ -5745,7 +5746,8 @@ contains
       cutOff%gSummationCutoff = gSummationCutoff
     else
       ! This would correspond to "the savest option"
-      cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
+      ! cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
+      cutOff%gSummationCutoff = 2.0_dp * cutOff%gammaCutoff
     end if
 
     write(stdOut, *) 'cutOff%auxiliaryScreening', cutOff%auxiliaryScreening
