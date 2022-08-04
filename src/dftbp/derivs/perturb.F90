@@ -237,7 +237,7 @@ contains
     integer, intent(in), allocatable :: iEqBlockDftbu(:,:,:,:)
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
@@ -572,7 +572,7 @@ contains
     integer, intent(in), allocatable :: iEqBlockDftbu(:,:,:,:)
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
@@ -991,7 +991,7 @@ contains
     integer, intent(in), allocatable :: iEqBlockOnSite(:,:,:,:)
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Square matrix for overlap (if needed)
     real(dp), allocatable, intent(inout) :: sSqrReal(:,:)
@@ -1522,7 +1522,7 @@ contains
     type(TRotateDegen), intent(out), allocatable :: transform(:)
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(in) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(in) :: rangeSep
 
     !> Square matrix for overlap (if needed in range separated calculation)
     real(dp), allocatable, intent(out) :: sSqrReal(:,:)

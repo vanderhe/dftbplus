@@ -27,7 +27,8 @@ module dftbp_dftbplus_parser
   use dftbp_dftb_halogenx, only : halogenXSpecies1, halogenXSpecies2
   use dftbp_dftb_periodic, only : TNeighbourList, TNeighbourlist_init, getSuperSampling, &
       & getCellTranslations, updateNeighbourList
-  use dftbp_dftb_rangeseparated, only : TRangeSepSKTag, rangeSepTypes, checkSupercellFoldingMatrix
+  use dftbp_dftb_rangeseparated, only : TRangeSepSKTag, rangeSepTypes, rangeSepGammaTypes,&
+      & checkSupercellFoldingMatrix
   use dftbp_dftb_repulsive_chimesrep, only : TChimesRepInp
   use dftbp_dftb_repulsive_polyrep, only : TPolyRepInp, TPolyRep
   use dftbp_dftb_repulsive_splinerep, only : TSplineRepInp, TSplineRep
@@ -7738,6 +7739,10 @@ contains
     !! Temporary string buffers
     type(string) :: buffer, modifier
 
+    !! Temporary string buffer, that stores the gamma function type
+    type(string) :: strBuffer
+    character(lc) :: strTmp
+
     call getChildValue(node, "RangeSeparated", value1, "None", child=child1)
     call getNodeName(value1, buffer)
 
@@ -7772,17 +7777,44 @@ contains
             call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
             call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
           end if
-          call getChild(value2, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
-          if (associated(child3)) then
-            allocate(input%gammaCutoff)
-            call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
-            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
+
+          ! parse gamma function type (full, truncated, screened, ...)
+          call getNodeName(value2, buffer)
+          call getChild(value2, "GammaType", child=child3, requested=.true.)
+          call getChildValue(child3, "", strBuffer)
+          ! strTmp = tolower(unquote(trim(char(strBuffer))))
+          select case(tolower(unquote(trim(char(strBuffer)))))
+          case ("full")
+            input%gammaType = rangeSepGammaTypes%full
+          case ("truncated")
+            input%gammaType = rangeSepGammaTypes%truncated
+          case ("truncated+damping")
+            input%gammaType = rangeSepGammaTypes%truncatedAndDamped
+          case ("screened")
+            input%gammaType = rangeSepGammaTypes%screened
+          case default
+            call detailedError(child3, "Invalid Gamma function type '"&
+                & // tolower(unquote(trim(char(strBuffer)))) // "'")
+          end select
+
+          if (input%gammaType == rangeSepGammaTypes%truncated&
+              & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
+            call getChild(value2, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
+            if (associated(child3)) then
+              allocate(input%gammaCutoff)
+              call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
+              call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
+            end if
           end if
-          call getChild(value2, "AuxiliaryScreening", child=child3, requested=.false.)
-          if (associated(child3)) then
-            allocate(input%auxiliaryScreening)
-            call getChildValue(child3, "", input%auxiliaryScreening)
+
+          if (input%gammaType == rangeSepGammaTypes%screened) then
+            call getChild(value2, "AuxiliaryScreening", child=child3, requested=.false.)
+            if (associated(child3)) then
+              allocate(input%auxiliaryScreening)
+              call getChildValue(child3, "", input%auxiliaryScreening)
+            end if
           end if
+
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         end if
       case ("thresholded")
@@ -7853,6 +7885,8 @@ contains
       call getNodeHSDName(value1, buffer)
       call detailedError(child1, "Invalid Algorithm '" // char(buffer) // "'")
     end select
+
+    if (.not. geo%tPeriodic) input%gammaType = rangeSepGammaTypes%full
 
   end subroutine parseRangeSeparated
 

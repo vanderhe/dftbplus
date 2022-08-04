@@ -126,7 +126,7 @@ contains
     type(TTaggedWriter), intent(inout) :: taggedWriter
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> excitation energy of state nStat
     real(dp), intent(out) :: omega
@@ -2384,7 +2384,7 @@ contains
     logical, intent(in) :: tRangeSep
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> resulting excited state gradient
     real(dp), intent(out) :: excgrad(:,:)

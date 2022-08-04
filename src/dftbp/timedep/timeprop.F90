@@ -728,7 +728,7 @@ contains
     type(TScaleExtEField), intent(in) :: eFieldScaling
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Proxy for querying Q-dependant external potentials
     type(TQDepExtPotProxy), intent(inout), allocatable :: qDepExtPot
@@ -909,7 +909,7 @@ contains
     class(TScaleExtEField), intent(in) :: eFieldScaling
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Proxy for querying Q-dependant external potentials
     type(TQDepExtPotProxy), intent(inout), allocatable :: qDepExtPot
@@ -1106,7 +1106,7 @@ contains
     class(TSolvation), allocatable, intent(inout) :: solvation
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> dispersion data and calculations
     class(TDispersionIface), allocatable, intent(inout) :: dispersion
@@ -1622,7 +1622,7 @@ contains
     class(TSolvation), allocatable, intent(inout) :: solvation
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Proxy for querying Q-dependant external potentials
     type(TQDepExtPotProxy), intent(inout), allocatable :: qDepExtPot
@@ -1999,7 +1999,7 @@ contains
     integer, intent(in) :: img2CentCell(:)
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     integer :: iKS
     complex(dp), allocatable :: RdotSprime(:,:)
@@ -3092,7 +3092,7 @@ contains
     type(TEnvironment), intent(inout) :: env
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Real part of density matrix, adjusted by reference charges
     complex(dp), allocatable, intent(inout) :: deltaRho(:,:,:)
@@ -3394,7 +3394,7 @@ contains
     integer, intent(in) :: iAtInCentralRegion(:)
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     if (allocated(repulsive)) then
       call repulsive%updateCoords(coordAll, this%speciesAll, img2CentCell, neighbourList)
@@ -3607,7 +3607,7 @@ contains
     class(TScaleExtEField), intent(in) :: eFieldScaling
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Proxy for querying Q-dependant external potentials
     type(TQDepExtPotProxy), intent(inout), allocatable :: qDepExtPot
@@ -3970,7 +3970,7 @@ contains
     class(TScaleExtEField), intent(in) :: eFieldScaling
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Proxy for querying Q-dependant external potentials
     type(TQDepExtPotProxy), intent(inout), allocatable :: qDepExtPot

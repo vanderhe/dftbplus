@@ -1951,7 +1951,7 @@ contains
     type(TThirdOrder), allocatable, intent(inout) :: thirdOrd
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> data type for REKS
     type(TReksCalc), allocatable, intent(inout) :: reks
@@ -2495,7 +2495,7 @@ contains
     type(TEnergies), intent(inout) :: energy
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> eigenvalues (level, kpoint, spin)
     real(dp), intent(out) :: eigen(:,:,:)
@@ -2722,7 +2722,7 @@ contains
     type(TEnergies), intent(inout) :: energy
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
 
     !> eigenvalues (level, kpoint, spin)
     real(dp), intent(out) :: eigen(:,:,:)
@@ -2909,7 +2909,7 @@ contains
     type(TParallelKS), intent(in) :: parallelKS
 
     !>Data for rangeseparated calculation
-    type(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
 
     !> Change in density matrix during last rangesep SCC cycle
     real(dp), intent(in), pointer :: deltaRhoInSqr(:,:,:)
@@ -3110,7 +3110,7 @@ contains
     real(dp), intent(in) :: coord(:,:)
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
 
     !> Change in complex density matrix during last rangesep SCC cycle
     complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
@@ -3614,7 +3614,7 @@ contains
     complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), intent(in), allocatable :: rangeSep
+    class(TRangeSepFunc), intent(in), allocatable :: rangeSep
 
     !! K-point-spin composite index and k-point/spin index
     integer :: iKS, iK, iSpin
@@ -4486,7 +4486,7 @@ contains
     real(dp), intent(in) :: cellVec(:,:)
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), intent(in) :: rangeSep
+    class(TRangeSepFunc), intent(in) :: rangeSep
 
     !> Resulting input charges for next SCC iteration
     real(dp), intent(inout) :: qInput(:,:,:)
@@ -4923,7 +4923,7 @@ contains
     real(dp), intent(inout), allocatable :: occNatural(:)
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     real(dp), allocatable :: dQAtom(:,:)
     real(dp), allocatable :: naturalOrbs(:,:,:)
@@ -6088,7 +6088,7 @@ contains
     class(TDispersionIface), intent(inout), allocatable :: dispersion
 
     !> Data from rangeseparated calculations
-    type(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
 
     !> dense overlap matrix, required for rangeSep
     real(dp), intent(inout), allocatable :: SSqrReal(:,:)
@@ -7623,7 +7623,7 @@ contains
     type(TPotentials), intent(inout) :: potential
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> Nr. of neighbours for each atom in the CAM functional
     integer, intent(in), allocatable :: nNeighbourCam(:)

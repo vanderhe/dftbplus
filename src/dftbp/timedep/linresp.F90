@@ -256,7 +256,7 @@ contains
     type(TTaggedWriter), intent(inout) :: taggedWriter
 
     !> Data for range separated calcualtion
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> excitation energy (only when nStat /=0, othewise set numerically 0)
     real(dp), intent(out) :: excEnergy
@@ -352,7 +352,7 @@ contains
     type(TTaggedWriter), intent(inout) :: taggedWriter
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> energy of particular excited state
     real(dp), intent(out) :: excenergy

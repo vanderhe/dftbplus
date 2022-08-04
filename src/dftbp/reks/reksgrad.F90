@@ -418,7 +418,7 @@ contains
     type(TScc), allocatable, intent(inout) :: sccCalc
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> list of all atomic coordinates
     real(dp), intent(in) :: coords(:,:)

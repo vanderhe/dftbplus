@@ -126,6 +126,9 @@ module dftbp_dftbplus_inputdata
     !> Choice of range separation method
     integer :: rangeSepAlg
 
+    !> Choice of range separation gamma function type (periodic cases only)
+    integer :: gammaType
+
     !> Cutoff for real-space g-summation
     real(dp), allocatable :: gSummationCutoff
 

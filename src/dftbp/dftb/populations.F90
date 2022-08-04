@@ -216,7 +216,7 @@ contains
     real(dp), intent(in) :: cellVecs(:,:)
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), intent(in) :: rangeSep
+    class(TRangeSepFunc), intent(in) :: rangeSep
 
     !! Real-space overlap shift in relative coordinates
     real(dp) :: overShift(3)
@@ -550,7 +550,7 @@ contains
     real(dp), intent(in), pointer :: rho(:,:,:,:,:,:)
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), intent(in) :: rangeSep
+    class(TRangeSepFunc), intent(in) :: rangeSep
 
     !! Integer BvK real-space shift translated to density matrix indices
     integer :: bvKIndex(3)
@@ -679,7 +679,7 @@ contains
     integer, intent(in) :: iSpin
 
     !> Data for rangeseparated calculation
-    type(TRangeSepFunc), intent(in) :: rangeSep
+    class(TRangeSepFunc), intent(in) :: rangeSep
 
     !! Integer BvK real-space shift translated to density matrix indices
     integer :: bvKIndex(3)

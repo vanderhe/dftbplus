@@ -41,7 +41,7 @@ module dftbp_dftb_rangeseparated
   private
 
   public :: TRangeSepSKTag, TRangeSepFunc, TRangeSepFunc_init
-  public :: getGammaPrimeValue, rangeSepTypes, checkSupercellFoldingMatrix
+  public :: getGammaPrimeValue, rangeSepTypes, rangeSepGammaTypes, checkSupercellFoldingMatrix
 
 
   !> Returns the derivative of long-range gamma.
@@ -81,8 +81,29 @@ module dftbp_dftb_rangeseparated
   end type TRangeSepTypesEnum
 
 
+  type :: TRangeSepGammaTypesEnum
+
+    !> Full, unaltered gamma function (full)
+    integer :: full = 0
+
+    !> Truncated gamma function with hard cutoff (truncated)
+    integer :: truncated = 1
+
+    !> Truncated and poly5zero damped gamma function (truncated+damped)
+    integer :: truncatedAndDamped = 2
+
+    !> Artificially screened gamma function (screened)
+    integer :: screened = 3
+
+  end type TRangeSepGammaTypesEnum
+
+
   !> Container for enumerated range separation types
   type(TRangeSepTypesEnum), parameter :: rangeSepTypes = TRangeSepTypesEnum()
+
+
+  !> Container for enumerated range separation gamma function types
+  type(TRangeSepGammaTypesEnum), parameter :: rangeSepGammaTypes = TRangeSepGammaTypesEnum()
 
 
   !> Slater-Koster file RangeSep tag structure
@@ -100,8 +121,7 @@ module dftbp_dftb_rangeseparated
   end type TRangeSepSKTag
 
 
-  !> Range-Sep module structure
-  type :: TRangeSepFunc
+  type, abstract :: TRangeSepFunc
 
     !> Real-space coordinates of atoms (relative units), potentially including periodic images
     real(dp), allocatable :: coords(:,:)
@@ -213,6 +233,12 @@ module dftbp_dftb_rangeseparated
     !> Supercell folding coefficients (diagonal elements)
     integer, allocatable :: coeffsDiag(:)
 
+    ! !> Procedure, pointing to the choosen gamma function
+    ! procedure(gammaFunc), pointer, nopass :: getLrGammaValue => null()
+
+    ! !> Procedure, pointing to the choosen gamma function
+    ! procedure(gammaFunc), pointer, nopass :: getHfGammaValue => null()
+
   contains
 
     procedure :: updateCoords_cluster, updateCoords_gamma, updateCoords_kpts
@@ -239,18 +265,90 @@ module dftbp_dftb_rangeseparated
 
     procedure :: evaluateLrEnergyDirect_cluster
 
+    procedure(gammaFunc), deferred :: getLrGammaValue
+    procedure(gammaFunc), deferred :: getHfGammaValue
+
   end type TRangeSepFunc
+
+
+  abstract interface
+    !> Calculates analytical long-range gamma of given type.
+    function gammaFunc(this, iSp1, iSp2, dist) result(gamma)
+
+      import :: TRangeSepFunc, dp
+
+      !> Instance
+      class(TRangeSepFunc), intent(in) :: this
+
+      !> First species
+      integer, intent(in) :: iSp1
+
+      !> Second species
+      integer, intent(in) :: iSp2
+
+      !> Distance between atoms
+      real(dp), intent(in) :: dist
+
+      !> Resulting truncated gamma
+      real(dp) :: gamma
+
+    end function gammaFunc
+  end interface
+
+
+  !>
+  type, extends(TRangeSepFunc) :: TRangeSepFunc_full
+
+  contains
+
+    procedure :: getLrGammaValue => getAnalyticalLrGammaValue
+    procedure :: getHfGammaValue => getAnalyticalHfGammaValue
+
+  end type TRangeSepFunc_full
+
+
+  !>
+  type, extends(TRangeSepFunc) :: TRangeSepFunc_truncated
+
+  contains
+
+    procedure :: getLrGammaValue => getLrTruncatedGammaValue
+    procedure :: getHfGammaValue => getHfTruncatedGammaValue
+
+  end type TRangeSepFunc_truncated
+
+
+  !>
+  type, extends(TRangeSepFunc) :: TRangeSepFunc_truncatedAndDamped
+
+  contains
+
+    procedure :: getLrGammaValue => getLrTruncatedAndDampedGammaValue
+    procedure :: getHfGammaValue => getHfTruncatedAndDampedGammaValue
+
+  end type TRangeSepFunc_truncatedAndDamped
+
+
+  !>
+  type, extends(TRangeSepFunc) :: TRangeSepFunc_screened
+
+  contains
+
+    procedure :: getLrGammaValue => getLrScreenedGammaValue
+    procedure :: getHfGammaValue => getHfScreenedGammaValue
+
+  end type TRangeSepFunc_screened
 
 
 contains
 
-
   !> Intitializes the range-sep module.
   subroutine TRangeSepFunc_init(this, nAtom, species0, hubbu, screen, omega, camAlpha, camBeta,&
-      & tSpin, tREKS, rsAlg, gammaCutoff, gSummationCutoff, auxiliaryScreening, coeffsDiag)
+      & tSpin, tREKS, rsAlg, gammaType, gammaCutoff, gSummationCutoff, auxiliaryScreening,&
+      & coeffsDiag)
 
-    !> Instance
-    type(TRangeSepFunc), intent(out) :: this
+    !> Class instance
+    class(TRangeSepFunc), intent(out), allocatable :: this
 
     !> Number of atoms
     integer, intent(in) :: nAtom
@@ -282,6 +380,9 @@ contains
     !> lr-hamiltonian construction algorithm
     integer, intent(in) :: rsAlg
 
+    !> Gamma function type for periodic cases
+    integer, intent(in) :: gammaType
+
     !> Cutoff for truncated Gamma
     real(dp), intent(in), optional :: gammaCutoff
 
@@ -299,6 +400,19 @@ contains
 
     !! Number of unique species in system
     integer :: nUniqueSpecies
+
+    select case(gammaType)
+    case (rangeSepGammaTypes%full)
+      allocate(TRangeSepFunc_full:: this)
+    case (rangeSepGammaTypes%truncated)
+      allocate(TRangeSepFunc_truncated:: this)
+    case (rangeSepGammaTypes%truncatedAndDamped)
+      allocate(TRangeSepFunc_truncatedAndDamped:: this)
+    case (rangeSepGammaTypes%screened)
+      allocate(TRangeSepFunc_screened:: this)
+    case default
+      call error('Invalid gamma function type obtained.')
+    end select
 
     this%tScreeningInited = .false.
     this%pScreeningThreshold = screen
@@ -332,8 +446,8 @@ contains
       allocate(this%lrddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
       do iSp2 = 1, nUniqueSpecies
         do iSp1 = 1, nUniqueSpecies
-          this%lrGammaAtDamping(iSp1, iSp2) = getAnalyticalLrGammaValue(this, iSp1, iSp2,&
-              & this%omega, this%gammaDamping)
+          this%lrGammaAtDamping(iSp1, iSp2) = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1),&
+              & this%hubbu(iSp2), this%omega, this%gammaDamping)
           this%lrdGammaAtDamping(iSp1, iSp2) = getdAnalyticalLrGammaDeriv(this, iSp1, iSp2,&
               & this%gammaDamping)
           this%lrddGammaAtDamping(iSp1, iSp2) = getddNumericalLrGammaDeriv(this, iSp1, iSp2,&
@@ -347,12 +461,12 @@ contains
       allocate(this%hfddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
       do iSp2 = 1, nUniqueSpecies
         do iSp1 = 1, nUniqueSpecies
-          this%hfGammaAtDamping(iSp1, iSp2) = getAnalyticalHfGammaValue(this, iSp1, iSp2,&
+          this%hfGammaAtDamping(iSp1, iSp2) = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1),&
+              & this%hubbu(iSp2), this%gammaDamping)
+          this%hfdGammaAtDamping(iSp1, iSp2) = getdAnalyticalHfGammaDeriv(this, iSp1, iSp2,&
               & this%gammaDamping)
-          this%hfdGammaAtDamping(iSp1, iSp2) = getdAnalyticalHfGammaDeriv(this, iSp1,&
-              & iSp2, this%gammaDamping)
-          this%hfddGammaAtDamping(iSp1, iSp2) = getddNumericalHfGammaDeriv(this, iSp1,&
-              & iSp2, this%gammaDamping, 1e-08_dp)
+          this%hfddGammaAtDamping(iSp1, iSp2) = getddNumericalHfGammaDeriv(this, iSp1, iSp2,&
+              & this%gammaDamping, 1e-08_dp)
         end do
       end do
     end if
@@ -616,8 +730,8 @@ contains
         iSp1 = this%species0(iAtom1)
         iSp2 = this%species0(iAtom2)
         dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
-        this%lrGammaEval0(iAtom1, iAtom2) = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega,&
-            & dist)
+        this%lrGammaEval0(iAtom1, iAtom2) = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1),&
+            & this%hubbu(iSp2), this%omega, dist)
         this%lrGammaEval0(iAtom2, iAtom1) = this%lrGammaEval0(iAtom1, iAtom2)
       end do
     end do
@@ -998,7 +1112,7 @@ contains
       iSpM = this%species0(iAtM)
       iSpN = this%species0(iAtN)
       ! pre-tabulate g-resolved \gamma_{\mu\nu}(\vec{g})
-      lrGammaEvalGTmp(:) = getGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCoords,&
+      lrGammaEvalGTmp(:) = getLrGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCoords,&
           & rCellVecsG, zeros)
       call index_heap_sort(gammaSortIdx, lrGammaEvalGTmp)
       gammaSortIdx(:) = gammaSortIdx(size(gammaSortIdx):1:-1)
@@ -1246,7 +1360,7 @@ contains
       & iPair, orb, HH, overlap)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     ! Neighbour based screening
 
@@ -1299,7 +1413,7 @@ contains
       & iSquare, orb, iKS, nKS, HH)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1347,7 +1461,7 @@ contains
       & kWeight, iKS, iCurSpin, nKS, HSqr)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -1422,7 +1536,7 @@ contains
       & iSquare, hamiltonian, orb)
 
     !> Class instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     !> Square real overlap matrix
     real(dp), intent(in) :: overlap(:,:)
@@ -1572,7 +1686,7 @@ contains
     subroutine checkAndInitScreening(this, matrixSize, tmpDRho)
 
       !> Instance
-      type(TRangeSepFunc), intent(inout) :: this
+      class(TRangeSepFunc), intent(inout) :: this
 
       !> linear dimension of matrix
       integer, intent(in) :: matrixSize
@@ -1598,7 +1712,7 @@ contains
       & iSquare, iPair, orb, HH)
 
     !> instance of object
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     !> Square (unpacked) density matrix
     real(dp), intent(in) :: densSqr(:,:)
@@ -1867,7 +1981,7 @@ contains
         & gammaCmplx)
 
       !> instance
-      type(TRangeSepFunc), intent(inout) :: this
+      class(TRangeSepFunc), intent(inout) :: this
 
       !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
       integer, dimension(:), intent(in) :: iSquare
@@ -1920,7 +2034,7 @@ contains
     subroutine evaluateHamiltonian(this, Smat, Dmat, gammaCmplx, Hlr)
 
       !> instance
-      type(TRangeSepFunc), intent(inout) :: this
+      class(TRangeSepFunc), intent(inout) :: this
 
       !> Symmetrized square overlap matrix
       complex(dp), intent(in) :: Smat(:,:)
@@ -1980,7 +2094,7 @@ contains
   subroutine addLrHamiltonianMatrix_cluster(this, iSquare, overlap, densSqr, HH)
 
     !> Class instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, dimension(:), intent(in) :: iSquare
@@ -2019,7 +2133,7 @@ contains
     subroutine allocateAndInit(this, iSquare, overlap, densSqr, HH, Smat, Dmat, lrGammaAO)
 
       !> Class instance
-      type(TRangeSepFunc), intent(inout) :: this
+      class(TRangeSepFunc), intent(inout) :: this
 
       !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
       integer, dimension(:), intent(in) :: iSquare
@@ -2069,7 +2183,7 @@ contains
     subroutine evaluateHamiltonian(this, Smat, Dmat, lrGammaAO, Hlr)
 
       !> Class instance
-      type(TRangeSepFunc), intent(inout) :: this
+      class(TRangeSepFunc), intent(inout) :: this
 
       !> Symmetrized square overlap matrix
       real(dp), intent(in) :: Smat(:,:)
@@ -2126,7 +2240,7 @@ contains
       & nNeighbourCamSym, iSquare, orb, iKS, nKS, HSqr)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout), target :: this
+    class(TRangeSepFunc), intent(inout), target :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2396,7 +2510,7 @@ contains
       & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout), target :: this
+    class(TRangeSepFunc), intent(inout), target :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2753,7 +2867,7 @@ contains
   subroutine addLrEnergy(this, env, energy)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2983,7 +3097,7 @@ contains
   function getddNumericalLrGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3010,7 +3124,7 @@ contains
   function getddNumericalHfGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3037,7 +3151,7 @@ contains
   function getLrScreenedGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc_screened), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3051,17 +3165,71 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
-    gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega + this%auxiliaryScreening, dist)&
-        & - getAnalyticalLrGammaValue(this, iSp1, iSp2, this%auxiliaryScreening, dist)
+    gamma = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+        & this%omega + this%auxiliaryScreening, dist)&
+        & - getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+        & this%auxiliaryScreening, dist)
 
   end function getLrScreenedGammaValue
+
+
+  !> Calculates analytical, screened Coulomb, long-range gamma.
+  function getHfScreenedGammaValue(this, iSp1, iSp2, dist) result(gamma)
+
+    !> Instance
+    class(TRangeSepFunc_screened), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma
+    real(dp) :: gamma
+
+    gamma = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)&
+        & - getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+
+  end function getHfScreenedGammaValue
 
 
   !> Calculates analytical, truncated Coulomb, long-range gamma.
   function getLrTruncatedGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc_truncated), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma
+    real(dp) :: gamma
+
+    if (dist >= this%gammaCutoff) then
+      gamma = 0.0_dp
+    else
+      gamma = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+          & dist)
+    end if
+
+  end function getLrTruncatedGammaValue
+
+
+  !> Calculates analytical, truncated Coulomb, long-range gamma.
+  function getLrTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(gamma)
+
+    !> Instance
+    class(TRangeSepFunc_truncatedAndDamped), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3082,23 +3250,45 @@ contains
     elseif (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
-      gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
+      gamma = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+          & dist)
     end if
 
-    ! if (dist >= this%gammaCutoff) then
-    !   gamma = 0.0_dp
-    ! else
-    !   gamma = getAnalyticalLrGammaValue(this, iSp1, iSp2, this%omega, dist)
-    ! end if
-
-  end function getLrTruncatedGammaValue
+  end function getLrTruncatedAndDampedGammaValue
 
 
   !> Calculates analytical, truncated Coulomb, full-range Hartree-Fock gamma.
   function getHfTruncatedGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc_truncated), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma
+    real(dp) :: gamma
+
+    if (dist >= this%gammaCutoff) then
+      gamma = 0.0_dp
+    else
+      gamma = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+    end if
+
+  end function getHfTruncatedGammaValue
+
+
+  !> Calculates analytical, truncated Coulomb, full-range Hartree-Fock gamma.
+  function getHfTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(gamma)
+
+    !> Instance
+    class(TRangeSepFunc_truncatedAndDamped), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3119,22 +3309,16 @@ contains
     elseif (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
-      gamma = getAnalyticalHfGammaValue(this, iSp1, iSp2, dist)
+      gamma = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
     end if
 
-    ! if (dist >= this%gammaCutoff) then
-    !   gamma = 0.0_dp
-    ! else
-    !   gamma = getAnalyticalHfGammaValue(this, iSp1, iSp2, dist)
-    ! end if
-
-  end function getHfTruncatedGammaValue
+  end function getHfTruncatedAndDampedGammaValue
 
 
   function getLrGammaGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(gamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Index of first and second atom
     integer, intent(in) :: iAt1, iAt2
@@ -3158,8 +3342,7 @@ contains
 
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       dist = norm2(this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG)))
-      gamma = gamma + getLrTruncatedGammaValue(this, iSp1, iSp2, dist)
-      ! gamma = gamma + getLrScreenedGammaValue(this, iSp1, iSp2, dist)
+      gamma = gamma + this%getLrGammaValue(iSp1, iSp2, dist)
     end do loopG
 
   end function getLrGammaGSum
@@ -3168,7 +3351,7 @@ contains
   function getHfGammaGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(gamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Index of first and second atom
     integer, intent(in) :: iAt1, iAt2
@@ -3192,18 +3375,17 @@ contains
 
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       dist = norm2(this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG)))
-      gamma = gamma + getHfTruncatedGammaValue(this, iSp1, iSp2, dist)
-      ! gamma = gamma + getHfScreenedGammaValue(this, iSp1, iSp2, dist)
+      gamma = gamma + this%getHfGammaValue(iSp1, iSp2, dist)
     end do loopG
 
   end function getHfGammaGSum
 
 
-  function getGammaGResolved(this, iAt1, iAt2, iSp1, iSp2, rCoords, rCellVecsG, rShift)&
+  function getLrGammaGResolved(this, iAt1, iAt2, iSp1, iSp2, rCoords, rCellVecsG, rShift)&
       & result(gammas)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Index of first and second atom
     integer, intent(in) :: iAt1, iAt2
@@ -3235,18 +3417,59 @@ contains
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       rTotshift(:) = rCellVecsG(:, iG) + rShift
       dist = norm2(rCoords(:, iAt1) - (rCoords(:, iAt2) + rTotshift))
-      ! gammas(iG) = getLrTruncatedGammaValue(this, iSp1, iSp2, dist)
-      gammas(iG) = getLrScreenedGammaValue(this, iSp1, iSp2, dist)
+      gammas(iG) = this%getLrGammaValue(iSp1, iSp2, dist)
     end do loopG
 
-  end function getGammaGResolved
+  end function getLrGammaGResolved
+
+
+  function getHfGammaGResolved(this, iAt1, iAt2, iSp1, iSp2, rCoords, rCellVecsG, rShift)&
+      & result(gammas)
+
+    !> Instance
+    class(TRangeSepFunc), intent(in) :: this
+
+    !> Index of first and second atom
+    integer, intent(in) :: iAt1, iAt2
+
+    !> Index of first and second species
+    integer, intent(in) :: iSp1, iSp2
+
+    !> Absolute coordinates, including periodic images
+    real(dp), intent(in) :: rCoords(:,:)
+
+    !> Vectors to unit cells in absolute units
+    real(dp), intent(in) :: rCellVecsG(:,:)
+
+    !> Absolute shift of atom position (Gamma arguments)
+    real(dp), intent(in) :: rShift(:)
+
+    !> Resulting Gammas, g-vector resolved
+    real(dp) :: gammas(size(rCellVecsG, dim=2))
+
+    !! Total shift of atom position (Gamma arguments) in absolute coordinates
+    real(dp) :: rTotshift(3)
+
+    !! Distance between the two atoms
+    real(dp) :: dist
+
+    !! Index of real-space \vec{g} summation
+    integer :: iG
+
+    loopG: do iG = 1, size(rCellVecsG, dim=2)
+      rTotshift(:) = rCellVecsG(:, iG) + rShift
+      dist = norm2(rCoords(:, iAt1) - (rCoords(:, iAt2) + rTotshift))
+      gammas(iG) = this%getHfGammaValue(iSp1, iSp2, dist)
+    end do loopG
+
+  end function getHfGammaGResolved
 
 
   !> Calculates analytical, truncated Coulomb, long-range gamma derivative.
   function getTruncatedLrGammaPrimeValue(this, iSp1, iSp2, dist) result(dgamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3277,7 +3500,7 @@ contains
   function getTruncatedHfGammaPrimeValue(this, iSp1, iSp2, dist) result(dgamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3307,7 +3530,7 @@ contains
   function getLrGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Index of first and second atom
     integer, intent(in) :: iAt1, iAt2
@@ -3345,7 +3568,7 @@ contains
   function getHfGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Index of first and second atom
     integer, intent(in) :: iAt1, iAt2
@@ -3381,18 +3604,36 @@ contains
 
 
   !> Calculates analytical long-range gamma.
-  function getAnalyticalLrGammaValue(this, Sp1, Sp2, omega, dist) result(gamma)
+  function getAnalyticalLrGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc_full), intent(in) :: this
 
     !> First species
-    integer, intent(in) :: Sp1
+    integer, intent(in) :: iSp1
 
     !> Second species
-    integer, intent(in) :: Sp2
+    integer, intent(in) :: iSp2
 
-    !> Screening parameter
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting gamma
+    real(dp) :: gamma
+
+    gamma = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+        & dist)
+
+  end function getAnalyticalLrGammaValue
+
+
+  !> Calculates analytical long-range gamma.
+  function getAnalyticalLrGammaValue_workhorse(hubbu1, hubbu2, omega, dist) result(gamma)
+
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
+
+    !> Range-separation parameter
     real(dp), intent(in) :: omega
 
     !> Distance between atoms
@@ -3404,8 +3645,8 @@ contains
     real(dp) :: tauA, tauB
     real(dp) :: prefac, tmp, tmp2, tau
 
-    tauA = 3.2_dp * this%hubbu(Sp1)
-    tauB = 3.2_dp * this%hubbu(Sp2)
+    tauA = 3.2_dp * hubbu1
+    tauB = 3.2_dp * hubbu2
 
     if (dist < tolSameDist) then
       ! on-site case
@@ -3448,7 +3689,7 @@ contains
       end if
     end if
 
-  end function getAnalyticalLrGammaValue
+  end function getAnalyticalLrGammaValue_workhorse
 
 
   !> Returns the subexpression for the evaluation of the off-site Y-Gamma-integral.
@@ -3487,7 +3728,7 @@ contains
   function getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist) result(dAnalyticalGammaDeriv)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Species index of first and second atom
     integer, intent(in) :: iSp1, iSp2
@@ -3592,7 +3833,7 @@ contains
   subroutine getLrGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Gradient of gamma between atoms
     real(dp), intent(out) :: grad(3)
@@ -3632,7 +3873,7 @@ contains
       & img2CentCell)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Gradient of gamma between atoms
     real(dp), intent(out) :: grad(3)
@@ -3779,7 +4020,7 @@ contains
       & species0, orb, iSquare, ovrlapMat, iNeighbour, nNeighbourSK)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Energy gradients
     real(dp), intent(inout) :: gradients(:,:)
@@ -3964,7 +4205,7 @@ contains
       & nNeighbourCamSym, iSquare, orb, derivator, gradients)
 
     !> Instance
-    type(TRangeSepFunc), intent(in), target :: this
+    class(TRangeSepFunc), intent(in), target :: this
 
     !> Square (unpacked) delta density matrix
     real(dp), intent(in) :: deltaRhoSqr(:,:,:)
@@ -4349,7 +4590,7 @@ contains
       & iSquare, iPair, orb, HH, overlap)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     ! Neighbour based screening
 
@@ -4399,7 +4640,7 @@ contains
   subroutine addHfHamiltonianMatrix_cluster(this, iSquare, overlap, densSqr, HH)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -4438,7 +4679,7 @@ contains
     subroutine allocateAndInit(this, iSquare, overlap, densSqr, HH, Smat, Dmat, hfGammaAO)
 
       !> Instance
-      type(TRangeSepFunc), intent(in) :: this
+      class(TRangeSepFunc), intent(in) :: this
 
       !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
       integer, intent(in) :: iSquare(:)
@@ -4488,7 +4729,7 @@ contains
     subroutine evaluateHamiltonian(this, Smat, Dmat, hfGammaAO, Hhf)
 
       !> Instance
-      type(TRangeSepFunc), intent(in) :: this
+      class(TRangeSepFunc), intent(in) :: this
 
       !> Symmetrized square overlap matrix
       real(dp), intent(in) :: Smat(:,:)
@@ -4544,7 +4785,7 @@ contains
   subroutine addHfEnergy(this, env, energy)
 
     !> Instance
-    type(TRangeSepFunc), intent(inout) :: this
+    class(TRangeSepFunc), intent(inout) :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -4573,7 +4814,7 @@ contains
   function getAnalyticalHfGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc_full), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -4587,11 +4828,28 @@ contains
     !> Resulting gamma
     real(dp) :: gamma
 
+    gamma = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+
+  end function getAnalyticalHfGammaValue
+
+
+  !> Calculates analytical full-range Hartree-Fock gamma.
+  function getAnalyticalHfGammaValue_workhorse(hubbu1, hubbu2, dist) result(gamma)
+
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting gamma
+    real(dp) :: gamma
+
     real(dp) :: tauA, tauB
     real(dp) :: tmp, tau
 
-    tauA = 3.2_dp * this%hubbu(iSp1)
-    tauB = 3.2_dp * this%hubbu(iSp2)
+    tauA = 3.2_dp * hubbu1
+    tauB = 3.2_dp * hubbu2
 
     if (dist < tolSameDist) then
       ! on-site case
@@ -4616,14 +4874,14 @@ contains
       end if
     end if
 
-  end function getAnalyticalHfGammaValue
+  end function getAnalyticalHfGammaValue_workhorse
 
 
   !> Derivative of analytical full-range Hartree-Fock gamma.
   function getdAnalyticalHfGammaDeriv(this, Sp1, Sp2, dist) result(dGamma)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> First species
     integer, intent(in) :: Sp1
@@ -4678,7 +4936,7 @@ contains
   subroutine getHfGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Gradient of gamma between atoms
     real(dp), intent(out) :: grad(3)
@@ -4719,7 +4977,7 @@ contains
       & img2CentCell)
 
     !> Instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Gradient of gamma between atoms
     real(dp), intent(out) :: grad(3)
@@ -4811,7 +5069,7 @@ contains
       & coords, species, orb, iSquare, overlapMat, iNeighbour, nNeighbourSK)
 
     !> Class instance
-    type(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc), intent(in) :: this
 
     !> Energy gradients
     real(dp), intent(inout) :: gradients(:,:)

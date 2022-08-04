@@ -129,7 +129,7 @@ contains
     class(TSolvation), allocatable, intent(inout) :: solvation
 
     !> Data from rangeseparated calculations
-    type(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
 
     !> data type for REKS
     type(TReksCalc), allocatable, intent(inout) :: reks

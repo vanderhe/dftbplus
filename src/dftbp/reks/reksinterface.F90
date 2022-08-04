@@ -242,7 +242,7 @@ module dftbp_reks_reksinterface
     type(TScc), allocatable, intent(inout) :: sccCalc
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> dispersion interactions
     class(TDispersionIface), allocatable, intent(inout) :: dispersion
@@ -830,7 +830,7 @@ module dftbp_reks_reksinterface
     class(TDispersionIface), allocatable, intent(inout) :: dispersion
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> forces on external charges
     real(dp), allocatable, intent(inout) :: chrgForces(:,:)
@@ -965,7 +965,7 @@ module dftbp_reks_reksinterface
     type(TScc), allocatable, intent(inout) :: sccCalc
 
     !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> neighbours to atoms
     type(TNeighbourList), intent(in) :: neighbourList

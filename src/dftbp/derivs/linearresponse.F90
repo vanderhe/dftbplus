@@ -114,7 +114,7 @@ contains
     real(dp), pointer :: dRhoSqr(:,:,:)
 
     !> Data for range-separated calculation
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     !> sparse overlap matrix
     real(dp), intent(in) :: over(:)

@@ -767,7 +767,7 @@ module dftbp_dftbplus_initprogram
     logical :: isRangeSep
 
     !> Range Separation data
-    type(TRangeSepFunc), allocatable :: rangeSep
+    class(TRangeSepFunc), allocatable :: rangeSep
 
     !> Holds real and complex delta density matrices and pointers
     type(TDensityMatrix) :: densityMatrix
@@ -2727,13 +2727,12 @@ contains
     end if
 
     if (this%isRangeSep) then
-      allocate(this%rangeSep)
       call TRangeSepFunc_init(this%rangeSep, this%nAtom, this%species0, hubbU(1, :),&
           & input%ctrl%rangeSepInp%screeningThreshold, input%ctrl%rangeSepInp%omega,&
           & input%ctrl%rangeSepInp%camAlpha, input%ctrl%rangeSepInp%camBeta,&
           & this%tSpin, allocated(this%reks), input%ctrl%rangeSepInp%rangeSepAlg,&
-          & coeffsDiag=this%supercellFoldingDiag, gammaCutoff=this%cutOff%gammaCutoff,&
-          & gSummationCutoff=this%cutOff%gSummationCutoff,&
+          & input%ctrl%rangeSepInp%gammaType, coeffsDiag=this%supercellFoldingDiag,&
+          & gammaCutoff=this%cutOff%gammaCutoff, gSummationCutoff=this%cutOff%gSummationCutoff,&
           & auxiliaryScreening=this%cutOff%auxiliaryScreening)
       ! now all information are present to properly allocate density matrices and associate pointers
       call this%reallocateRangeSeparated()
