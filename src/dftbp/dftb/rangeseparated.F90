@@ -3235,8 +3235,8 @@ contains
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       rTotshift(:) = rCellVecsG(:, iG) + rShift
       dist = norm2(rCoords(:, iAt1) - (rCoords(:, iAt2) + rTotshift))
-      gammas(iG) = getLrTruncatedGammaValue(this, iSp1, iSp2, dist)
-      ! gammas(iG) = getLrScreenedGammaValue(this, iSp1, iSp2, dist)
+      ! gammas(iG) = getLrTruncatedGammaValue(this, iSp1, iSp2, dist)
+      gammas(iG) = getLrScreenedGammaValue(this, iSp1, iSp2, dist)
     end do loopG
 
   end function getGammaGResolved

@@ -5639,7 +5639,7 @@ contains
     if (present(auxiliaryScreening)) then
       cutOff%auxiliaryScreening = auxiliaryScreening
     else
-      cutOff%auxiliaryScreening = -log(1.0e-06_dp) / minLatVecNorm2
+      cutOff%auxiliaryScreening = -log(1.0e-01_dp) / minLatVecNorm2
     end if
 
     if (present(gammaCutoff)) then
@@ -5725,7 +5725,7 @@ contains
       !   call error('Error while inferring Coulomb truncation cutoff from supercell folding&
       !       & matrix. Diagonal elements not present.')
       ! end if
-      cutOff%auxiliaryScreening = -log(1.0e-03_dp) / minNormTimesNKpt
+      cutOff%auxiliaryScreening = -log(1.0e-01_dp) / minNormTimesNKpt
     end if
 
     if (present(gammaCutoff)) then
