@@ -1247,8 +1247,8 @@ contains
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian
   !! (Gamma-only version).
-  subroutine addCamHamiltonian_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym,&
-      & iSquare, orb, iKS, nKS, HH)
+  subroutine addCamHamiltonian_gamma(this, env, densSqr, overSqr, symNeighbourList,&
+      & nNeighbourCamSym, iSquare, orb, iKS, nKS, HH)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -1258,6 +1258,9 @@ contains
 
     !> Square (unpacked) density matrix
     real(dp), intent(in) :: densSqr(:,:)
+
+    !> Square (unpacked) overlap matrix
+    real(dp), intent(in) :: overSqr(:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -1285,8 +1288,8 @@ contains
     ! Add long-range contribution if needed.
     ! For pure Hyb, camBeta would be zero anyway, but we want to save as much time as possible.
     if (this%tLc .or. this%tCam) then
-      call addLrHamiltonian_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym, iSquare,&
-          & orb, iKS, nKS, HH)
+      call addLrHamiltonian_gamma(this, env, densSqr, overSqr, symNeighbourList, nNeighbourCamSym,&
+          & iSquare, orb, iKS, nKS, HH)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
@@ -1440,8 +1443,8 @@ contains
 
   !> Interface routine for adding LC range-separated contributions to the Hamiltonian
   !! (Gamma-only version).
-  subroutine addLrHamiltonian_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym,&
-      & iSquare, orb, iKS, nKS, HH)
+  subroutine addLrHamiltonian_gamma(this, env, densSqr, overSqr, symNeighbourList,&
+      & nNeighbourCamSym, iSquare, orb, iKS, nKS, HH)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -1451,6 +1454,9 @@ contains
 
     !> Square (unpacked) density matrix
     real(dp), intent(in), target :: densSqr(:,:)
+
+    !> Square (unpacked) overlap matrix
+    real(dp), intent(in) :: overSqr(:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -1480,7 +1486,7 @@ contains
       call addLrHamiltonianNeighbour_gamma(this, env, densSqr, symNeighbourList, nNeighbourCamSym,&
           & iSquare, orb, iKS, nKS, HH)
     case (rangeSepTypes%matrixBased)
-      call error('Matrix based algorithm not implemented for periodic systems.')
+      call addLrHamiltonianMatrix_cluster(this, iSquare, overSqr, densSqr, HH)
     end select
 
   end subroutine addLrHamiltonian_gamma

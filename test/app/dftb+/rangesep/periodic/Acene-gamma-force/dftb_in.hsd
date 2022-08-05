@@ -24,10 +24,10 @@ Hamiltonian = DFTB {
   }
 
   RangeSeparated = LC {
+    GammaType = "truncated+damping"
+    GSummationCutoff = 50.985000
+    GammaCutoff = 2.885010
     Screening = NeighbourBased {
-      GammaType = "truncated+damping"
-      GSummationCutoff = 50.985000
-      GammaCutoff = 2.885010
       Threshold = 1e-100
     }
   }

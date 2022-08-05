@@ -7769,6 +7769,57 @@ contains
       input%tLc = .true.
       input%tCam = .false.
       call getChildValue(value1, "Screening", value2, "Thresholded", child=child2)
+
+      ! Additional options for periodic sytems
+      if (geo%tPeriodic) then
+        call getChild(value1, "GSummationCutoff", child=child3, modifier=modifier,&
+            & requested=.false.)
+        if (associated(child3)) then
+          allocate(input%gSummationCutoff)
+          call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
+          call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
+        end if
+
+        ! parse gamma function type (full, truncated, screened, ...)
+        call getNodeName(value1, buffer)
+        call getChild(value1, "GammaType", child=child3, requested=.true.)
+        call getChildValue(child3, "", strBuffer)
+        select case(tolower(unquote(trim(char(strBuffer)))))
+        case ("full")
+          input%gammaType = rangeSepGammaTypes%full
+        case ("truncated")
+          input%gammaType = rangeSepGammaTypes%truncated
+        case ("truncated+damping")
+          input%gammaType = rangeSepGammaTypes%truncatedAndDamped
+        case ("screened")
+          input%gammaType = rangeSepGammaTypes%screened
+        case default
+          call detailedError(child3, "Invalid Gamma function type '"&
+              & // tolower(unquote(trim(char(strBuffer)))) // "'")
+        end select
+
+        if (input%gammaType == rangeSepGammaTypes%truncated&
+            & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
+          call getChild(value1, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
+          if (associated(child3)) then
+            allocate(input%gammaCutoff)
+            call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
+            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
+          end if
+        end if
+
+        if (input%gammaType == rangeSepGammaTypes%screened) then
+          call getChild(value1, "AuxiliaryScreening", child=child3, requested=.false.)
+          if (associated(child3)) then
+            allocate(input%auxiliaryScreening)
+            call getChildValue(child3, "", input%auxiliaryScreening)
+          end if
+        end if
+      else
+        ! Always use unaltered gamma function for non-periodic systems
+        input%gammaType = rangeSepGammaTypes%full
+      end if
+
       call getNodeName(value2, buffer)
       select case(char(buffer))
       case ("neighbourbased")
@@ -7777,51 +7828,6 @@ contains
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChild(value2, "GSummationCutoff", child=child3, modifier=modifier,&
-              & requested=.false.)
-          if (associated(child3)) then
-            allocate(input%gSummationCutoff)
-            call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
-            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
-          end if
-
-          ! parse gamma function type (full, truncated, screened, ...)
-          call getNodeName(value2, buffer)
-          call getChild(value2, "GammaType", child=child3, requested=.true.)
-          call getChildValue(child3, "", strBuffer)
-          ! strTmp = tolower(unquote(trim(char(strBuffer))))
-          select case(tolower(unquote(trim(char(strBuffer)))))
-          case ("full")
-            input%gammaType = rangeSepGammaTypes%full
-          case ("truncated")
-            input%gammaType = rangeSepGammaTypes%truncated
-          case ("truncated+damping")
-            input%gammaType = rangeSepGammaTypes%truncatedAndDamped
-          case ("screened")
-            input%gammaType = rangeSepGammaTypes%screened
-          case default
-            call detailedError(child3, "Invalid Gamma function type '"&
-                & // tolower(unquote(trim(char(strBuffer)))) // "'")
-          end select
-
-          if (input%gammaType == rangeSepGammaTypes%truncated&
-              & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
-            call getChild(value2, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
-            if (associated(child3)) then
-              allocate(input%gammaCutoff)
-              call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
-              call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
-            end if
-          end if
-
-          if (input%gammaType == rangeSepGammaTypes%screened) then
-            call getChild(value2, "AuxiliaryScreening", child=child3, requested=.false.)
-            if (associated(child3)) then
-              allocate(input%auxiliaryScreening)
-              call getChildValue(child3, "", input%auxiliaryScreening)
-            end if
-          end if
-
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         end if
       case ("thresholded")
@@ -7892,8 +7898,6 @@ contains
       call getNodeHSDName(value1, buffer)
       call detailedError(child1, "Invalid Algorithm '" // char(buffer) // "'")
     end select
-
-    if (allocated(input) .and. (.not. geo%tPeriodic)) input%gammaType = rangeSepGammaTypes%full
 
   end subroutine parseRangeSeparated
 

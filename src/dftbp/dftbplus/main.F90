@@ -2958,8 +2958,9 @@ contains
         call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
         ! Add CAM contribution (periodic case)
-        call rangeSep%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), symNeighbourList,&
-            & nNeighbourCamSym, denseDesc%iAtomStart, orb, iKS, parallelKS%nLocalKS, HSqrReal)
+        call rangeSep%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
+            & symNeighbourList, nNeighbourCamSym, denseDesc%iAtomStart, orb, iKS,&
+            & parallelKS%nLocalKS, HSqrReal)
 
         ! Warning: SSqrReal gets overwritten here
         call diagDenseMtx(env, electronicSolver, 'V', HSqrReal, SSqrReal, eigen(:, iSpin),&
@@ -7770,8 +7771,9 @@ contains
       do iL = 1, reks%Lmax
         ! Add range-separated contribution to Hamiltonian
         if (reks%tPeriodic) then
-          call rangeSep%addCamHamiltonian_gamma(env, reks%deltaRhoSqrL(:,:,1,iL), symNeighbourList,&
-              & nNeighbourCamSym, denseDesc%iAtomStart, orb, 1, 1, reks%hamSqrL(:,:,1,iL))
+          call rangeSep%addCamHamiltonian_gamma(env, reks%deltaRhoSqrL(:,:,1,iL), reks%overSqr,&
+              & symNeighbourList, nNeighbourCamSym, denseDesc%iAtomStart, orb, 1, 1,&
+              & reks%hamSqrL(:,:,1,iL))
         else
           call rangeSep%addCamHamiltonian_cluster(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
               & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&

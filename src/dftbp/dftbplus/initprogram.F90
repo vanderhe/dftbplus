@@ -47,8 +47,8 @@ module dftbp_dftbplus_initprogram
       & getCellTranslations
   use dftbp_dftb_pmlocalisation, only : TPipekMezey, initialise
   use dftbp_dftb_potentials, only : TPotentials, TPotentials_init
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, rangeSepTypes, TRangeSepFunc_init,&
-      & checkSupercellFoldingMatrix
+  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, rangeSepTypes, rangeSepGammaTypes,&
+      & TRangeSepFunc_init, checkSupercellFoldingMatrix
   use dftbp_dftb_repulsive_chimesrep, only : TChimesRepInp, TChimesRep, TChimesRep_init
   use dftbp_dftb_repulsive_pairrepulsive, only : TPairRepulsiveItem
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
@@ -3521,6 +3521,27 @@ contains
             & input%ctrl%rangeSepInp%omega
         write(stdOut, "(2X,A,':',T30,E14.6,E14.6)") "CAM parameters alpha/beta",&
             & input%ctrl%rangeSepInp%camAlpha, input%ctrl%rangeSepInp%camBeta
+        if (this%tPeriodic) then
+          if (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%full) then
+            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "full"
+          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated) then
+            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated"
+          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
+            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated+poly5zero"
+          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screened) then
+            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened"
+          end if
+          write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
+              & this%cutOff%gSummationCutoff, " Bohr"
+          if (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated&
+              & .or. input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
+            write(stdOut, "(2X,A,':',T30,E14.6,A)") "Coulomb Truncation",&
+                & this%cutOff%gammaCutoff, " Bohr"
+          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screened) then
+            write(stdOut, "(2X,A,':',T30,E14.6,A)") "Auxiliary Screening",&
+                & this%cutOff%auxiliaryScreening, " Bohr^-1"
+          end if
+        end if
       end if
 
       select case(input%ctrl%rangeSepInp%rangeSepAlg)
@@ -3531,12 +3552,6 @@ contains
         if (this%tPeriodic) then
           write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
               & input%ctrl%rangeSepInp%screeningThreshold
-          write(stdOut, "(2X,A,':',T30,E14.6,A)") "Coulomb Truncation",&
-              & this%cutOff%gammaCutoff, " Bohr"
-          write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
-              & this%cutOff%gSummationCutoff, " Bohr"
-          write(stdOut, "(2X,A,':',T30,E14.6,A)") "Auxiliary Screening",&
-              & this%cutOff%auxiliaryScreening, " a.u."
         end if
       case (rangeSepTypes%threshold)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "Thresholded"
@@ -5366,14 +5381,18 @@ contains
     !> Parameters for the range separated calculation
     type(TRangeSepInp), intent(in) :: rangeSepInp
 
-    ! if (withMpi) then
-    !   call error("Range separated calculations do not work with MPI yet")
-    ! end if
+    if (withMpi .and. (.not. this%tPeriodic)) then
+      call error("Range separated calculations of non-periodic systems do not profit from MPI yet")
+    end if
 
     if (this%tPeriodic) then
-      if (rangeSepInp%rangeSepAlg /= rangeSepTypes%neighbour) then
+      if ((.not. this%tRealHS) .and. (rangeSepInp%rangeSepAlg /= rangeSepTypes%neighbour)) then
         call error("Range separated functionality for periodic system currently only working for&
             & the neighbour list based algorithm")
+      end if
+      if (this%tRealHS .and. rangeSepInp%rangeSepAlg == rangeSepTypes%threshold) then
+        call error("Range separated functionality at Gamma-point not implemented for threshold&
+            & algorithm")
       end if
     end if
 
