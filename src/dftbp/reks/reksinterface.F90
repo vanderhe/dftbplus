@@ -905,8 +905,8 @@ module dftbp_reks_reksinterface
         ! deltaRhoSqrL has (my_ud) component
         lcDerivs(:,:,iL) = 0.0_dp
         call rangeSep%addCamGradients_cluster(lcDerivs(:,:,iL), nonSccDeriv,&
-            & this%deltaRhoSqrL(:,:,:,iL), skOverCont, coord, species, orb, denseDesc%iAtomStart,&
-            & this%overSqr, neighbourList%iNeighbour, nNeighbourSK)
+            & this%deltaRhoSqrL(:,:,:,iL), skOverCont, orb, denseDesc%iAtomStart, this%overSqr,&
+            & neighbourList%iNeighbour, nNeighbourSK)
       end if
 
       ! TODO : this part should be modified after merging selfconsistent

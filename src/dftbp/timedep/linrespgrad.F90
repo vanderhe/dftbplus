@@ -2494,7 +2494,7 @@ contains
       do iAt1 = 1, nAtom
         do iAt2 = 1, nAtom
           if(iAt1 /= iAt2) then
-            call getDirectedLrGammaPrimeValue(rangeSep, tmpVec, iAt1, iAt2, coord0, species)
+            call getDirectedLrGammaPrimeValue(rangeSep, tmpVec, iAt1, iAt2)
             gammaLongRangePrime(:, iAt1, iAt2) = tmpVec
           end if
         end do

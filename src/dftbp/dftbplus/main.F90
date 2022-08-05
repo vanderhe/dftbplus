@@ -2095,7 +2095,7 @@ contains
             & latVec, invLatVec, denseDescr%iAtomStart)
       elseif (.not. tRealHS) then
         call rangeSep%updateCoords_kpts(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
-            & latVec, invLatVec, cellVec, rCellVec, denseDescr%iAtomStart)
+            & latVec, invLatVec, denseDescr%iAtomStart)
       end if
     end if
     if (allocated(cm5Cont)) then
@@ -3618,15 +3618,6 @@ contains
 
     !! K-point-spin composite index and k-point/spin index
     integer :: iKS, iK, iSpin
-
-    !! Iterates over all BvK real-space vectors
-    integer :: iG
-
-    !! Phase factor
-    complex(dp) :: phase
-
-    !! Integer BvK real-space shift in relative coordinates
-    integer :: bvKIndex(3)
 
     rhoPrim(:,:) = 0.0_dp
 
@@ -6247,8 +6238,7 @@ contains
               & nNeighbourCamSym, denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
         else
           call rangeSep%addCamGradients_cluster(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont,&
-              & coord, species, orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour,&
-              & nNeighbourSK)
+              & orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour, nNeighbourSK)
         end if
       end if
     end if

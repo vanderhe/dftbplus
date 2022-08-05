@@ -3184,8 +3184,7 @@ contains
 
     if (this%isRangeSep) then
       call rangeSep%addCamGradients_cluster(derivs, this%derivator, real(deltaRho), skOverCont,&
-          & coordAll, this%speciesAll, orb, iSquare, real(sSqr(:,:,1)), neighbourList%iNeighbour,&
-          & nNeighbourSK)
+          & orb, iSquare, real(sSqr(:,:,1)), neighbourList%iNeighbour, nNeighbourSK)
     end if
 
     if (this%tLaser) then
