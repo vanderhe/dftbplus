@@ -15,7 +15,7 @@ module dftbp_timedep_linrespgrad
   use dftbp_common_accuracy, only : dp, elecTolMax, lc, rsp
   use dftbp_common_constants, only : Hartree__eV, au__Debye, cExchange
   use dftbp_dftb_nonscc, only : TNonSccDiff
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, getGammaPrimeValue
+  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, getDirectedLrGammaPrimeValue
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_shortgammafuncs, only : expGammaPrime
   use dftbp_dftb_sk, only : rotateH0
@@ -2494,7 +2494,7 @@ contains
       do iAt1 = 1, nAtom
         do iAt2 = 1, nAtom
           if(iAt1 /= iAt2) then
-            call getGammaPrimeValue(rangeSep, tmpVec, iAt1, iAt2, coord0, species)
+            call getDirectedLrGammaPrimeValue(rangeSep, tmpVec, iAt1, iAt2, coord0, species)
             gammaLongRangePrime(:, iAt1, iAt2) = tmpVec
           end if
         end do

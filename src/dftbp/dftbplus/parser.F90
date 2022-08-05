@@ -7886,7 +7886,7 @@ contains
       call detailedError(child1, "Invalid Algorithm '" // char(buffer) // "'")
     end select
 
-    if (.not. geo%tPeriodic) input%gammaType = rangeSepGammaTypes%full
+    if (allocated(input) .and. (.not. geo%tPeriodic)) input%gammaType = rangeSepGammaTypes%full
 
   end subroutine parseRangeSeparated
 

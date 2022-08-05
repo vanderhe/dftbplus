@@ -41,14 +41,22 @@ module dftbp_dftb_rangeseparated
   private
 
   public :: TRangeSepSKTag, TRangeSepFunc, TRangeSepFunc_init
-  public :: getGammaPrimeValue, rangeSepTypes, rangeSepGammaTypes, checkSupercellFoldingMatrix
+  public :: getDirectedLrGammaPrimeValue, getDirectedHfGammaPrimeValue
+  public :: rangeSepTypes, rangeSepGammaTypes, checkSupercellFoldingMatrix
 
 
-  !> Returns the derivative of long-range gamma.
-  interface getGammaPrimeValue
-    module procedure getLrGammaPrimeValue_cluster
-    module procedure getLrGammaPrimeValue_periodic
-  end interface getGammaPrimeValue
+  !> Returns the (directed) derivative of long-range gamma.
+  interface getDirectedLrGammaPrimeValue
+    module procedure getDirectedLrGammaPrimeValue_cluster
+    module procedure getDirectedLrGammaPrimeValue_periodic
+  end interface getDirectedLrGammaPrimeValue
+
+
+  !> Returns the (directed) derivative of full-range Hartree-Fock gamma.
+  interface getDirectedHfGammaPrimeValue
+    module procedure getDirectedHfGammaPrimeValue_cluster
+    module procedure getDirectedHfGammaPrimeValue_periodic
+  end interface getDirectedHfGammaPrimeValue
 
 
   type :: TIntArray1D
@@ -233,12 +241,6 @@ module dftbp_dftb_rangeseparated
     !> Supercell folding coefficients (diagonal elements)
     integer, allocatable :: coeffsDiag(:)
 
-    ! !> Procedure, pointing to the choosen gamma function
-    ! procedure(gammaFunc), pointer, nopass :: getLrGammaValue => null()
-
-    ! !> Procedure, pointing to the choosen gamma function
-    ! procedure(gammaFunc), pointer, nopass :: getHfGammaValue => null()
-
   contains
 
     procedure :: updateCoords_cluster, updateCoords_gamma, updateCoords_kpts
@@ -266,7 +268,10 @@ module dftbp_dftb_rangeseparated
     procedure :: evaluateLrEnergyDirect_cluster
 
     procedure(gammaFunc), deferred :: getLrGammaValue
+    procedure(gammaFunc), deferred :: getLrGammaPrimeValue
+
     procedure(gammaFunc), deferred :: getHfGammaValue
+    procedure(gammaFunc), deferred :: getHfGammaPrimeValue
 
   end type TRangeSepFunc
 
@@ -293,6 +298,28 @@ module dftbp_dftb_rangeseparated
       real(dp) :: gamma
 
     end function gammaFunc
+
+    ! !> Calculates analytical long-range gamma of given type.
+    ! function gammaPrimeFunc(this, iSp1, iSp2, dist) result(dgamma)
+
+    !   import :: TRangeSepFunc, dp
+
+    !   !> Instance
+    !   class(TRangeSepFunc), intent(in) :: this
+
+    !   !> First species
+    !   integer, intent(in) :: iSp1
+
+    !   !> Second species
+    !   integer, intent(in) :: iSp2
+
+    !   !> Distance between atoms
+    !   real(dp), intent(in) :: dist
+
+    !   !> Resulting truncated gamma
+    !   real(dp) :: dgamma(3)
+
+    ! end function gammaPrimeFunc
   end interface
 
 
@@ -301,8 +328,11 @@ module dftbp_dftb_rangeseparated
 
   contains
 
-    procedure :: getLrGammaValue => getAnalyticalLrGammaValue
-    procedure :: getHfGammaValue => getAnalyticalHfGammaValue
+    procedure :: getLrGammaValue => getLrAnalyticalGammaValue
+    procedure :: getLrGammaPrimeValue => getdLrAnalyticalGammaValue
+
+    procedure :: getHfGammaValue => getHfAnalyticalGammaValue
+    procedure :: getHfGammaPrimeValue => getdHfAnalyticalGammaValue
 
   end type TRangeSepFunc_full
 
@@ -313,7 +343,10 @@ module dftbp_dftb_rangeseparated
   contains
 
     procedure :: getLrGammaValue => getLrTruncatedGammaValue
+    procedure :: getLrGammaPrimeValue => getdLrTruncatedGammaValue
+
     procedure :: getHfGammaValue => getHfTruncatedGammaValue
+    procedure :: getHfGammaPrimeValue => getdHfTruncatedGammaValue
 
   end type TRangeSepFunc_truncated
 
@@ -324,7 +357,10 @@ module dftbp_dftb_rangeseparated
   contains
 
     procedure :: getLrGammaValue => getLrTruncatedAndDampedGammaValue
+    procedure :: getLrGammaPrimeValue => getdLrTruncatedAndDampedGammaValue
+
     procedure :: getHfGammaValue => getHfTruncatedAndDampedGammaValue
+    procedure :: getHfGammaPrimeValue => getdHfTruncatedAndDampedGammaValue
 
   end type TRangeSepFunc_truncatedAndDamped
 
@@ -335,7 +371,10 @@ module dftbp_dftb_rangeseparated
   contains
 
     procedure :: getLrGammaValue => getLrScreenedGammaValue
+    procedure :: getLrGammaPrimeValue => getdLrScreenedGammaValue
+
     procedure :: getHfGammaValue => getHfScreenedGammaValue
+    procedure :: getHfGammaPrimeValue => getdHfScreenedGammaValue
 
   end type TRangeSepFunc_screened
 
@@ -446,11 +485,12 @@ contains
       allocate(this%lrddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
       do iSp2 = 1, nUniqueSpecies
         do iSp1 = 1, nUniqueSpecies
-          this%lrGammaAtDamping(iSp1, iSp2) = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1),&
+          this%lrGammaAtDamping(iSp1, iSp2) = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1),&
               & this%hubbu(iSp2), this%omega, this%gammaDamping)
-          this%lrdGammaAtDamping(iSp1, iSp2) = getdAnalyticalLrGammaDeriv(this, iSp1, iSp2,&
-              & this%gammaDamping)
-          this%lrddGammaAtDamping(iSp1, iSp2) = getddNumericalLrGammaDeriv(this, iSp1, iSp2,&
+          this%lrdGammaAtDamping(iSp1, iSp2)&
+              & = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+              & this%omega, this%gammaDamping)
+          this%lrddGammaAtDamping(iSp1, iSp2) = getddLrNumericalGammaDeriv(this, iSp1, iSp2,&
               & this%gammaDamping, 1e-08_dp)
         end do
       end do
@@ -461,11 +501,12 @@ contains
       allocate(this%hfddGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
       do iSp2 = 1, nUniqueSpecies
         do iSp1 = 1, nUniqueSpecies
-          this%hfGammaAtDamping(iSp1, iSp2) = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1),&
+          this%hfGammaAtDamping(iSp1, iSp2) = getHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1),&
               & this%hubbu(iSp2), this%gammaDamping)
-          this%hfdGammaAtDamping(iSp1, iSp2) = getdAnalyticalHfGammaDeriv(this, iSp1, iSp2,&
+          this%hfdGammaAtDamping(iSp1, iSp2)&
+              & = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
               & this%gammaDamping)
-          this%hfddGammaAtDamping(iSp1, iSp2) = getddNumericalHfGammaDeriv(this, iSp1, iSp2,&
+          this%hfddGammaAtDamping(iSp1, iSp2) = getddHfNumericalGammaDeriv(this, iSp1, iSp2,&
               & this%gammaDamping, 1e-08_dp)
         end do
       end do
@@ -730,7 +771,7 @@ contains
         iSp1 = this%species0(iAtom1)
         iSp2 = this%species0(iAtom2)
         dist = norm2(this%rCoords(:, iAtom1) - this%rCoords(:, iAtom2))
-        this%lrGammaEval0(iAtom1, iAtom2) = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1),&
+        this%lrGammaEval0(iAtom1, iAtom2) = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1),&
             & this%hubbu(iSp2), this%omega, dist)
         this%lrGammaEval0(iAtom2, iAtom1) = this%lrGammaEval0(iAtom1, iAtom2)
       end do
@@ -3094,7 +3135,7 @@ contains
 
 
   !> Returns the numerical second derivative of gamma, by means of a central finite difference.
-  function getddNumericalLrGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
+  function getddLrNumericalGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
 
     !> Instance
     class(TRangeSepFunc), intent(in) :: this
@@ -3114,14 +3155,16 @@ contains
     !> Numerical gamma derivative
     real(dp) :: ddGamma
 
-    ddGamma = (getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist + delta)&
-        & - getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist - delta)) / (2.0_dp * delta)
+    ddGamma = (getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+        & dist + delta)&
+        & - getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+        & dist - delta)) / (2.0_dp * delta)
 
-  end function getddNumericalLrGammaDeriv
+  end function getddLrNumericalGammaDeriv
 
 
   !> Returns the numerical second derivative of gamma, by means of a central finite difference.
-  function getddNumericalHfGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
+  function getddHfNumericalGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
 
     !> Instance
     class(TRangeSepFunc), intent(in) :: this
@@ -3141,10 +3184,12 @@ contains
     !> Numerical gamma derivative
     real(dp) :: ddGamma
 
-    ddGamma = (getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist + delta)&
-        & - getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist - delta)) / (2.0_dp * delta)
+    ddGamma = (getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist&
+        & + delta)&
+        & - getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist - delta))&
+        & / (2.0_dp * delta)
 
-  end function getddNumericalHfGammaDeriv
+  end function getddHfNumericalGammaDeriv
 
 
   !> Calculates analytical, screened Coulomb, long-range gamma.
@@ -3165,9 +3210,9 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
-    gamma = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+    gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
         & this%omega + this%auxiliaryScreening, dist)&
-        & - getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+        & - getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
         & this%auxiliaryScreening, dist)
 
   end function getLrScreenedGammaValue
@@ -3191,8 +3236,8 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
-    gamma = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)&
-        & - getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+    gamma = getHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)&
+        & - getHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
 
   end function getHfScreenedGammaValue
 
@@ -3218,7 +3263,7 @@ contains
     if (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
-      gamma = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+      gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
           & dist)
     end if
 
@@ -3250,7 +3295,7 @@ contains
     elseif (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
-      gamma = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+      gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
           & dist)
     end if
 
@@ -3278,7 +3323,7 @@ contains
     if (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
-      gamma = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+      gamma = getHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
     end if
 
   end function getHfTruncatedGammaValue
@@ -3309,7 +3354,7 @@ contains
     elseif (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
-      gamma = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+      gamma = getHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
     end if
 
   end function getHfTruncatedAndDampedGammaValue
@@ -3465,11 +3510,113 @@ contains
   end function getHfGammaGResolved
 
 
-  !> Calculates analytical, truncated Coulomb, long-range gamma derivative.
-  function getTruncatedLrGammaPrimeValue(this, iSp1, iSp2, dist) result(dgamma)
+  !> Calculates analytical, unaltered long-range gamma derivative.
+  function getdLrAnalyticalGammaValue(this, iSp1, iSp2, dist) result(dgamma)
 
     !> Instance
-    class(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc_full), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting gamma derivative
+    real(dp) :: dgamma
+
+    dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+        & dist)
+
+  end function getdLrAnalyticalGammaValue
+
+
+  !> Calculates analytical, unaltered full-range Hartree-Fock gamma derivative.
+  function getdHfAnalyticalGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+
+    !> Instance
+    class(TRangeSepFunc_full), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting gamma derivative
+    real(dp) :: dgamma
+
+    dgamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+
+  end function getdHfAnalyticalGammaValue
+
+
+  !> Calculates analytical, truncated Coulomb, long-range gamma derivative.
+  function getdLrTruncatedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+
+    !> Instance
+    class(TRangeSepFunc_truncated), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma derivative
+    real(dp) :: dgamma
+
+    if (dist >= this%gammaCutoff) then
+      dgamma = 0.0_dp
+    else
+      dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+          & dist)
+    end if
+
+  end function getdLrTruncatedGammaValue
+
+
+  !> Calculates analytical, truncated Coulomb, full-range Hartree-Fock gamma.
+  function getdHfTruncatedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+
+    !> Instance
+    class(TRangeSepFunc_truncated), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma derivative
+    real(dp) :: dgamma
+
+    if (dist >= this%gammaCutoff) then
+      dgamma = 0.0_dp
+    else
+      dgamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+    end if
+
+  end function getdHfTruncatedGammaValue
+
+
+  !> Calculates analytical, truncated Coulomb, long-range gamma derivative.
+  function getdLrTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+
+    !> Instance
+    class(TRangeSepFunc_truncatedAndDamped), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3490,17 +3637,18 @@ contains
     elseif (dist >= this%gammaCutoff) then
       dgamma = 0.0_dp
     else
-      dgamma = getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist)
+      dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+          & dist)
     end if
 
-  end function getTruncatedLrGammaPrimeValue
+  end function getdLrTruncatedAndDampedGammaValue
 
 
   !> Calculates analytical, truncated Coulomb, long-range gamma derivative.
-  function getTruncatedHfGammaPrimeValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdHfTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
 
     !> Instance
-    class(TRangeSepFunc), intent(in) :: this
+    class(TRangeSepFunc_truncatedAndDamped), intent(in) :: this
 
     !> First species
     integer, intent(in) :: iSp1
@@ -3515,16 +3663,66 @@ contains
     real(dp) :: dgamma
 
     if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-      dgamma = poly5zero(this%hfGammaAtDamping(iSp1, iSp2), this%hfdGammaAtDamping(iSp1, iSp2),&
-          & this%hfddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
+      dgamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
+          & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
           & tDerivative=.true.)
     elseif (dist >= this%gammaCutoff) then
       dgamma = 0.0_dp
     else
-      dgamma = getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist)
+      dgamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
     end if
 
-  end function getTruncatedHfGammaPrimeValue
+  end function getdHfTruncatedAndDampedGammaValue
+
+
+  !> Calculates analytical, screened Coulomb, long-range gamma derivative.
+  function getdLrScreenedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+
+    !> Instance
+    class(TRangeSepFunc_screened), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting screened gamma derivative
+    real(dp) :: dgamma
+
+    dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+        & this%omega + this%auxiliaryScreening, dist)&
+        & - getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+        & this%auxiliaryScreening, dist)
+
+  end function getdLrScreenedGammaValue
+
+
+  !> Calculates analytical, screened Coulomb, full-range Hartree-Fock gamma derivative.
+  function getdHfScreenedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+
+    !> Instance
+    class(TRangeSepFunc_screened), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting screened gamma derivative
+    real(dp) :: dgamma
+
+    dgamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)&
+        & - getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+
+  end function getdHfScreenedGammaValue
 
 
   function getLrGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgamma)
@@ -3559,7 +3757,7 @@ contains
       distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
       dist = norm2(distVect)
       distVect(:) = distVect / dist
-      dgamma(:) = dgamma + distVect * getTruncatedLrGammaPrimeValue(this, iSp1, iSp2, dist)
+      dgamma(:) = dgamma + distVect * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
     end do loopG
 
   end function getLrGammaPrimeGSum
@@ -3597,14 +3795,90 @@ contains
       distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
       dist = norm2(distVect)
       distVect(:) = distVect / dist
-      dgamma(:) = dgamma + distVect * getTruncatedHfGammaPrimeValue(this, iSp1, iSp2, dist)
+      dgamma(:) = dgamma + distVect * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
     end do loopG
 
   end function getHfGammaPrimeGSum
 
 
+  function getLrGammaPrimeGResolved(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgammas)
+
+    !> Instance
+    class(TRangeSepFunc), intent(in) :: this
+
+    !> Index of first and second atom
+    integer, intent(in) :: iAt1, iAt2
+
+    !> Index of first and second species
+    integer, intent(in) :: iSp1, iSp2
+
+    !> Vectors to unit cells in absolute units
+    real(dp), intent(in) :: rCellVecsG(:,:)
+
+    !> Resulting Gamma derivative (1st), summed up for g-vectors
+    real(dp) :: dgammas(3, size(rCellVecsG, dim=2))
+
+    !! Temporary distance vector
+    real(dp) :: distVect(3)
+
+    !! Distance between the two atoms
+    real(dp) :: dist
+
+    !! Index of real-space \vec{g} summation
+    integer :: iG
+
+    dgammas(:,:) = 0.0_dp
+
+    loopG: do iG = 1, size(rCellVecsG, dim=2)
+      distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
+      dist = norm2(distVect)
+      distVect(:) = distVect / dist
+      dgammas(:, iG) = distVect * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
+    end do loopG
+
+  end function getLrGammaPrimeGResolved
+
+
+  function getHfGammaPrimeGResolved(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgammas)
+
+    !> Instance
+    class(TRangeSepFunc), intent(in) :: this
+
+    !> Index of first and second atom
+    integer, intent(in) :: iAt1, iAt2
+
+    !> Index of first and second species
+    integer, intent(in) :: iSp1, iSp2
+
+    !> Vectors to unit cells in absolute units
+    real(dp), intent(in) :: rCellVecsG(:,:)
+
+    !> Resulting Gamma derivative (1st), summed up for g-vectors
+    real(dp) :: dgammas(3, size(rCellVecsG, dim=2))
+
+    !! Temporary distance vector
+    real(dp) :: distVect(3)
+
+    !! Distance between the two atoms
+    real(dp) :: dist
+
+    !! Index of real-space \vec{g} summation
+    integer :: iG
+
+    dgammas(:,:) = 0.0_dp
+
+    loopG: do iG = 1, size(rCellVecsG, dim=2)
+      distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
+      dist = norm2(distVect)
+      distVect(:) = distVect / dist
+      dgammas(:, iG) = distVect * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
+    end do loopG
+
+  end function getHfGammaPrimeGResolved
+
+
   !> Calculates analytical long-range gamma.
-  function getAnalyticalLrGammaValue(this, iSp1, iSp2, dist) result(gamma)
+  function getLrAnalyticalGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
     class(TRangeSepFunc_full), intent(in) :: this
@@ -3621,14 +3895,14 @@ contains
     !> Resulting gamma
     real(dp) :: gamma
 
-    gamma = getAnalyticalLrGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+    gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
         & dist)
 
-  end function getAnalyticalLrGammaValue
+  end function getLrAnalyticalGammaValue
 
 
   !> Calculates analytical long-range gamma.
-  function getAnalyticalLrGammaValue_workhorse(hubbu1, hubbu2, omega, dist) result(gamma)
+  function getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist) result(gamma)
 
     !> Hubbard U's
     real(dp), intent(in) :: hubbu1, hubbu2
@@ -3689,7 +3963,7 @@ contains
       end if
     end if
 
-  end function getAnalyticalLrGammaValue_workhorse
+  end function getLrAnalyticalGammaValue_workhorse
 
 
   !> Returns the subexpression for the evaluation of the off-site Y-Gamma-integral.
@@ -3725,31 +3999,30 @@ contains
 
 
   !> Derivative of analytical long-range Gamma
-  function getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist) result(dAnalyticalGammaDeriv)
+  function getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist) result(dgamma)
 
-    !> Instance
-    class(TRangeSepFunc), intent(in) :: this
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
 
-    !> Species index of first and second atom
-    integer, intent(in) :: iSp1, iSp2
+    !> Range-separation parameter
+    real(dp), intent(in) :: omega
 
     !> Distance between atoms
     real(dp), intent(in) :: dist
 
     !> Resulting d gamma / d dist
-    real(dp) :: dAnalyticalGammaDeriv
+    real(dp) :: dgamma
 
-    real(dp) :: tauA, tauB, omega
+    real(dp) :: tauA, tauB
     real(dp) :: prefac, tmp, tmp2, dTmp, dTmp2
 
-    tauA = 3.2_dp * this%hubbu(iSp1)
-    tauB = 3.2_dp * this%hubbu(iSp2)
-    omega = this%omega
+    tauA = 3.2_dp * hubbu1
+    tauB = 3.2_dp * hubbu2
 
     if (dist < tolSameDist) then
       ! on-site case
       if (abs(tauA - tauB) < MinHubDiff) then
-        dAnalyticalGammaDeriv = 0.0_dp
+        dgamma = 0.0_dp
       else
         call error("Error(RangeSep1): R = 0, Ua != Ub")
       end if
@@ -3775,7 +4048,7 @@ contains
             & -(dist**2*tauA**3/48.0_dp + 0.1875_dp*dist*tauA**2 + 0.6875_dp*tauA +1.0_dp/dist)&
             & * tauA * exp(-tauA * dist)
 
-        dAnalyticalGammaDeriv = -1.0_dp/dist**2 -dtmp2&
+        dgamma = -1.0_dp/dist**2 -dtmp2&
             & + (tauA**8 / (tauA**2 - omega**2)**4) * (dtmp + dtmp2 + omega*exp(-omega * dist)/dist&
             & +exp(-omega * dist) / dist**2)
 
@@ -3784,7 +4057,7 @@ contains
         prefac = tauA**4 / (tauA * tauA - omega * omega )**2
         prefac = prefac * tauB**4 / (tauB * tauB - omega * omega )**2
         prefac = prefac * (-omega * exp(-omega * dist) / dist - exp(-omega * dist) / dist**2)
-        dAnalyticalGammaDeriv = -1.0_dp / (dist**2) - prefac&
+        dgamma = -1.0_dp / (dist**2) - prefac&
             & + getdYGammaSubPart(tauA, tauB, dist, omega)&
             & + getdYGammaSubPart(tauB, tauA, dist, omega)&
             & - getdYGammaSubPart(tauA, tauB, dist, 0.0_dp)&
@@ -3792,7 +4065,7 @@ contains
       end if
     end if
 
-  end function getdAnalyticalLrGammaDeriv
+  end function getdLrAnalyticalGammaValue_workhorse
 
 
   !> Returns the derivative of the subexpression for the evaluation of the off-site
@@ -3830,7 +4103,7 @@ contains
 
 
   !> Returns the derivative of long-range gamma for iAtom1, iAtom2 (non-periodic systems only).
-  subroutine getLrGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
+  subroutine getDirectedLrGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
 
     !> Instance
     class(TRangeSepFunc), intent(in) :: this
@@ -3863,13 +4136,13 @@ contains
     vect(:) = coords0(:, iAtom1) - coords0(:, iAtom2)
     dist = sqrt(sum(vect**2))
     vect(:) = vect / dist
-    grad(:) = vect * getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist)
+    grad(:) = vect * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
 
-  end subroutine getLrGammaPrimeValue_cluster
+  end subroutine getDirectedLrGammaPrimeValue_cluster
 
 
   !> Returns the derivative of long-range gamma for iAtom1, iAtom2 (periodic systems).
-  subroutine getLrGammaPrimeValue_periodic(this, grad, iAtom1, iAtom2, coords, species0,&
+  subroutine getDirectedLrGammaPrimeValue_periodic(this, grad, iAtom1, iAtom2, coords, species0,&
       & img2CentCell)
 
     !> Instance
@@ -3906,9 +4179,91 @@ contains
     vect(:) = coords(:, iAtom1) - coords(:, iAtom2)
     dist = sqrt(sum(vect**2))
     vect(:) = vect / dist
-    grad(:) = vect * getdAnalyticalLrGammaDeriv(this, iSp1, iSp2, dist)
+    grad(:) = vect * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
 
-  end subroutine getLrGammaPrimeValue_periodic
+  end subroutine getDirectedLrGammaPrimeValue_periodic
+
+
+  !> Returns the derivative of long-range gamma for iAtom1, iAtom2 (non-periodic systems only).
+  subroutine getDirectedHfGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
+
+    !> Instance
+    class(TRangeSepFunc), intent(in) :: this
+
+    !> Gradient of gamma between atoms
+    real(dp), intent(out) :: grad(3)
+
+    !> First atom
+    integer, intent(in) :: iAtom1
+
+    !> Second atom
+    integer, intent(in) :: iAtom2
+
+    !> Coordinates of atoms in central cell
+    real(dp), intent(in) :: coords0(:,:)
+
+    !> List of all atomic species in central cell
+    integer, intent(in) :: species0(:)
+
+    !! Species index of first and second atom
+    integer :: iSp1, iSp2
+
+    !! Distance(-vector) of the two atoms
+    real(dp) :: vect(3), dist
+
+    iSp1 = species0(iAtom1)
+    iSp2 = species0(iAtom2)
+
+    ! analytical derivatives
+    vect(:) = coords0(:, iAtom1) - coords0(:, iAtom2)
+    dist = sqrt(sum(vect**2))
+    vect(:) = vect / dist
+    grad(:) = vect * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
+
+  end subroutine getDirectedHfGammaPrimeValue_cluster
+
+
+  !> Returns the derivative of long-range gamma for iAtom1, iAtom2 (periodic systems).
+  subroutine getDirectedHfGammaPrimeValue_periodic(this, grad, iAtom1, iAtom2, coords, species0,&
+      & img2CentCell)
+
+    !> Instance
+    class(TRangeSepFunc), intent(in) :: this
+
+    !> Gradient of gamma between atoms
+    real(dp), intent(out) :: grad(3)
+
+    !> First atom
+    integer, intent(in) :: iAtom1
+
+    !> Second atom
+    integer, intent(in) :: iAtom2
+
+    !> Coordinates of atoms, including periodic images
+    real(dp), intent(in) :: coords(:,:)
+
+    !> List of all atomic species in central cell
+    integer, intent(in) :: species0(:)
+
+    !> Map images of atoms to the central cell
+    integer, intent(in) :: img2CentCell(:)
+
+    !! Species index of first and second atom
+    integer :: iSp1, iSp2
+
+    !! Distance(-vector) of the two atoms
+    real(dp) :: vect(3), dist
+
+    iSp1 = species0(img2CentCell(iAtom1))
+    iSp2 = species0(img2CentCell(iAtom2))
+
+    ! analytical derivatives
+    vect(:) = coords(:, iAtom1) - coords(:, iAtom2)
+    dist = sqrt(sum(vect**2))
+    vect(:) = vect / dist
+    grad(:) = vect * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
+
+  end subroutine getDirectedHfGammaPrimeValue_periodic
 
 
   !> Adds CAM gradients due to full-/long-range HF-contributions (non-periodic version).
@@ -4190,7 +4545,7 @@ contains
       do iAt1 = 1, nAtom0
         do iAt2 = 1, nAtom0
           if (iAt1 /= iAt2) then
-            call getLrGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
+            call getDirectedLrGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
             gammaPrimeTmp(:, iAt1, iAt2) = tmp
           end if
         end do
@@ -4572,7 +4927,7 @@ contains
     do iAt1 = 1, nAtom0
       do iAt2 = 1, nAtom0
         if (iAt1 /= iAt2) then
-          call getLrGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
+          call getDirectedLrGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
           lrGammaDeriv0(iAt2, iAt1, :) = tmp
         end if
       end do
@@ -4580,10 +4935,6 @@ contains
 
   end subroutine getLrGammaDerivCluster
 
-
-  !!
-  !! Full-range Hartree-Fock related Routines.
-  !!
 
   !> Interface routine for the full-range Hartree-Fock contribution to the Hamiltonian.
   subroutine addHfHamiltonian_cluster(this, densSqr, over, iNeighbour, nNeighbourCam,&
@@ -4811,7 +5162,7 @@ contains
 
 
   !> Calculates analytical full-range Hartree-Fock gamma.
-  function getAnalyticalHfGammaValue(this, iSp1, iSp2, dist) result(gamma)
+  function getHfAnalyticalGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
     !> Instance
     class(TRangeSepFunc_full), intent(in) :: this
@@ -4828,13 +5179,13 @@ contains
     !> Resulting gamma
     real(dp) :: gamma
 
-    gamma = getAnalyticalHfGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+    gamma = getHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
 
-  end function getAnalyticalHfGammaValue
+  end function getHfAnalyticalGammaValue
 
 
   !> Calculates analytical full-range Hartree-Fock gamma.
-  function getAnalyticalHfGammaValue_workhorse(hubbu1, hubbu2, dist) result(gamma)
+  function getHfAnalyticalGammaValue_workhorse(hubbu1, hubbu2, dist) result(gamma)
 
     !> Hubbard U's
     real(dp), intent(in) :: hubbu1, hubbu2
@@ -4874,20 +5225,14 @@ contains
       end if
     end if
 
-  end function getAnalyticalHfGammaValue_workhorse
+  end function getHfAnalyticalGammaValue_workhorse
 
 
   !> Derivative of analytical full-range Hartree-Fock gamma.
-  function getdAnalyticalHfGammaDeriv(this, Sp1, Sp2, dist) result(dGamma)
+  function getdHfAnalyticalGammaValue_workhorse(hubbu1, hubbu2, dist) result(dGamma)
 
-    !> Instance
-    class(TRangeSepFunc), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: Sp1
-
-    !> Second species
-    integer, intent(in) :: Sp2
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
 
     !> Distance between atoms
     real(dp), intent(in) :: dist
@@ -4898,8 +5243,8 @@ contains
     real(dp) :: tauA, tauB
     real(dp) :: dTmp
 
-    tauA = 3.2_dp * this%hubbu(Sp1)
-    tauB = 3.2_dp * this%hubbu(Sp2)
+    tauA = 3.2_dp * hubbu1
+    tauB = 3.2_dp * hubbu2
 
     if (dist < tolSameDist) then
       ! on-site case
@@ -4928,91 +5273,7 @@ contains
       end if
     end if
 
-  end function getdAnalyticalHfGammaDeriv
-
-
-  !> !> Returns the derivative of full-range Hartree-Fock gamma for iAtom1, iAtom2
-  !! (non-periodic systems only).
-  subroutine getHfGammaPrimeValue_cluster(this, grad, iAtom1, iAtom2, coords0, species0)
-
-    !> Instance
-    class(TRangeSepFunc), intent(in) :: this
-
-    !> Gradient of gamma between atoms
-    real(dp), intent(out) :: grad(3)
-
-    !> First atom
-    integer, intent(in) :: iAtom1
-
-    !> Second atom
-    integer, intent(in) :: iAtom2
-
-    !> Coordinates of atoms in central cell
-    real(dp), intent(in) :: coords0(:,:)
-
-    !> List of all atomic species in central cell
-    integer, intent(in) :: species0(:)
-
-    !! Species index of first and second atom
-    integer :: iSp1, iSp2
-
-    !! Distance(-vector) of the two atoms
-    real(dp) :: vect(3), dist
-
-    iSp1 = species0(iAtom1)
-    iSp2 = species0(iAtom2)
-
-    ! analytical derivatives
-    vect(:) = coords0(:, iAtom1) - coords0(:, iAtom2)
-    dist = sqrt(sum(vect**2))
-    vect(:) = vect / dist
-    grad(:) = vect * getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist)
-
-  end subroutine getHfGammaPrimeValue_cluster
-
-
-  !> !> Returns the derivative of full-range Hartree-Fock gamma for iAtom1, iAtom2
-  !! (periodic systems).
-  subroutine getHfGammaPrimeValue_periodic(this, grad, iAtom1, iAtom2, coords, species0,&
-      & img2CentCell)
-
-    !> Instance
-    class(TRangeSepFunc), intent(in) :: this
-
-    !> Gradient of gamma between atoms
-    real(dp), intent(out) :: grad(3)
-
-    !> First atom
-    integer, intent(in) :: iAtom1
-
-    !> Second atom
-    integer, intent(in) :: iAtom2
-
-    !> Coordinates of atoms, including periodic images
-    real(dp), intent(in) :: coords(:,:)
-
-    !> List of all atomic species in central cell
-    integer, intent(in) :: species0(:)
-
-    !> Map images of atoms to the central cell
-    integer, intent(in) :: img2CentCell(:)
-
-    !! Species index of first and second atom
-    integer :: iSp1, iSp2
-
-    !! Distance(-vector) of the two atoms
-    real(dp) :: vect(3), dist
-
-    iSp1 = species0(img2CentCell(iAtom1))
-    iSp2 = species0(img2CentCell(iAtom2))
-
-    ! analytical derivatives
-    vect(:) = coords(:, iAtom1) - coords(:, iAtom2)
-    dist = sqrt(sum(vect**2))
-    vect(:) = vect / dist
-    grad(:) = vect * getdAnalyticalHfGammaDeriv(this, iSp1, iSp2, dist)
-
-  end subroutine getHfGammaPrimeValue_periodic
+  end function getdHfAnalyticalGammaValue_workhorse
 
 
   !> Returns full-range HartreeFock gamma integrals (non-periodic).
@@ -5055,7 +5316,7 @@ contains
     do iAt1 = 1, nAtom0
       do iAt2 = 1, nAtom0
         if (iAt1 /= iAt2) then
-          call getHfGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords0, species0)
+          call getDirectedHfGammaPrimeValue(this, tmp, iAt1, iAt2, coords0, species0)
           hfGammaDeriv0(iAt2, iAt1, :) = tmp
         end if
       end do
@@ -5245,7 +5506,7 @@ contains
       do iAt1 = 1, nAtom0
         do iAt2 = 1, nAtom0
           if (iAt1 /= iAt2) then
-            call getHfGammaPrimeValue_cluster(this, tmp, iAt1, iAt2, coords, species)
+            call getDirectedHfGammaPrimeValue(this, tmp, iAt1, iAt2, coords, species)
             gammaPrimeTmp(:, iAt1, iAt2) = tmp
           end if
         end do
