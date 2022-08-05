@@ -2731,8 +2731,9 @@ contains
           & input%ctrl%rangeSepInp%screeningThreshold, input%ctrl%rangeSepInp%omega,&
           & input%ctrl%rangeSepInp%camAlpha, input%ctrl%rangeSepInp%camBeta,&
           & this%tSpin, allocated(this%reks), input%ctrl%rangeSepInp%rangeSepAlg,&
-          & input%ctrl%rangeSepInp%gammaType, coeffsDiag=this%supercellFoldingDiag,&
-          & gammaCutoff=this%cutOff%gammaCutoff, gSummationCutoff=this%cutOff%gSummationCutoff,&
+          & input%ctrl%rangeSepInp%gammaType, this%tPeriodic, this%tRealHS,&
+          & coeffsDiag=this%supercellFoldingDiag, gammaCutoff=this%cutOff%gammaCutoff,&
+          & gSummationCutoff=this%cutOff%gSummationCutoff,&
           & auxiliaryScreening=this%cutOff%auxiliaryScreening)
       ! now all information are present to properly allocate density matrices and associate pointers
       call this%reallocateRangeSeparated()

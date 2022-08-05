@@ -61,7 +61,7 @@ module dftbp_dftb_rangeseparated
 
   type :: TIntArray1D
 
-    !> onedimensional, integer data storage
+    !> Onedimensional, integer data storage
     integer, allocatable :: array(:)
 
   end type TIntArray1D
@@ -69,12 +69,13 @@ module dftbp_dftb_rangeseparated
 
   type :: TRealArray1D
 
-    !> onedimensional, real data storage
+    !> Onedimensional, real data storage
     real(dp), allocatable :: array(:)
 
   end type TRealArray1D
 
 
+  !> Enumerator for algorithms to build up the range-separated Hamiltonian.
   type :: TRangeSepTypesEnum
 
     !> Neighbour based
@@ -89,6 +90,7 @@ module dftbp_dftb_rangeseparated
   end type TRangeSepTypesEnum
 
 
+  !> Enumerator for gamma function types.
   type :: TRangeSepGammaTypesEnum
 
     !> Full, unaltered gamma function (full)
@@ -114,7 +116,7 @@ module dftbp_dftb_rangeseparated
   type(TRangeSepGammaTypesEnum), parameter :: rangeSepGammaTypes = TRangeSepGammaTypesEnum()
 
 
-  !> Slater-Koster file RangeSep tag structure
+  !> Slater-Koster file RangeSep tag structure.
   type :: TRangeSepSKTag
 
     !> range-separation parameter
@@ -129,6 +131,7 @@ module dftbp_dftb_rangeseparated
   end type TRangeSepSKTag
 
 
+  !> Abstract base type for range-separated functionality, some procedures need to be overridden.
   type, abstract :: TRangeSepFunc
 
     !> Real-space coordinates of atoms (relative units), potentially including periodic images
@@ -277,7 +280,7 @@ module dftbp_dftb_rangeseparated
 
 
   abstract interface
-    !> Calculates analytical long-range gamma of given type.
+    !> Calculates analytical long-range gamma (derivative) of given type.
     function gammaFunc(this, iSp1, iSp2, dist) result(gamma)
 
       import :: TRangeSepFunc, dp
@@ -298,32 +301,10 @@ module dftbp_dftb_rangeseparated
       real(dp) :: gamma
 
     end function gammaFunc
-
-    ! !> Calculates analytical long-range gamma of given type.
-    ! function gammaPrimeFunc(this, iSp1, iSp2, dist) result(dgamma)
-
-    !   import :: TRangeSepFunc, dp
-
-    !   !> Instance
-    !   class(TRangeSepFunc), intent(in) :: this
-
-    !   !> First species
-    !   integer, intent(in) :: iSp1
-
-    !   !> Second species
-    !   integer, intent(in) :: iSp2
-
-    !   !> Distance between atoms
-    !   real(dp), intent(in) :: dist
-
-    !   !> Resulting truncated gamma
-    !   real(dp) :: dgamma(3)
-
-    ! end function gammaPrimeFunc
   end interface
 
 
-  !>
+  !> Base type extension for unaltered analytical gamma functions.
   type, extends(TRangeSepFunc) :: TRangeSepFunc_full
 
   contains
@@ -337,7 +318,7 @@ module dftbp_dftb_rangeseparated
   end type TRangeSepFunc_full
 
 
-  !>
+  !> Base type extension for truncated analytical gamma functions.
   type, extends(TRangeSepFunc) :: TRangeSepFunc_truncated
 
   contains
@@ -351,7 +332,7 @@ module dftbp_dftb_rangeseparated
   end type TRangeSepFunc_truncated
 
 
-  !>
+  !> Base type extension for truncated and poly5zero damped analytical gamma functions.
   type, extends(TRangeSepFunc) :: TRangeSepFunc_truncatedAndDamped
 
   contains
@@ -365,7 +346,7 @@ module dftbp_dftb_rangeseparated
   end type TRangeSepFunc_truncatedAndDamped
 
 
-  !>
+  !> Base type extension for artificially screened analytical gamma functions.
   type, extends(TRangeSepFunc) :: TRangeSepFunc_screened
 
   contains
@@ -381,10 +362,10 @@ module dftbp_dftb_rangeseparated
 
 contains
 
-  !> Intitializes the range-sep module.
+  !> Intitializes the range-separated module.
   subroutine TRangeSepFunc_init(this, nAtom, species0, hubbu, screen, omega, camAlpha, camBeta,&
-      & tSpin, tREKS, rsAlg, gammaType, gammaCutoff, gSummationCutoff, auxiliaryScreening,&
-      & coeffsDiag)
+      & tSpin, tREKS, rsAlg, gammaType, tPeriodic, tRealHS, gammaCutoff, gSummationCutoff,&
+      & auxiliaryScreening, coeffsDiag)
 
     !> Class instance
     class(TRangeSepFunc), intent(out), allocatable :: this
@@ -419,8 +400,14 @@ contains
     !> lr-hamiltonian construction algorithm
     integer, intent(in) :: rsAlg
 
-    !> Gamma function type for periodic cases
+    !> Gamma function type (mostly for periodic cases)
     integer, intent(in) :: gammaType
+
+    !> True, if system is periodic (i.e. Gamma-only or k-points)
+    logical, intent(in) :: tPeriodic
+
+    !> True, if overlap and Hamiltonian are real-valued
+    logical, intent(in) :: tRealHS
 
     !> Cutoff for truncated Gamma
     real(dp), intent(in), optional :: gammaCutoff
@@ -440,17 +427,43 @@ contains
     !! Number of unique species in system
     integer :: nUniqueSpecies
 
+    integer :: ii, fd
+    real(dp) :: dist, gamma, dgamma
+
+    ! Perform basic consistency checks for optional arguments
+    if (tPeriodic .and. (.not. present(gSummationCutoff))) then
+      call error('Range-separated Module: Periodic systems require g-summation cutoff, which is not&
+          & present.')
+    end if
+    if ((.not. tRealHS) .and. (.not. present(coeffsDiag))) then
+      call error('Range-separated Module: General k-point case requires supercell folding&
+          & coefficients, which are not present.')
+    end if
+
+    ! Allocate selected gamma function types
     select case(gammaType)
     case (rangeSepGammaTypes%full)
       allocate(TRangeSepFunc_full:: this)
     case (rangeSepGammaTypes%truncated)
+      if (.not. present(gammaCutoff)) then
+        call error('Range-separated Module: Coulomb truncation requires cutoff, which is not&
+            & present.')
+      end if
       allocate(TRangeSepFunc_truncated:: this)
     case (rangeSepGammaTypes%truncatedAndDamped)
+      if (.not. present(gammaCutoff)) then
+        call error('Range-separated Module: Coulomb truncation requires cutoff, which is not&
+            & present.')
+      end if
       allocate(TRangeSepFunc_truncatedAndDamped:: this)
     case (rangeSepGammaTypes%screened)
+      if (.not. present(auxiliaryScreening)) then
+        call error('Range-separated Module: Coulomb screening requires additional range-separation&
+            & parameter, which is not present.')
+      end if
       allocate(TRangeSepFunc_screened:: this)
     case default
-      call error('Invalid gamma function type obtained.')
+      call error('Range-separated Module: Invalid gamma function type obtained.')
     end select
 
     this%tScreeningInited = .false.
@@ -471,8 +484,8 @@ contains
     if (present(gammaCutoff)) then
       this%gammaCutoff = gammaCutoff
 
-      ! Is this a sensible choice for the beginning of the damping region?
-      this%gammaDamping = 0.95_dp * this%gammaCutoff
+      ! Start beginning of the damping region and 95% of the gamma cutoff.
+      this%gammaDamping = 0.55_dp * this%gammaCutoff
 
       if (this%gammaDamping <= 0.0_dp) then
         call error("Beginning of damped region of electrostatics must be positive.")
@@ -574,6 +587,16 @@ contains
       this%coeffsDiag = coeffsDiag
       call getBvKLatticeShifts(this%coeffsDiag, this%bvKShifts)
     end if
+
+    open(newunit=fd, file="gamma.dat", action="write", status="replace", form="formatted")
+    do ii = 1, 10000
+      dist = 0.01_dp * ii
+      gamma = this%getLrGammaValue(1, 1, dist)
+      dgamma = this%getLrGammaPrimeValue(1, 1, dist)
+      write(fd, *) dist, gamma, dgamma
+    end do
+    close(fd)
+    stop
 
 
   contains
