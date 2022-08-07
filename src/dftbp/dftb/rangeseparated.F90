@@ -2886,7 +2886,7 @@ contains
 
 
   !> Adds the CAM-energy contribution to the total energy.
-  pure subroutine addCamEnergy(this, env, energy)
+  subroutine addCamEnergy(this, env, energy)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -2904,7 +2904,7 @@ contains
 
 
   !> Add the LR-energy contribution to the total energy.
-  pure subroutine addLrEnergy(this, env, energy)
+  subroutine addLrEnergy(this, env, energy)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -5096,7 +5096,7 @@ contains
 
 
   !> Add the full-range Hartree-Fock Energy contribution to the total energy.
-  pure subroutine addHfEnergy(this, env, energy)
+  subroutine addHfEnergy(this, env, energy)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this

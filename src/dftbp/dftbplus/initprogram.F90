@@ -5769,8 +5769,6 @@ contains
       cutOff%gSummationCutoff = 2.0_dp * cutOff%gammaCutoff
     end if
 
-    write(stdOut, *) 'cutOff%auxiliaryScreening', cutOff%auxiliaryScreening
-
   end subroutine getRangeSeparatedCutOff_kpts
 
 
