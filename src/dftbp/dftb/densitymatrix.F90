@@ -545,8 +545,7 @@ contains
     end do
 
     ! Create matrix by rank-k update
-    call pblasfx_psyrk(eigenVecs, desc, densityMtx, desc, kk=nLevel,&
-        & alpha=alpha, beta=beta)
+    call pblasfx_psyrk(eigenVecs, desc, densityMtx, desc, kk=nLevel, alpha=alpha, beta=beta)
 
     ! Revert eigenvectors to their original value
     do ii = 1, size(blocks)

@@ -2811,12 +2811,12 @@ contains
     end if
 
   #:if WITH_SCALAPACK
-    if (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic)) then
+    ! if (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic)) then
       associate (blacsOpts => input%ctrl%parallelOpts%blacsOpts)
         call getDenseDescBlacs(env, blacsOpts%blockSize, blacsOpts%blockSize, this%denseDesc,&
             & this%isSparseReorderRequired)
       end associate
-    end if
+    ! end if
   #:endif
 
     if (allocated(this%reks)) then
@@ -5761,7 +5761,8 @@ contains
       !     & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp&
       !     & * product(supercellFoldingDiag)**(1.0_dp / 3.0_dp)
-      cutOff%gammaCutoff = minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      ! cutOff%gammaCutoff = minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      cutOff%gammaCutoff = 0.25_dp * minNormTimesNKpt
     end if
 
     if (present(gSummationCutoff)) then
