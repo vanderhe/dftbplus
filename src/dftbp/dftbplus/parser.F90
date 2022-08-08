@@ -2821,8 +2821,8 @@ contains
         !   deallocate(ctrl%supercellFoldingDiag, ctrl%supercellFoldingMatrix)
         ! end if
       end if
-      tReduceByInversion = (.not. ctrl%tSpinOrbit)
-      ! tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))
+      ! tReduceByInversion = (.not. ctrl%tSpinOrbit)
+      tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))
       call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
           & ctrl%kPoint, ctrl%kWeight, reduceByInversion=tReduceByInversion)
       ctrl%nKPoint = size(ctrl%kPoint, dim=2)
@@ -7793,13 +7793,16 @@ contains
           input%gammaType = rangeSepGammaTypes%truncatedAndDamped
         case ("screened")
           input%gammaType = rangeSepGammaTypes%screened
+        case ("screened+damping")
+          input%gammaType = rangeSepGammaTypes%screenedAndDamped
         case default
           call detailedError(child3, "Invalid Gamma function type '"&
               & // tolower(unquote(trim(char(strBuffer)))) // "'")
         end select
 
         if (input%gammaType == rangeSepGammaTypes%truncated&
-            & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
+            & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped&
+            & .or. input%gammaType == rangeSepGammaTypes%screenedAndDamped) then
           call getChild(value1, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
           if (associated(child3)) then
             allocate(input%gammaCutoff)
@@ -7808,7 +7811,8 @@ contains
           end if
         end if
 
-        if (input%gammaType == rangeSepGammaTypes%screened) then
+        if (input%gammaType == rangeSepGammaTypes%screened&
+            & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
           call getChild(value1, "AuxiliaryScreening", child=child3, requested=.false.)
           if (associated(child3)) then
             allocate(input%auxiliaryScreening)

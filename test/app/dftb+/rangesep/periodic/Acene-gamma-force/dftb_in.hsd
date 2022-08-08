@@ -49,3 +49,8 @@ Options {
   WriteResultsTag = Yes
   WriteAutotestTag = Yes
 }
+
+Parallel {
+  Groups = 1
+  UseOmpThreads = No
+}

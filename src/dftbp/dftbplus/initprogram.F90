@@ -3530,11 +3530,14 @@ contains
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated+poly5zero"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screened) then
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened"
+          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screenedAndDamped) then
+            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened+poly5zero"
           end if
           write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
               & this%cutOff%gSummationCutoff, " Bohr"
           if (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated&
-              & .or. input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
+              & .or. input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped&
+              & .or. input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screenedAndDamped) then
             write(stdOut, "(2X,A,':',T30,E14.6,A)") "Coulomb Truncation",&
                 & this%cutOff%gammaCutoff, " Bohr"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screened) then
