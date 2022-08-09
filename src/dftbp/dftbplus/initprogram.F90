@@ -5761,8 +5761,8 @@ contains
       !     & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp&
       !     & * product(supercellFoldingDiag)**(1.0_dp / 3.0_dp)
-      cutOff%gammaCutoff = minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
-      ! cutOff%gammaCutoff = 0.25_dp * minNormTimesNKpt
+      ! cutOff%gammaCutoff = minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      cutOff%gammaCutoff = 0.55_dp * minNormTimesNKpt
     end if
 
     if (present(gSummationCutoff)) then
