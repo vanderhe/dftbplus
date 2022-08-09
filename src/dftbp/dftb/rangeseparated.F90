@@ -509,11 +509,15 @@ contains
     this%lrEnergy = 0.0_dp
     this%hfEnergy = 0.0_dp
 
+    if (present(gSummationCutoff)) this%gSummationCutoff = gSummationCutoff
+    if (present(auxiliaryScreening)) this%auxiliaryScreening = auxiliaryScreening
+
     if (present(gammaCutoff)) then
       this%gammaCutoff = gammaCutoff
 
       ! Start beginning of the damping region and 95% of the gamma cutoff.
-      this%gammaDamping = 0.95_dp * this%gammaCutoff
+      ! this%gammaDamping = 0.95_dp * this%gammaCutoff
+      this%gammaDamping = 0.75_dp * this%gammaCutoff
 
       if (this%gammaDamping <= 0.0_dp) then
         call error("Beginning of damped region of electrostatics must be positive.")
@@ -532,7 +536,7 @@ contains
               & = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
               & this%omega, this%gammaDamping)
           this%lrddGammaAtDamping(iSp1, iSp2)&
-              & = getddLrNumericalGammaDeriv_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+              & = getddLrNumericalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
               & this%omega, this%gammaDamping, 1e-08_dp)
         end do
       end do
@@ -544,20 +548,15 @@ contains
         do iSp2 = 1, nUniqueSpecies
           do iSp1 = 1, nUniqueSpecies
             this%lrScreenedGammaAtDamping(iSp1, iSp2)&
-                & = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-                & this%omega + this%auxiliaryScreening, this%gammaDamping)&
-                & - getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-                & this%auxiliaryScreening, this%gammaDamping)
+                & = getLrScreenedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+                & this%omega, this%auxiliaryScreening, this%gammaDamping)
             this%lrdScreenedGammaAtDamping(iSp1, iSp2)&
-                & = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-                & this%omega + this%auxiliaryScreening, this%gammaDamping)&
-                & - getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-                & this%auxiliaryScreening, this%gammaDamping)
-            this%lrddScreenedGammaAtDamping(iSp1, iSp2) =&
-                & getddLrNumericalGammaDeriv_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-                & this%omega + this%auxiliaryScreening, this%gammaDamping, 1e-08_dp)&
-                & - getddLrNumericalGammaDeriv_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-                & this%auxiliaryScreening, this%gammaDamping, 1e-08_dp)
+                & = getdLrScreenedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+                & this%omega, this%auxiliaryScreening, this%gammaDamping)
+            this%lrddScreenedGammaAtDamping(iSp1, iSp2)&
+                & = getddLrNumericalScreenedGammaValue_workhorse(this%hubbu(iSp1),&
+                & this%hubbu(iSp2), this%omega, this%auxiliaryScreening, this%gammaDamping,&
+                & 1e-08_dp)
           end do
         end do
       end if
@@ -578,9 +577,6 @@ contains
         end do
       end do
     end if
-
-    if (present(gSummationCutoff)) this%gSummationCutoff = gSummationCutoff
-    if (present(auxiliaryScreening)) this%auxiliaryScreening = auxiliaryScreening
 
     this%tHyb = .false.
     this%tLc = .false.
@@ -3185,7 +3181,7 @@ contains
 
   !> Returns the numerical second derivative of long-range gamma, by means of a central finite
   !! difference.
-  function getddLrNumericalGammaDeriv(this, iSp1, iSp2, dist, delta) result(ddGamma)
+  function getddLrNumericalGammaValue(this, iSp1, iSp2, dist, delta) result(ddGamma)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -3205,14 +3201,14 @@ contains
     !> Numerical gamma derivative
     real(dp) :: ddGamma
 
-    ddGamma = getddLrNumericalGammaDeriv_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+    ddGamma = getddLrNumericalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
         & dist, delta)
 
-  end function getddLrNumericalGammaDeriv
+  end function getddLrNumericalGammaValue
 
 
-  !> Workhorse routine for getddLrNumericalGammaDeriv.
-  function getddLrNumericalGammaDeriv_workhorse(hubbu1, hubbu2, omega, dist, delta) result(ddGamma)
+  !> Workhorse routine for getddLrNumericalGammaValue.
+  function getddLrNumericalGammaValue_workhorse(hubbu1, hubbu2, omega, dist, delta) result(ddGamma)
 
     !> Hubbard U's
     real(dp), intent(in) :: hubbu1, hubbu2
@@ -3233,7 +3229,7 @@ contains
         & - getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist - delta))&
         & / (2.0_dp * delta)
 
-  end function getddLrNumericalGammaDeriv_workhorse
+  end function getddLrNumericalGammaValue_workhorse
 
 
   !> Returns the numerical second derivative of full-range Hartree-Fock gamma, by means of a central
@@ -3284,12 +3280,37 @@ contains
     !> Resulting screened gamma
     real(dp) :: gamma
 
-    gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-        & this%omega + this%auxiliaryScreening, dist)&
-        & - getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+    gamma = getLrScreenedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
         & this%auxiliaryScreening, dist)
 
   end function getLrScreenedGammaValue
+
+
+  !> Calculates analytical, screened Coulomb, long-range gamma.
+  function getLrScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening, dist)&
+      & result(gamma)
+
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
+
+    !> Range-separation parameter
+    real(dp), intent(in) :: omega
+
+    !> Auxiliary screening parameter
+    real(dp), intent(in) :: auxiliaryScreening
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting screened gamma
+    real(dp) :: gamma
+
+    ! gamma = getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening, dist)&
+    !     & - getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist)
+    gamma = getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
+        & * exp(-auxiliaryScreening * dist)
+
+  end function getLrScreenedGammaValue_workhorse
 
 
   !> Calculates analytical, screened and poly5zero damped Coulomb, long-range gamma.
@@ -3310,21 +3331,55 @@ contains
     !> Resulting screened gamma
     real(dp) :: gamma
 
-    if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-      gamma = poly5zero(this%lrScreenedGammaAtDamping(iSp1, iSp2),&
-          & this%lrdScreenedGammaAtDamping(iSp1, iSp2),&
-          & this%lrddScreenedGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
-          & tDerivative=.false.)
-    elseif (dist >= this%gammaCutoff) then
-      gamma = 0.0_dp
-    else
-      gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-          & this%omega + this%auxiliaryScreening, dist)&
-          & - getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-          & this%auxiliaryScreening, dist)
-    end if
+    gamma = getLrScreenedAndDampedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+        & this%omega, this%auxiliaryScreening, dist, this%gammaCutoff, this%gammaDamping,&
+        & this%lrScreenedGammaAtDamping(iSp1, iSp2), this%lrdScreenedGammaAtDamping(iSp1, iSp2),&
+        & this%lrddScreenedGammaAtDamping(iSp1, iSp2))
 
   end function getLrScreenedAndDampedGammaValue
+
+
+  !> Calculates analytical, screened and poly5zero damped Coulomb, long-range gamma.
+  function getLrScreenedAndDampedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening,&
+      & dist, gammaCutoff, gammaDamping, lrScreenedGammaAtDamping, lrdScreenedGammaAtDamping,&
+      & lrddScreenedGammaAtDamping) result(gamma)
+
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
+
+    !> Range-separation parameter
+    real(dp), intent(in) :: omega
+
+    !> Auxiliary screening parameter
+    real(dp), intent(in) :: auxiliaryScreening
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Cutoff for truncated Gamma
+    real(dp), intent(in) :: gammaCutoff
+
+    !> Damping distance for Gamma truncation
+    real(dp), intent(in) :: gammaDamping
+
+    !> Value, 1st and 2nd derivative of screened gamma integral at damping distance
+    real(dp), intent(in) :: lrScreenedGammaAtDamping
+    real(dp), intent(in) :: lrdScreenedGammaAtDamping
+    real(dp), intent(in) :: lrddScreenedGammaAtDamping
+
+    !> Resulting screened gamma
+    real(dp) :: gamma
+
+    if (dist > gammaDamping .and. dist < gammaCutoff) then
+      gamma = poly5zero(lrScreenedGammaAtDamping, lrdScreenedGammaAtDamping,&
+          & lrddScreenedGammaAtDamping, dist, gammaDamping, gammaCutoff, tDerivative=.false.)
+    elseif (dist >= gammaCutoff) then
+      gamma = 0.0_dp
+    else
+      gamma = getLrScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening, dist)
+    end if
+
+  end function getLrScreenedAndDampedGammaValue_workhorse
 
 
   !> Calculates analytical, screened Coulomb, full-range Hartree-Fock gamma.
@@ -3646,7 +3701,7 @@ contains
 
 
   !> Calculates analytical, unaltered long-range gamma derivative.
-  function getdLrAnalyticalGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdLrAnalyticalGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_full), intent(in) :: this
@@ -3661,16 +3716,16 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
-    dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+    dGamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
         & dist)
 
   end function getdLrAnalyticalGammaValue
 
 
   !> Calculates analytical, unaltered full-range Hartree-Fock gamma derivative.
-  function getdHfAnalyticalGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdHfAnalyticalGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_full), intent(in) :: this
@@ -3685,15 +3740,15 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
-    dgamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+    dGamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
 
   end function getdHfAnalyticalGammaValue
 
 
   !> Calculates analytical, truncated Coulomb, long-range gamma derivative.
-  function getdLrTruncatedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdLrTruncatedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_truncated), intent(in) :: this
@@ -3708,12 +3763,12 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting truncated gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
     if (dist >= this%gammaCutoff) then
-      dgamma = 0.0_dp
+      dGamma = 0.0_dp
     else
-      dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+      dGamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
           & dist)
     end if
 
@@ -3721,7 +3776,7 @@ contains
 
 
   !> Calculates analytical, truncated Coulomb, full-range Hartree-Fock gamma derivative.
-  function getdHfTruncatedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdHfTruncatedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_truncated), intent(in) :: this
@@ -3736,19 +3791,19 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting truncated gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
     if (dist >= this%gammaCutoff) then
-      dgamma = 0.0_dp
+      dGamma = 0.0_dp
     else
-      dgamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+      dGamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
     end if
 
   end function getdHfTruncatedGammaValue
 
 
   !> Calculates analytical, truncated and poly5zero damped Coulomb, long-range gamma derivative.
-  function getdLrTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdLrTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_truncatedAndDamped), intent(in) :: this
@@ -3763,16 +3818,16 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting truncated gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
     if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-      dgamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
+      dGamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
           & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
           & tDerivative=.true.)
     elseif (dist >= this%gammaCutoff) then
-      dgamma = 0.0_dp
+      dGamma = 0.0_dp
     else
-      dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+      dGamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
           & dist)
     end if
 
@@ -3781,7 +3836,7 @@ contains
 
   !> Calculates analytical, truncated and poly5zero damped Coulomb, full-range Hartree-Fock gamma
   !! derivative.
-  function getdHfTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdHfTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_truncatedAndDamped), intent(in) :: this
@@ -3796,23 +3851,23 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting truncated gamma derivative (1st)
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
     if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-      dgamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
+      dGamma = poly5zero(this%lrGammaAtDamping(iSp1, iSp2), this%lrdGammaAtDamping(iSp1, iSp2),&
           & this%lrddGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
           & tDerivative=.true.)
     elseif (dist >= this%gammaCutoff) then
-      dgamma = 0.0_dp
+      dGamma = 0.0_dp
     else
-      dgamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+      dGamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
     end if
 
   end function getdHfTruncatedAndDampedGammaValue
 
 
   !> Calculates analytical, screened Coulomb, long-range gamma derivative.
-  function getdLrScreenedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdLrScreenedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_screened), intent(in) :: this
@@ -3827,18 +3882,78 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting screened gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
-    dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-        & this%omega + this%auxiliaryScreening, dist)&
-        & - getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-        & this%auxiliaryScreening, dist)
+    dGamma = getdLrScreenedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+        & this%omega, this%auxiliaryScreening, dist)
 
   end function getdLrScreenedGammaValue
 
 
+  !> Calculates analytical, screened Coulomb, long-range gamma derivative.
+  function getdLrScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening, dist)&
+      & result(dGamma)
+
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
+
+    !> Range-separation parameter
+    real(dp), intent(in) :: omega
+
+    !> Auxiliary screening parameter
+    real(dp), intent(in) :: auxiliaryScreening
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting screened gamma derivative
+    real(dp) :: dGamma
+
+    ! dGamma = getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening, dist)&
+    !     & - getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist)
+    dGamma = getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
+        & * exp(-auxiliaryScreening * dist) - auxiliaryScreening * exp(-auxiliaryScreening * dist)&
+        & * getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)
+
+  end function getdLrScreenedGammaValue_workhorse
+
+
+  !> Calculates analytical, screened Coulomb, long-range gamma (2nd) derivative.
+  function getddLrNumericalScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening,&
+      & dist, delta) result(ddGamma)
+
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
+
+    !> Range-separation parameter
+    real(dp), intent(in) :: omega
+
+    !> Auxiliary screening parameter
+    real(dp), intent(in) :: auxiliaryScreening
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Delta for finite differences
+    real(dp), intent(in) :: delta
+
+    !> Resulting screened gamma (2nd) derivative
+    real(dp) :: ddGamma
+
+    ! ddGamma = getddLrNumericalGammaDeriv_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening,&
+    !     & dist, delta)&
+    !     & - getddLrNumericalGammaDeriv_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist, delta)
+    ddGamma = exp(-auxiliaryScreening * dist) * (getddLrNumericalGammaValue_workhorse(hubbu1,&
+        & hubbu2, omega, dist, delta) - 2.0_dp * auxiliaryScreening&
+        & * getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
+        & + auxiliaryScreening**2 * getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega,&
+        & dist))
+
+  end function getddLrNumericalScreenedGammaValue_workhorse
+
+
   !> Calculates analytical, screened and poly5zero damped Coulomb, long-range gamma derivative.
-  function getdLrScreenedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdLrScreenedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_screenedAndDamped), intent(in) :: this
@@ -3853,27 +3968,61 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting screened gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
-    if (dist > this%gammaDamping .and. dist < this%gammaCutoff) then
-      dgamma = poly5zero(this%lrScreenedGammaAtDamping(iSp1, iSp2),&
-          & this%lrdScreenedGammaAtDamping(iSp1, iSp2),&
-          & this%lrddScreenedGammaAtDamping(iSp1, iSp2), dist, this%gammaDamping, this%gammaCutoff,&
-          & tDerivative=.true.)
-    elseif (dist >= this%gammaCutoff) then
-      dgamma = 0.0_dp
-    else
-      dgamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-          & this%omega + this%auxiliaryScreening, dist)&
-          & - getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-          & this%auxiliaryScreening, dist)
-    end if
+    dGamma = getdLrScreenedAndDampedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+        & this%omega, this%auxiliaryScreening, dist, this%gammaCutoff, this%gammaDamping,&
+        & this%lrScreenedGammaAtDamping(iSp1, iSp2), this%lrdScreenedGammaAtDamping(iSp1, iSp2),&
+        & this%lrddScreenedGammaAtDamping(iSp1, iSp2))
 
   end function getdLrScreenedAndDampedGammaValue
 
 
+  !> Calculates analytical, screened and poly5zero damped Coulomb, long-range gamma derivative.
+  function getdLrScreenedAndDampedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening,&
+      & dist, gammaCutoff, gammaDamping, lrScreenedGammaAtDamping, lrdScreenedGammaAtDamping,&
+      & lrddScreenedGammaAtDamping) result(dGamma)
+
+    !> Hubbard U's
+    real(dp), intent(in) :: hubbu1, hubbu2
+
+    !> Range-separation parameter
+    real(dp), intent(in) :: omega
+
+    !> Auxiliary screening parameter
+    real(dp), intent(in) :: auxiliaryScreening
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Cutoff for truncated Gamma
+    real(dp), intent(in) :: gammaCutoff
+
+    !> Damping distance for Gamma truncation
+    real(dp), intent(in) :: gammaDamping
+
+    !> Value, 1st and 2nd derivative of screened gamma integral at damping distance
+    real(dp), intent(in) :: lrScreenedGammaAtDamping
+    real(dp), intent(in) :: lrdScreenedGammaAtDamping
+    real(dp), intent(in) :: lrddScreenedGammaAtDamping
+
+    !> Resulting screened gamma derivative
+    real(dp) :: dGamma
+
+    if (dist > gammaDamping .and. dist < gammaCutoff) then
+      dGamma = poly5zero(lrScreenedGammaAtDamping, lrdScreenedGammaAtDamping,&
+          & lrddScreenedGammaAtDamping, dist, gammaDamping, gammaCutoff, tDerivative=.true.)
+    elseif (dist >= gammaCutoff) then
+      dGamma = 0.0_dp
+    else
+      dGamma = getdLrScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening, dist)
+    end if
+
+  end function getdLrScreenedAndDampedGammaValue_workhorse
+
+
   !> Calculates analytical, screened Coulomb, full-range Hartree-Fock gamma derivative.
-  function getdHfScreenedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdHfScreenedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_screened), intent(in) :: this
@@ -3888,16 +4037,16 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting screened gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
-    dgamma = 0.0_dp
+    dGamma = 0.0_dp
 
   end function getdHfScreenedGammaValue
 
 
   !> Calculates analytical, screened and poly5zero damped Coulomb, full-range Hartree-Fock gamma
   !! derivative.
-  function getdHfScreenedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dgamma)
+  function getdHfScreenedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc_screenedAndDamped), intent(in) :: this
@@ -3912,15 +4061,15 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting screened gamma derivative
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
-    dgamma = 0.0_dp
+    dGamma = 0.0_dp
 
   end function getdHfScreenedAndDampedGammaValue
 
 
   !> Returns g-sum of long-range gamma derivatives.
-  function getLrGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgamma)
+  function getLrGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -3935,7 +4084,7 @@ contains
     real(dp), intent(in) :: rCellVecsG(:,:)
 
     !> Resulting Gamma derivative (1st), summed up for g-vectors
-    real(dp) :: dgamma(3)
+    real(dp) :: dGamma(3)
 
     !! Temporary distance vector
     real(dp) :: distVect(3)
@@ -3946,20 +4095,20 @@ contains
     !! Index of real-space \vec{g} summation
     integer :: iG
 
-    dgamma(:) = 0.0_dp
+    dGamma(:) = 0.0_dp
 
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
       dist = norm2(distVect)
       distVect(:) = distVect / dist
-      dgamma(:) = dgamma + distVect * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
+      dGamma(:) = dGamma + distVect * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
     end do loopG
 
   end function getLrGammaPrimeGSum
 
 
   !> Returns g-sum of full-range Hartree-Fock gamma derivatives.
-  function getHfGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgamma)
+  function getHfGammaPrimeGSum(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dGamma)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -3974,7 +4123,7 @@ contains
     real(dp), intent(in) :: rCellVecsG(:,:)
 
     !> Resulting Gamma derivative (1st), summed up for g-vectors
-    real(dp) :: dgamma(3)
+    real(dp) :: dGamma(3)
 
     !! Temporary distance vector
     real(dp) :: distVect(3)
@@ -3985,20 +4134,20 @@ contains
     !! Index of real-space \vec{g} summation
     integer :: iG
 
-    dgamma(:) = 0.0_dp
+    dGamma(:) = 0.0_dp
 
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
       dist = norm2(distVect)
       distVect(:) = distVect / dist
-      dgamma(:) = dgamma + distVect * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
+      dGamma(:) = dGamma + distVect * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
     end do loopG
 
   end function getHfGammaPrimeGSum
 
 
   !> Returns g-resolved long-range gamma derivatives.
-  function getLrGammaPrimeGResolved(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgammas)
+  function getLrGammaPrimeGResolved(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dGammas)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -4013,7 +4162,7 @@ contains
     real(dp), intent(in) :: rCellVecsG(:,:)
 
     !> Resulting Gamma derivative (1st), summed up for g-vectors
-    real(dp) :: dgammas(3, size(rCellVecsG, dim=2))
+    real(dp) :: dGammas(3, size(rCellVecsG, dim=2))
 
     !! Temporary distance vector
     real(dp) :: distVect(3)
@@ -4024,20 +4173,20 @@ contains
     !! Index of real-space \vec{g} summation
     integer :: iG
 
-    dgammas(:,:) = 0.0_dp
+    dGammas(:,:) = 0.0_dp
 
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
       dist = norm2(distVect)
       distVect(:) = distVect / dist
-      dgammas(:, iG) = distVect * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
+      dGammas(:, iG) = distVect * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
     end do loopG
 
   end function getLrGammaPrimeGResolved
 
 
   !> Returns g-resolved full-range Hartree-Fock gamma derivatives.
-  function getHfGammaPrimeGResolved(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dgammas)
+  function getHfGammaPrimeGResolved(this, iAt1, iAt2, iSp1, iSp2, rCellVecsG) result(dGammas)
 
     !> Class instance
     class(TRangeSepFunc), intent(in) :: this
@@ -4052,7 +4201,7 @@ contains
     real(dp), intent(in) :: rCellVecsG(:,:)
 
     !> Resulting Gamma derivative (1st), summed up for g-vectors
-    real(dp) :: dgammas(3, size(rCellVecsG, dim=2))
+    real(dp) :: dGammas(3, size(rCellVecsG, dim=2))
 
     !! Temporary distance vector
     real(dp) :: distVect(3)
@@ -4063,13 +4212,13 @@ contains
     !! Index of real-space \vec{g} summation
     integer :: iG
 
-    dgammas(:,:) = 0.0_dp
+    dGammas(:,:) = 0.0_dp
 
     loopG: do iG = 1, size(rCellVecsG, dim=2)
       distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
       dist = norm2(distVect)
       distVect(:) = distVect / dist
-      dgammas(:, iG) = distVect * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
+      dGammas(:, iG) = distVect * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
     end do loopG
 
   end function getHfGammaPrimeGResolved
@@ -4197,7 +4346,7 @@ contains
 
 
   !> Returns 1st analytical derivative of long-range gamma.
-  function getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist) result(dgamma)
+  function getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist) result(dGamma)
 
     !> Hubbard U's
     real(dp), intent(in) :: hubbu1, hubbu2
@@ -4209,7 +4358,7 @@ contains
     real(dp), intent(in) :: dist
 
     !> Resulting d gamma / d dist
-    real(dp) :: dgamma
+    real(dp) :: dGamma
 
     real(dp) :: tauA, tauB
     real(dp) :: prefac, tmp, tmp2, dTmp, dTmp2
@@ -4220,7 +4369,7 @@ contains
     if (dist < tolSameDist) then
       ! on-site case
       if (abs(tauA - tauB) < MinHubDiff) then
-        dgamma = 0.0_dp
+        dGamma = 0.0_dp
       else
         call error("Error(RangeSep1): R = 0, Ua != Ub")
       end if
@@ -4246,7 +4395,7 @@ contains
             & -(dist**2*tauA**3/48.0_dp + 0.1875_dp*dist*tauA**2 + 0.6875_dp*tauA +1.0_dp/dist)&
             & * tauA * exp(-tauA * dist)
 
-        dgamma = -1.0_dp/dist**2 -dtmp2&
+        dGamma = -1.0_dp/dist**2 -dtmp2&
             & + (tauA**8 / (tauA**2 - omega**2)**4) * (dtmp + dtmp2 + omega*exp(-omega * dist)/dist&
             & +exp(-omega * dist) / dist**2)
 
@@ -4255,7 +4404,7 @@ contains
         prefac = tauA**4 / (tauA * tauA - omega * omega )**2
         prefac = prefac * tauB**4 / (tauB * tauB - omega * omega )**2
         prefac = prefac * (-omega * exp(-omega * dist) / dist - exp(-omega * dist) / dist**2)
-        dgamma = -1.0_dp / (dist**2) - prefac&
+        dGamma = -1.0_dp / (dist**2) - prefac&
             & + getdYGammaSubPart(tauA, tauB, dist, omega)&
             & + getdYGammaSubPart(tauB, tauA, dist, omega)&
             & - getdYGammaSubPart(tauA, tauB, dist, 0.0_dp)&
