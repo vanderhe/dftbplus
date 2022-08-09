@@ -448,6 +448,9 @@ contains
     !! Number of unique species in system
     integer :: nUniqueSpecies
 
+    ! integer :: ii, fd
+    ! real(dp) :: dist, gamma, dgamma
+
     ! Perform basic consistency checks for optional arguments
     if (tPeriodic .and. (.not. present(gSummationCutoff))) then
       call error('Range-separated Module: Periodic systems require g-summation cutoff, which is not&
@@ -637,6 +640,16 @@ contains
       this%coeffsDiag = coeffsDiag
       call getBvKLatticeShifts(this%coeffsDiag, this%bvKShifts)
     end if
+
+    ! open(newunit=fd, file="gamma.dat", action="write", status="replace", form="formatted")
+    ! do ii = 1, 10000
+    !   dist = 0.01_dp * ii
+    !   gamma = this%getLrGammaValue(1, 1, dist)
+    !   dgamma = this%getLrGammaPrimeValue(1, 1, dist)
+    !   write(fd, *) dist, gamma, dgamma
+    ! end do
+    ! close(fd)
+    ! stop
 
 
   contains
@@ -3305,10 +3318,10 @@ contains
     !> Resulting screened gamma
     real(dp) :: gamma
 
-    ! gamma = getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening, dist)&
-    !     & - getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist)
-    gamma = getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
-        & * exp(-auxiliaryScreening * dist)
+    gamma = getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening, dist)&
+        & - getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist)
+    ! gamma = getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
+    !     & * exp(-auxiliaryScreening * dist)
 
   end function getLrScreenedGammaValue_workhorse
 
@@ -3446,11 +3459,17 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
+    ! if (dist >= this%gammaCutoff) then
+    !   gamma = 0.0_dp
+    ! else
+    !   gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+    !       & dist)
+    ! end if
     if (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
       gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
-          & dist)
+          & dist) * 0.5_dp * (cos(pi / this%gammaCutoff * dist) + 1.0_dp)
     end if
 
   end function getLrTruncatedGammaValue
@@ -3765,11 +3784,20 @@ contains
     !> Resulting truncated gamma derivative
     real(dp) :: dGamma
 
+    ! if (dist >= this%gammaCutoff) then
+    !   dGamma = 0.0_dp
+    ! else
+    !   dGamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+    !       & dist)
+    ! end if
     if (dist >= this%gammaCutoff) then
       dGamma = 0.0_dp
     else
-      dGamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
-          & dist)
+      dGamma = ((-pi * getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+          & this%omega, dist) * sin((pi * dist) / this%gammaCutoff)) / this%gammaCutoff + (1.0_dp&
+          & + cos((pi * dist) / this%gammaCutoff))&
+          & * getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+          & dist)) / 2.0_dp
     end if
 
   end function getdLrTruncatedGammaValue
@@ -3909,11 +3937,11 @@ contains
     !> Resulting screened gamma derivative
     real(dp) :: dGamma
 
-    ! dGamma = getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening, dist)&
-    !     & - getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist)
-    dGamma = getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
-        & * exp(-auxiliaryScreening * dist) - auxiliaryScreening * exp(-auxiliaryScreening * dist)&
-        & * getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)
+    dGamma = getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening, dist)&
+        & - getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist)
+    ! dGamma = getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
+    !     & * exp(-auxiliaryScreening * dist) - auxiliaryScreening * exp(-auxiliaryScreening * dist)&
+    !     & * getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)
 
   end function getdLrScreenedGammaValue_workhorse
 
@@ -3940,14 +3968,14 @@ contains
     !> Resulting screened gamma (2nd) derivative
     real(dp) :: ddGamma
 
-    ! ddGamma = getddLrNumericalGammaDeriv_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening,&
-    !     & dist, delta)&
-    !     & - getddLrNumericalGammaDeriv_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist, delta)
-    ddGamma = exp(-auxiliaryScreening * dist) * (getddLrNumericalGammaValue_workhorse(hubbu1,&
-        & hubbu2, omega, dist, delta) - 2.0_dp * auxiliaryScreening&
-        & * getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
-        & + auxiliaryScreening**2 * getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega,&
-        & dist))
+    ddGamma = getddLrNumericalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening,&
+        & dist, delta)&
+        & - getddLrNumericalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist, delta)
+    ! ddGamma = exp(-auxiliaryScreening * dist) * (getddLrNumericalGammaValue_workhorse(hubbu1,&
+    !     & hubbu2, omega, dist, delta) - 2.0_dp * auxiliaryScreening&
+    !     & * getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, dist)&
+    !     & + auxiliaryScreening**2 * getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega,&
+    !     & dist))
 
   end function getddLrNumericalScreenedGammaValue_workhorse
 
