@@ -519,8 +519,7 @@ contains
       this%gammaCutoff = gammaCutoff
 
       ! Start beginning of the damping region and 95% of the gamma cutoff.
-      ! this%gammaDamping = 0.95_dp * this%gammaCutoff
-      this%gammaDamping = 0.75_dp * this%gammaCutoff
+      this%gammaDamping = 0.95_dp * this%gammaCutoff
 
       if (this%gammaDamping <= 0.0_dp) then
         call error("Beginning of damped region of electrostatics must be positive.")

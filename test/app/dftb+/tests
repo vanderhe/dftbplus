@@ -105,7 +105,8 @@ rangesep/cluster/C4H6-TD-LC-Triplet            #? WITH_ARPACK and (not WITH_MPI)
 rangesep/cluster/Benzene-TD-LC-Spinpol         #? WITH_ARPACK and (not WITH_MPI)
 rangesep/cluster/Benzene-TD-LC-Spinpol-Iter    #? WITH_ARPACK and (not WITH_MPI)
 
-rangesep/periodic/GaAs-gamma                   #? MPI_PROCS <= 4
+rangesep/periodic/GaAs-gamma-matrix            #? MPI_PROCS <= 1
+rangesep/periodic/GaAs-gamma-neigh             #? MPI_PROCS <= 4
 rangesep/periodic/Acene-gamma-force            #? MPI_PROCS <= 4
 rangesep/periodic/GaAs-gamma-restart           #? MPI_PROCS <= 4
 
