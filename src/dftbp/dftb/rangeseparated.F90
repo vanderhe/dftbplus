@@ -3459,18 +3459,18 @@ contains
     !> Resulting truncated gamma
     real(dp) :: gamma
 
-    ! if (dist >= this%gammaCutoff) then
-    !   gamma = 0.0_dp
-    ! else
-    !   gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
-    !       & dist)
-    ! end if
     if (dist >= this%gammaCutoff) then
       gamma = 0.0_dp
     else
       gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
-          & dist) * 0.5_dp * (cos(pi / this%gammaCutoff * dist) + 1.0_dp)
+          & dist)
     end if
+    ! if (dist >= this%gammaCutoff) then
+    !   gamma = 0.0_dp
+    ! else
+    !   gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+    !       & dist) * 0.5_dp * (cos(pi / this%gammaCutoff * dist) + 1.0_dp)
+    ! end if
 
   end function getLrTruncatedGammaValue
 
@@ -3784,21 +3784,21 @@ contains
     !> Resulting truncated gamma derivative
     real(dp) :: dGamma
 
-    ! if (dist >= this%gammaCutoff) then
-    !   dGamma = 0.0_dp
-    ! else
-    !   dGamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
-    !       & dist)
-    ! end if
     if (dist >= this%gammaCutoff) then
       dGamma = 0.0_dp
     else
-      dGamma = ((-pi * getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-          & this%omega, dist) * sin((pi * dist) / this%gammaCutoff)) / this%gammaCutoff + (1.0_dp&
-          & + cos((pi * dist) / this%gammaCutoff))&
-          & * getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
-          & dist)) / 2.0_dp
+      dGamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+          & dist)
     end if
+    ! if (dist >= this%gammaCutoff) then
+    !   dGamma = 0.0_dp
+    ! else
+    !   dGamma = ((-pi * getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
+    !       & this%omega, dist) * sin((pi * dist) / this%gammaCutoff)) / this%gammaCutoff + (1.0_dp&
+    !       & + cos((pi * dist) / this%gammaCutoff))&
+    !       & * getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+    !       & dist)) / 2.0_dp
+    ! end if
 
   end function getdLrTruncatedGammaValue
 

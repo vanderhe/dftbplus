@@ -5667,7 +5667,6 @@ contains
     if (present(gammaCutoff)) then
       cutOff%gammaCutoff = gammaCutoff
     else
-      ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp
       cutOff%gammaCutoff = minLatVecNorm2 * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
     end if
 
@@ -5716,9 +5715,6 @@ contains
     !! Minimum product lattice vector norm * number of k-points
     real(dp) :: minNormTimesNKpt
 
-    ! !! Index of minimum lattice vector norm * number of k-points
-    ! integer :: minDirectionIdx, minLatVecNorm2, minNKpt
-
     if (cutoffRed < 0.0_dp) then
       call error("Cutoff reduction for range-separated neighbours should be zero or positive.")
     end if
@@ -5736,33 +5732,21 @@ contains
     latVecNorm2TimesNKpt(:) = latVecNorm2 * supercellFoldingDiag
     minNormTimesNKpt = minval(latVecNorm2TimesNKpt)
 
-    ! minDirectionIdx = minloc(latVecNorm2TimesNKpt, dim=1)
-    ! minLatVecNorm2 = latVecNorm2(minDirectionIdx)
-    ! minNKpt = supercellFoldingDiag(minDirectionIdx)
-
     if (present(auxiliaryScreening)) then
       cutOff%auxiliaryScreening = auxiliaryScreening
     else
-      ! if (.not. present(supercellFoldingDiag)) then
-      !   call error('Error while inferring Coulomb truncation cutoff from supercell folding&
-      !       & matrix. Diagonal elements not present.')
-      ! end if
       cutOff%auxiliaryScreening = -log(1.0e-01_dp) / minNormTimesNKpt
     end if
 
     if (present(gammaCutoff)) then
       cutOff%gammaCutoff = gammaCutoff
     else
-      ! if (.not. present(supercellFoldingDiag)) then
-      !   call error('Error while inferring Coulomb truncation cutoff from supercell folding&
-      !       & matrix. Diagonal elements not present.')
-      ! end if
       ! cutOff%gammaCutoff = (3.0_dp * determinant33(latVecs) * product(supercellFoldingDiag)&
       !     & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp&
       !     & * product(supercellFoldingDiag)**(1.0_dp / 3.0_dp)
-      ! cutOff%gammaCutoff = minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
-      cutOff%gammaCutoff = 0.55_dp * minNormTimesNKpt
+      cutOff%gammaCutoff = minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      ! cutOff%gammaCutoff = 0.55_dp * minNormTimesNKpt
     end if
 
     if (present(gSummationCutoff)) then
