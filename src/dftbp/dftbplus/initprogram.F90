@@ -2734,7 +2734,7 @@ contains
           & input%ctrl%rangeSepInp%gammaType, this%tPeriodic, this%tRealHS,&
           & coeffsDiag=this%supercellFoldingDiag, gammaCutoff=this%cutOff%gammaCutoff,&
           & gSummationCutoff=this%cutOff%gSummationCutoff,&
-          & auxiliaryScreening=this%cutOff%auxiliaryScreening)
+          & auxiliaryScreening=this%cutOff%auxiliaryScreening, latVecs=input%geom%latVecs)
       ! now all information are present to properly allocate density matrices and associate pointers
       call this%reallocateRangeSeparated()
       ! reset number of mixer elements, so that there is enough space for density matrices
@@ -3524,6 +3524,8 @@ contains
         if (this%tPeriodic) then
           if (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%full) then
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "full"
+          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%mic) then
+            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "minimal image convention"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated) then
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
@@ -5745,7 +5747,7 @@ contains
       !     & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp&
       !     & * product(supercellFoldingDiag)**(1.0_dp / 3.0_dp)
-      cutOff%gammaCutoff = minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      cutOff%gammaCutoff = 0.5_dp * minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       ! cutOff%gammaCutoff = 0.55_dp * minNormTimesNKpt
     end if
 

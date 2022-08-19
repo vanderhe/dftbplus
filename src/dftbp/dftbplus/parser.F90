@@ -7787,6 +7787,8 @@ contains
         select case(tolower(unquote(trim(char(strBuffer)))))
         case ("full")
           input%gammaType = rangeSepGammaTypes%full
+        case ("mic")
+          input%gammaType = rangeSepGammaTypes%mic
         case ("truncated")
           input%gammaType = rangeSepGammaTypes%truncated
         case ("truncated+damping")

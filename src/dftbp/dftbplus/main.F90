@@ -2099,7 +2099,7 @@ contains
             & latVec, invLatVec, denseDescr%iAtomStart)
       elseif (.not. tRealHS) then
         call rangeSep%updateCoords_kpts(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
-            & latVec, invLatVec, denseDescr%iAtomStart)
+            & latVec, invLatVec, cellVec, denseDescr%iAtomStart)
       end if
     end if
     if (allocated(cm5Cont)) then

@@ -28,6 +28,7 @@ module dftbp_dftb_rangeseparated
   use dftbp_dftb_densitymatrix, only : TDensityMatrix
   use dftbp_math_simplealgebra, only : determinant33
   use dftbp_common_parallel, only : getStartAndEndIndex
+  use dftbp_math_wigner, only : generateWignerSeitzGrid, isInWignerSeitzGrid
 
 #:if WITH_OMP
   use omp_lib, only : OMP_GET_NUM_THREADS, OMP_GET_THREAD_NUM
@@ -108,6 +109,9 @@ module dftbp_dftb_rangeseparated
     !> Artificially screened and poly5zero damped gamma function (screened+damping)
     integer :: screenedAndDamped = 4
 
+    !> Minimum image convention, based on density matrix criteria (mic)
+    integer :: mic = 5
+
   end type TRangeSepGammaTypesEnum
 
 
@@ -154,6 +158,9 @@ module dftbp_dftb_rangeseparated
 
     !> Number of numerically non-zero gamma's
     type(TIntArray1D), allocatable :: nNonZeroGammaG(:,:)
+
+    !> G-vectors that are allowed to sum up in minimum image convention
+    type(TIntArray1D), allocatable :: micGVectors(:,:,:,:,:,:,:,:)
 
     !> Range-separation parameter
     real(dp) :: omega
@@ -250,6 +257,12 @@ module dftbp_dftb_rangeseparated
 
     !> Supercell folding coefficients (diagonal elements)
     integer, allocatable :: coeffsDiag(:)
+
+    !> Gamma function type (mostly for periodic cases)
+    integer :: gammaType
+
+    !> Wigner-Seitz grid points in units of lattice vectors
+    integer, allocatable :: wsVectors(:,:)
 
   contains
 
@@ -381,12 +394,26 @@ module dftbp_dftb_rangeseparated
   end type TRangeSepFunc_screenedAndDamped
 
 
+  !> Base type extension for minimum image convention, based on density matrix criteria.
+  type, extends(TRangeSepFunc) :: TRangeSepFunc_mic
+
+  contains
+
+    procedure :: getLrGammaValue => getLrMicGammaValue
+    procedure :: getLrGammaPrimeValue => getdLrMicGammaValue
+
+    procedure :: getHfGammaValue => getHfMicGammaValue
+    procedure :: getHfGammaPrimeValue => getdHfMicGammaValue
+
+  end type TRangeSepFunc_mic
+
+
 contains
 
   !> Intitializes the range-separated module.
   subroutine TRangeSepFunc_init(this, nAtom, species0, hubbu, screen, omega, camAlpha, camBeta,&
       & tSpin, tREKS, rsAlg, gammaType, tPeriodic, tRealHS, gammaCutoff, gSummationCutoff,&
-      & auxiliaryScreening, coeffsDiag)
+      & auxiliaryScreening, coeffsDiag, latVecs)
 
     !> Class instance
     class(TRangeSepFunc), intent(out), allocatable :: this
@@ -442,11 +469,17 @@ contains
     !> Supercell folding coefficients (diagonal elements)
     integer, intent(in), optional :: coeffsDiag(:)
 
+    !> Lattice vectors of (periodic) geometry
+    real(dp), intent(in), optional :: latVecs(:,:)
+
     !! Species indices
     integer :: iSp1, iSp2
 
     !! Number of unique species in system
     integer :: nUniqueSpecies
+
+    real(dp), allocatable :: wsDistances(:)
+    integer, allocatable :: wsDegeneracy(:)
 
     ! integer :: ii, fd
     ! real(dp) :: dist, gamma, dgamma
@@ -465,6 +498,8 @@ contains
     select case(gammaType)
     case (rangeSepGammaTypes%full)
       allocate(TRangeSepFunc_full:: this)
+    case (rangeSepGammaTypes%mic)
+      allocate(TRangeSepFunc_mic:: this)
     case (rangeSepGammaTypes%truncated)
       if (.not. present(gammaCutoff)) then
         call error('Range-separated Module: Coulomb truncation requires cutoff, which is not&
@@ -496,6 +531,8 @@ contains
     case default
       call error('Range-separated Module: Invalid gamma function type obtained.')
     end select
+
+    this%gammaType = gammaType
 
     this%tScreeningInited = .false.
     this%pScreeningThreshold = screen
@@ -635,20 +672,14 @@ contains
       call error("Unknown algorithm for screening the exchange in range separation!")
     end if
 
+    if (tPeriodic .and. (.not. present(latVecs))) then
+      call error("Range-separated Module: Periodic structure, but no lattice vectors handed over.")
+    end if
+
     if (present(coeffsDiag)) then
       this%coeffsDiag = coeffsDiag
       call getBvKLatticeShifts(this%coeffsDiag, this%bvKShifts)
     end if
-
-    ! open(newunit=fd, file="gamma.dat", action="write", status="replace", form="formatted")
-    ! do ii = 1, 10000
-    !   dist = 0.01_dp * ii
-    !   gamma = this%getLrGammaValue(1, 1, dist)
-    !   dgamma = this%getLrGammaPrimeValue(1, 1, dist)
-    !   write(fd, *) dist, gamma, dgamma
-    ! end do
-    ! close(fd)
-    ! stop
 
 
   contains
@@ -1029,7 +1060,7 @@ contains
 
   !> Updates the range-separated module on coordinate change (k-point version).
   subroutine updateCoords_kpts(this, env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
-      & latVecs, recVecs2p, iSquare)
+      & latVecs, recVecs2p, cellVecs, iSquare)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout), target :: this
@@ -1054,6 +1085,9 @@ contains
 
     !> Reciprocal lattice vectors in units of 2pi
     real(dp), intent(in) :: recVecs2p(:,:)
+
+    !> Vectors to neighboring unit cells in relative units
+    real(dp), intent(in) :: cellVecs(:,:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -1105,6 +1139,21 @@ contains
 
     !! Dummy array with zeros
     real(dp) :: zeros(3)
+
+    !! Minimum and maximum cell translations of neighbour list in each direction
+    integer :: minVecX, maxVecX, minVecY, maxVecY, minVecZ, maxVecZ
+
+    !! Real-space shift components of neighbour list atoms
+    integer :: vecLx, vecLy, vecLz, vecHx, vecHy, vecHz
+
+    !! Real-space \vec{h} and \vec{l} vectors in relative coordinates
+    integer :: vecH(3), vecL(3)
+
+    !! Real-space shift of delta density matrix argument
+    integer :: dPabArg(3)
+
+    !! Iterates over g-vectors
+    integer :: iG
 
     !! Max estimate for overlap and products
     ! real(dp) :: maxEstimate, pSbnMax
@@ -1199,21 +1248,194 @@ contains
       end do loopN
     end do loopM
 
-    loopMN: do ii = 1, nAtom0**2
-      iAtM = iAtMN(1, ii)
-      iAtN = iAtMN(2, ii)
-      iSpM = this%species0(iAtM)
-      iSpN = this%species0(iAtN)
-      ! pre-tabulate g-resolved \gamma_{\mu\nu}(\vec{g})
-      lrGammaEvalGTmp(:) = getLrGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCoords,&
-          & rCellVecsG, zeros)
-      call index_heap_sort(gammaSortIdx, lrGammaEvalGTmp)
-      gammaSortIdx(:) = gammaSortIdx(size(gammaSortIdx):1:-1)
-      lrGammaEvalGTmp(:) = lrGammaEvalGTmp(gammaSortIdx)
-      nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp, this%pScreeningThreshold)
-      this%nNonZeroGammaG(iAtM, iAtN)%array = gammaSortIdx(1:nNonZeroEntries)
-      this%lrGammaEvalG(iAtM, iAtN)%array = lrGammaEvalGTmp(1:nNonZeroEntries)
-    end do loopMN
+    if (this%gammaType == rangeSepGammaTypes%mic) then
+      if (allocated(this%wsVectors)) deallocate(this%wsVectors)
+      call generateWignerSeitzGrid(this%coeffsDiag, latVecs, this%wsVectors)
+
+      ! Find minimum and maximum real-space shifts occuring in neighbour list
+      minVecX = 0
+      minVecY = 0
+      minVecZ = 0
+      maxVecX = 0
+      maxVecY = 0
+      maxVecZ = 0
+
+      do iAtN = 1, nAtom0
+        do iNeighN = 0, nNeighbourCamSym(iAtN)
+          iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
+          minVecX = min(-nint(cellVecs(1, symNeighbourList%iCellVec(iAtB))), minVecX)
+          minVecY = min(-nint(cellVecs(2, symNeighbourList%iCellVec(iAtB))), minVecY)
+          minVecZ = min(-nint(cellVecs(3, symNeighbourList%iCellVec(iAtB))), minVecZ)
+          maxVecX = max(-nint(cellVecs(1, symNeighbourList%iCellVec(iAtB))), maxVecX)
+          maxVecY = max(-nint(cellVecs(2, symNeighbourList%iCellVec(iAtB))), maxVecY)
+          maxVecZ = max(-nint(cellVecs(3, symNeighbourList%iCellVec(iAtB))), maxVecZ)
+        end do
+      end do
+
+      allocate(this%micGVectors(nAtom0, nAtom0,&
+          & minVecX:maxVecX, minVecY:maxVecY, minVecZ:maxVecZ,&
+          & minVecX:maxVecX, minVecY:maxVecY, minVecZ:maxVecZ))
+
+      print *, 'Pre-tabulating MIC...'
+
+      loopMN: do ii = 1, nAtom0**2
+        iAtM = iAtMN(1, ii)
+        iAtN = iAtMN(2, ii)
+        iSpM = this%species0(iAtM)
+        iSpN = this%species0(iAtN)
+
+        print *, iAtM, iAtN
+
+        this%lrGammaEvalG(iAtM, iAtN)%array = getLrGammaGResolved(this, iAtM, iAtN, iSpM, iSpN,&
+            & this%rCoords, rCellVecsG, zeros)
+
+        do vecHz = minVecZ, maxVecZ
+          vecH(3) = vecHz
+          do vecHy = minVecY, maxVecY
+            vecH(2) = vecHy
+            do vecHx = minVecX, maxVecX
+              vecH(1) = vecHx
+              do vecLz = minVecZ, maxVecZ
+                vecL(3) = vecLz
+                do vecLy = minVecY, maxVecY
+                  vecL(2) = vecLy
+                  do vecLx = minVecX, maxVecX
+                    vecL(1) = vecLx
+                    nNonZeroEntries = 0
+                    loopG: do iG = 1, nGShifts
+                      dPabArg(:) = cellVecsG(:, iG) - real(vecL, dp) + real(vecH, dp)
+                      if (isInWignerSeitzGrid(dPabArg, this%wsVectors)) then
+                        nNonZeroEntries = nNonZeroEntries + 1
+                        gammaSortIdx(nNonZeroEntries) = iG
+                      end if
+                    end do loopG
+                    print *, nNonZeroEntries
+                    this%micGVectors(iAtM, iAtN, vecLx, vecLy, vecLz, vecHx, vecHy, vecHz)%array&
+                        & = gammaSortIdx(:nNonZeroEntries)
+                  end do
+                end do
+              end do
+            end do
+          end do
+        end do
+
+      end do loopMN
+
+      ! loopMN: do ii = 1, nAtom0**2
+      !   iAtM = iAtMN(1, ii)
+      !   iAtN = iAtMN(2, ii)
+      !   iSpM = this%species0(iAtM)
+      !   iSpN = this%species0(iAtN)
+      !   ! pre-tabulate g-resolved \gamma_{\mu\nu}(\vec{g})
+      !   if (.not. allocated(this%lrGammaEvalGMic(iAtM, iAtN, 0, 0, 0, 0, 0, 0)%array)) then
+      !     lrGammaEvalGTmp(:) = getGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCoords,&
+      !         & rCellVecsG, zeros)
+      !     nNonZeroEntries = 0
+      !     loopGMN: do iG = 1, nGShifts
+      !       dPabArg(:) = cellVecsG(:, iG) - real(vecL + vecH, dp)
+      !       if (isInWignerSeitzGrid(dPabArg, this%wsVectors)) then
+      !         nNonZeroEntries = nNonZeroEntries + 1
+      !         gammaSortIdx(nNonZeroEntries) = iG
+      !       end if
+      !     end do loopGMN
+      !     lrGammaEvalGTmp(:nNonZeroEntries) = lrGammaEvalGTmp(gammaSortIdx(:nNonZeroEntries))
+      !     this%lrGammaEvalGMic(iAtM, iAtN, 0, 0, 0, 0, 0, 0)%array&
+      !         & = lrGammaEvalGTmp(:nNonZeroEntries)
+      !     this%micGVectors(iAtM, iAtN, 0, 0, 0, 0, 0, 0)%array = gammaSortIdx(:nNonZeroEntries)
+      !   end if
+      !   loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
+      !     iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
+      !     pSbnMax = this%testSquareOver(iAtN)%array(iNeighNsort + 1)
+      !     iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
+      !     iAtBfold = symNeighbourList%img2CentCell(iAtB)
+      !     iSpB = this%species0(iAtBfold)
+      !     ! get real-space \vec{l} for gamma arguments
+      !     vecL(:) = nint(cellVecs(:, symNeighbourList%iCellVec(iAtB)))
+      !     ! pre-tabulate g-resolved \gamma_{\mu\beta}(\vec{g})
+      !     if (.not. allocated(this%lrGammaEvalGMic(iAtM, iAtBfold, vecL(1), vecL(2), vecL(3), 0, 0,&
+      !         & 0)%array)) then
+      !       lrGammaEvalGTmp(:) = getGammaGResolved(this, iAtM, iAtBfold, iSpM, iSpB, this%rCoords,&
+      !           & rCellVecsG, zeros)
+      !       nNonZeroEntries = 0
+      !       loopGMB: do iG = 1, nGShifts
+      !         dPabArg(:) = cellVecsG(:, iG) + real(vecH, dp)
+      !         if (isInWignerSeitzGrid(dPabArg, this%wsVectors)) then
+      !           nNonZeroEntries = nNonZeroEntries + 1
+      !           gammaSortIdx(nNonZeroEntries) = iG
+      !         end if
+      !       end do loopGMB
+      !       lrGammaEvalGTmp(:nNonZeroEntries) = lrGammaEvalGTmp(gammaSortIdx(:nNonZeroEntries))
+      !       this%lrGammaEvalGMic(iAtM, iAtBfold, vecL(1), vecL(2), vecL(3), 0, 0, 0)%array&
+      !           & = lrGammaEvalGTmp(:nNonZeroEntries)
+      !       this%micGVectors(iAtM, iAtBfold, vecL(1), vecL(2), vecL(3), 0, 0, 0)%array&
+      !           & = gammaSortIdx(:nNonZeroEntries)
+      !     end if
+      !     loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
+      !       iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
+      !       maxEstimate = pSbnMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
+      !       iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
+      !       iAtAfold = symNeighbourList%img2CentCell(iAtA)
+      !       iSpA = this%species0(iAtAfold)
+      !       ! get real-space \vec{h} for gamma arguments
+      !       vecH(:) = nint(cellVecs(:, symNeighbourList%iCellVec(iAtA)))
+      !       ! pre-tabulate g-resolved \gamma_{\alpha\nu}(\vec{g})
+      !       if (.not. allocated(this%lrGammaEvalGMic(iAtAfold, iAtN, 0, 0, 0, vecH(1), vecH(2),&
+      !           & vecH(3))%array)) then
+      !         lrGammaEvalGTmp(:) = getGammaGResolved(this, iAtAfold, iAtN, iSpA, iSpN,&
+      !             & this%rCoords, rCellVecsG, zeros)
+      !         nNonZeroEntries = 0
+      !         loopGAN: do iG = 1, nGShifts
+      !           dPabArg(:) = cellVecsG(:, iG) - real(vecL, dp)
+      !           if (isInWignerSeitzGrid(dPabArg, this%wsVectors)) then
+      !             nNonZeroEntries = nNonZeroEntries + 1
+      !             gammaSortIdx(nNonZeroEntries) = iG
+      !           end if
+      !         end do loopGAN
+      !         lrGammaEvalGTmp(:nNonZeroEntries) = lrGammaEvalGTmp(gammaSortIdx(:nNonZeroEntries))
+      !         this%lrGammaEvalGMic(iAtAfold, iAtN, 0, 0, 0, vecH(1), vecH(2), vecH(3))%array&
+      !             & = lrGammaEvalGTmp(:nNonZeroEntries)
+      !         this%micGVectors(iAtAfold, iAtN, 0, 0, 0, vecH(1), vecH(2), vecH(3))%array&
+      !             & = gammaSortIdx(:nNonZeroEntries)
+      !       end if
+      !       ! pre-tabulate g-resolved \gamma_{\alpha\beta}(\vec{g}+\vec{h}-\vec{l})
+      !       if (.not. allocated(this%lrGammaEvalGMic(iAtAfold, iAtBfold, vecL(1), vecL(2), vecL(3),&
+      !           & vecH(1), vecH(2), vecH(3))%array)) then
+      !         lrGammaEvalGTmp(:) = getGammaGResolved(this, iAtAfold, iAtBfold, iSpA, iSpB,&
+      !             & this%rCoords, rCellVecsG, zeros)
+      !         nNonZeroEntries = 0
+      !         loopGAB: do iG = 1, nGShifts
+      !           dPabArg(:) = cellVecsG(:, iG)
+      !           if (isInWignerSeitzGrid(dPabArg, this%wsVectors)) then
+      !             nNonZeroEntries = nNonZeroEntries + 1
+      !             gammaSortIdx(nNonZeroEntries) = iG
+      !           end if
+      !         end do loopGAB
+      !         lrGammaEvalGTmp(:nNonZeroEntries) = lrGammaEvalGTmp(gammaSortIdx(:nNonZeroEntries))
+      !         this%lrGammaEvalGMic(iAtAfold, iAtBfold, vecL(1), vecL(2), vecL(3), vecH(1), vecH(2),&
+      !             & vecH(3))%array = lrGammaEvalGTmp(:nNonZeroEntries)
+      !         this%micGVectors(iAtAfold, iAtBfold, vecL(1), vecL(2), vecL(3), vecH(1), vecH(2),&
+      !             & vecH(3))%array = gammaSortIdx(:nNonZeroEntries)
+      !       end if
+      !     end do loopA
+      !   end do loopB
+      ! end do loopMN
+    else
+      do ii = 1, nAtom0**2
+        iAtM = iAtMN(1, ii)
+        iAtN = iAtMN(2, ii)
+        iSpM = this%species0(iAtM)
+        iSpN = this%species0(iAtN)
+        ! pre-tabulate g-resolved \gamma_{\mu\nu}(\vec{g})
+        lrGammaEvalGTmp(:) = getLrGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCoords,&
+            & rCellVecsG, zeros)
+        call index_heap_sort(gammaSortIdx, lrGammaEvalGTmp)
+        gammaSortIdx(:) = gammaSortIdx(size(gammaSortIdx):1:-1)
+        lrGammaEvalGTmp(:) = lrGammaEvalGTmp(gammaSortIdx)
+        nNonZeroEntries = getNumberOfNonZeroElements(lrGammaEvalGTmp, this%pScreeningThreshold)
+        this%nNonZeroGammaG(iAtM, iAtN)%array = gammaSortIdx(1:nNonZeroEntries)
+        this%lrGammaEvalG(iAtM, iAtN)%array = lrGammaEvalGTmp(1:nNonZeroEntries)
+      end do
+    end if
 
 
   contains
@@ -1624,9 +1846,15 @@ contains
     case (rangeSepTypes%threshold)
       call error('Thresholded algorithm not implemented for periodic systems.')
     case (rangeSepTypes%neighbour)
+      if (this%gammaType == rangeSepGammaTypes%mic) then
+      call addLrHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
+          & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
+          & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
+    else
       call addLrHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
           & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
           & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
+      end if
     case (rangeSepTypes%matrixBased)
       call error('Matrix based algorithm not implemented for periodic systems.')
     end select
@@ -2610,6 +2838,382 @@ contains
 
   !> Adds the LR-exchange contribution to Hamiltonian, using the neighbour based algorithm
   !! (k-point version).
+  subroutine addLrHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
+      & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
+      & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
+
+    !> Class instance
+    class(TRangeSepFunc), intent(inout), target :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
+
+    !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
+    real(dp), intent(in), pointer :: deltaRhoSqr(:,:,:,:,:,:)
+
+    !> Square (unpacked) delta spin-density matrix in k-space
+    complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:)
+
+    !> list of neighbours for each atom (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
+
+    !> Nr. of neighbours for each atom.
+    integer, intent(in) :: nNeighbourCamSym(:)
+
+    !> Shift vector index for every interacting atom, including periodic images
+    integer, intent(in) :: iCellVec(:)
+
+    !> Vectors to neighboring unit cells in absolute units
+    real(dp), intent(in) :: rCellVecs(:,:)
+
+    !> Vectors to neighboring unit cells in relative units
+    real(dp), intent(in) :: cellVecs(:,:)
+
+    !> Lattice vectors of (periodic) geometry
+    real(dp), intent(in) :: latVecs(:,:)
+
+    !> Reciprocal lattice vectors in units of 2pi
+    real(dp), intent(in) :: recVecs2p(:,:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> Orbital information.
+    type(TOrbitals), intent(in) :: orb
+
+    !> K-point in relative coordinates to calculate delta H(k) for
+    real(dp), intent(in) :: kPoint(:)
+
+    !> K-point weight (for energy contribution)
+    real(dp), intent(in) :: kWeight
+
+    !> Spin/k-point composite index of current diagonalization
+    integer, intent(in) :: iKS
+
+    !> Spin index of current diagonalization
+    integer, intent(in) :: iCurSpin
+
+    !> Number of Spin/k-point combinations
+    integer, intent(in) :: nKS
+
+    !> Square (unpacked) Hamiltonian of a certain k-point/spin composite index to be updated
+    complex(dp), intent(inout) :: HSqr(:,:)
+
+    !! Dense matrix descriptor indices
+    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
+
+    !! Atom blocks from sparse, real-space overlap matrices S_{\alpha\mu}, S_{\beta\nu}
+    real(dp), allocatable :: pSam(:,:), pSbn(:,:)
+    real(dp), allocatable :: pSamT(:,:)
+
+    !! Density matrix block \alpha\beta
+    real(dp), allocatable :: Pab(:,:,:,:,:)
+
+    !! Stores start/end index and number of orbitals of square matrices
+    integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
+
+    !! Temporary storages
+    real(dp), allocatable :: deltaDeltaRhoSqr(:,:,:,:,:)
+    complex(dp), allocatable :: tmpHSqr(:,:)
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    !! Real-space \vec{h} and \vec{l} vectors in relative coordinates
+    integer :: intVecH(3), intVecL(3)
+    real(dp) :: vecH(3), vecL(3)
+
+    !! Translation vectors to lattice cells in units of lattice constants
+    real(dp), allocatable :: cellVecsG(:,:)
+
+    !! Vectors to unit cells in absolute units
+    real(dp), allocatable :: rCellVecsG(:,:)
+
+    !! Temporary arrays for gemm operations
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab, pSamT_Pab_pSbn, Pab_Sbn
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB
+    complex(dp), dimension(orb%mOrb, orb%mOrb) :: tot
+
+    !! Atom indices (central cell)
+    integer :: iAtM, iAtN
+
+    !! Neighbour indices (+corresponding atom indices)
+    integer :: iNeighN, iNeighM, iAtA, iAtB
+
+    !! Folded (to central cell) atom indices
+    integer :: iAtAfold, iAtBfold
+
+    !! Sorted (according to max overlap estimates) neighbour indices
+    integer :: iNeighMsort, iNeighNsort
+
+    !! Auxiliary variables for setting up 2D pointer to sparse overlap
+    integer :: ind, nOrbAt, nOrbNeigh
+
+    !! Size of square matrices (e.g. Hamiltonian)
+    integer :: squareSize
+
+    !! Max estimate for difference of square delta rho to previous SCC iteration and products with
+    !! max overlap estimates
+    real(dp) :: pMax, maxEstimate, pSbnMax
+
+    !! Integer BvK index
+    integer :: bvKIndex(3)
+
+    !! Phase factor
+    complex(dp) :: phase
+
+    !! Iterates over all BvK real-space vectors
+    integer :: iG, iGMN, iGMB, iGAN, iGAB
+
+    !! Start and end index for MPI parallelization, if applicable
+    integer :: iParallelStart, iParallelEnd
+
+    !! Composite index iAtM/iAtN
+    integer :: ii, iAtMN(2, size(this%species0)**2)
+
+    !! Real-space shift of delta density matrix argument
+    real(dp) :: dPabArg(3)
+
+    !! Lower and upper bound of density matrix argument screening w.r.t. BvK WS cell estimate
+    real(dp) :: relLBound(3), relUBound(3)
+
+    !! Overlap matrix elements
+    real(dp) :: Sam, Sbn
+
+    !! Density matrix elements
+    real(dp) :: dPmn, dPab
+
+    !! Orbital indices
+    integer :: mu, nu, alpha, beta
+
+    !! Product Sam * dPab * Sbn * gamma
+    real(dp) :: SamdPabSbnGamma
+
+    ! Get lower and upper bound of density matrix argument screening w.r.t. BvK WS cell estimate
+    relLBound = -0.5_dp * this%coeffsDiag
+    relUBound = 0.5_dp * this%coeffsDiag
+
+    ! this initialization is also valid for OMP, since tot is firstprivate
+    tot(:,:) = (0.0_dp, 0.0_dp)
+
+    squareSize = size(HSqr, dim=1)
+    nAtom0 = size(this%species0)
+
+    ! Build up composite index iAtMN for collapsing iAtM and iAtN
+    ind = 1
+    loopM: do iAtM = 1, nAtom0
+      loopN: do iAtN = 1, nAtom0
+        iAtMN(1, ind) = iAtM
+        iAtMN(2, ind) = iAtN
+        ind = ind + 1
+      end do loopN
+    end do loopM
+
+  #:if WITH_MPI
+    call getStartAndEndIndex(nAtom0**2, env%mpi%groupComm%size, env%mpi%groupComm%rank,&
+        & iParallelStart, iParallelEnd)
+  #:else
+    iParallelStart = 1
+    iParallelEnd = nAtom0**2
+  #:endif
+
+    ! allocate delta Hamiltonian
+    allocate(tmpHSqr(squareSize, squareSize))
+    tmpHSqr(:,:) = (0.0_dp, 0.0_dp)
+
+    ! check and initialize screening
+    if (.not. this%tScreeningInited) then
+      if (iKS == 1) then
+        allocate(this%hprevCplxHS(squareSize, squareSize, nKS))
+        this%hprevCplxHS(:,:,:) = cmplx(0, 0, dp)
+        this%dRhoPrevCplxHS = deltaRhoSqr
+      end if
+      if (iKS == nKS .or. iCurSpin == 2) this%tScreeningInited = .true.
+      ! there is no previous delta density matrix, therefore just copy over
+      deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin)
+    else
+      ! allocate and initialize difference of delta rho to previous SCC iteration
+      deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin) - this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin)
+    end if
+
+    pMax = maxval(abs(deltaDeltaRhoSqr))
+    ! pMax = maxval(abs(deltaRhoSqr))
+    ! store delta density matrix only once per spin and SCC iteration
+    if (iKS == nKS .or. iCurSpin == 2) then
+      this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin) = deltaRhoSqr(:,:,:,:,:, iCurSpin)
+    end if
+    ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
+    if (pMax < 1e-16_dp) return
+
+    ! get all cell translations within given cutoff
+    call getCellTranslations(cellVecsG, rCellVecsG, latVecs, recVecs2p, this%gSummationCutoff)
+
+    loopMN: do ii = 1, nAtom0**2
+      iAtM = iAtMN(1, ii)
+      iAtN = iAtMN(2, ii)
+      descM = getDescriptor(iAtM, iSquare)
+      descN = getDescriptor(iAtN, iSquare)
+      loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
+        iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
+        pSbnMax = this%testSquareOver(iAtN)%array(iNeighNsort + 1)
+        if (pSbnMax**2 < this%pScreeningThreshold) exit loopB
+        iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
+        iAtBfold = symNeighbourList%img2CentCell(iAtB)
+        descB = getDescriptor(iAtBfold, iSquare)
+        ! get real-space \vec{l} for gamma arguments
+        vecL(:) = cellVecs(:, symNeighbourList%iCellVec(iAtB))
+        intVecL(:) = nint(vecL)
+        ! get 2D pointer to Sbn overlap block
+        ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
+        nOrbAt = descN(iNOrb)
+        nOrbNeigh = descB(iNOrb)
+        ! pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+        pSbn = reshape(this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1), [nOrbNeigh, nOrbAt])
+        loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
+          iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
+          maxEstimate = pSbnMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
+          if (maxEstimate < this%pScreeningThreshold) exit loopA
+          iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
+          iAtAfold = symNeighbourList%img2CentCell(iAtA)
+          descA = getDescriptor(iAtAfold, iSquare)
+          ! get continuous 2D copy of Pab density matrix block
+          Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:)
+          ! Pab = deltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iCurSpin)
+          ! get real-space \vec{h} for gamma arguments
+          vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
+          intVecH(:) = nint(vecH)
+          ! get 2D pointer to Sam overlap block
+          ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
+          nOrbAt = descM(iNOrb)
+          nOrbNeigh = descA(iNOrb)
+          ! S_{\alpha\mu}(h)
+          ! pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+          pSam = reshape(this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1), [nOrbNeigh, nOrbAt])
+          ! S_{\mu\alpha}(-h)
+          ! pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
+          pSamT = transpose(pSam)
+
+          tot(:,:) = (0.0_dp, 0.0_dp)
+
+          loopGMN: do iG = 1, size(this%micGVectors(iAtM, iAtN, intVecL(1), intVecL(2), intVecL(3),&
+              & intVecH(1), intVecH(2), intVecH(3))%array)
+            iGMN = this%micGVectors(iAtM, iAtN, intVecL(1), intVecL(2), intVecL(3), intVecH(1),&
+                & intVecH(2), intVecH(3))%array(iG)
+
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGMN) + vecH - vecL)
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGMN)))
+
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
+                & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
+            Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                & bvKIndex(3)), pSbn)
+
+            ! term #1
+            pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
+                & 1:descB(iNOrb)), pSbn)
+
+            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+                & + cmplx(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+                & * this%lrGammaEvalG(iAtM, iAtN)%array(iGMN), 0, dp) * phase
+          end do loopGMN
+
+          loopGMB: do iG = 1, size(this%micGVectors(iAtM, iAtBfold, 0, 0, 0, intVecH(1),&
+              & intVecH(2), intVecH(3))%array)
+            iGMB = this%micGVectors(iAtM, iAtBfold, 0, 0, 0, intVecH(1), intVecH(2),&
+                & intVecH(3))%array(iG)
+
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGMB) + vecH)
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGMB)&
+                & + vecL))
+
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
+                & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
+            Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                & bvKIndex(3)), pSbn)
+
+            ! term #2
+            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+                & + cmplx(matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb))&
+                & * this%lrGammaEvalG(iAtM, iAtBfold)%array(iGMB), pSbn), 0, dp) * phase
+          end do loopGMB
+
+          loopGAN: do iG = 1, size(this%micGVectors(iAtAfold, iAtN, intVecL(1), intVecL(2),&
+              & intVecL(3), 0, 0, 0)%array)
+            iGAN = this%micGVectors(iAtAfold, iAtN, intVecL(1), intVecL(2), intVecL(3), 0, 0,&
+                & 0)%array(iG)
+
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGAN) - vecL)
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGAN)&
+                & - vecH))
+
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
+                & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
+            Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                & bvKIndex(3)), pSbn)
+
+            ! term #3
+            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+                & + cmplx(matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb))&
+                & * this%lrGammaEvalG(iAtAfold, iAtN)%array(iGAN)), 0, dp) * phase
+          end do loopGAN
+
+          loopGAB: do iG = 1, size(this%micGVectors(iAtAfold, iAtBfold, 0, 0, 0, 0, 0, 0)%array)
+            iGAB = this%micGVectors(iAtAfold, iAtBfold, 0, 0, 0, 0, 0, 0)%array(iG)
+
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGAB))
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGAB)&
+                & + vecL - vecH))
+
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
+                & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
+            Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+                & bvKIndex(3)), pSbn)
+
+            ! term #4
+            pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
+                & bvKIndex(1), bvKIndex(2), bvKIndex(3))&
+                & * this%lrGammaEvalG(iAtAfold, iAtBfold)%array(iGAB))
+            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+                & + cmplx(matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn), 0, dp)&
+                & * phase
+          end do loopGAB
+
+          tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+              & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+              & + tot(1:descM(iNOrb), 1:descN(iNOrb))
+
+        end do loopA
+      end do loopB
+    end do loopMN
+
+    if (this%tSpin .or. this%tREKS) then
+      tmpHSqr(:,:) = -0.25_dp * tmpHSqr
+    else
+      tmpHSqr(:,:) = -0.125_dp * tmpHSqr
+    end if
+
+  #:if WITH_MPI
+    ! Sum up contributions of current MPI group
+    call mpifx_allreduceip(env%mpi%groupComm, tmpHSqr, MPI_SUM)
+  #:endif
+
+    this%hprevCplxHS(:,:, iKS) = this%hprevCplxHS(:,:, iKS) + tmpHSqr
+    HSqr(:,:) = HSqr + this%camBeta * this%hprevCplxHS(:,:, iKS)
+
+    ! Add energy contribution but divide by the number of processes working on iKS
+  #:if WITH_MPI
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
+        & deltaRhoOutSqrCplx) / real(env%mpi%groupComm%size, dp)
+  #:else
+    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
+        & deltaRhoOutSqrCplx)
+  #:endif
+
+  end subroutine addLrHamiltonianNeighbour_kpts_mic
+
+
+  !> Adds the LR-exchange contribution to Hamiltonian, using the neighbour based algorithm
+  !! (k-point version).
   subroutine addLrHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
       & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
       & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
@@ -2692,7 +3296,7 @@ contains
     integer :: nAtom0
 
     !! Real-space \vec{h} and \vec{l} vectors in relative coordinates
-    integer :: vecH(3), vecL(3)
+    real(dp) :: vecH(3), vecL(3)
 
     !! Translation vectors to lattice cells in units of lattice constants
     real(dp), allocatable :: cellVecsG(:,:)
@@ -2702,7 +3306,8 @@ contains
 
     !! Temporary arrays for gemm operations
     real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab, pSamT_Pab_pSbn, Pab_Sbn
-    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB, tot
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB
+    complex(dp), dimension(orb%mOrb, orb%mOrb) :: tot
 
     !! Atom indices (central cell)
     integer :: iAtM, iAtN
@@ -2742,7 +3347,7 @@ contains
     integer :: ii, iAtMN(2, size(this%species0)**2)
 
     ! this initialization is also valid for OMP, since tot is firstprivate
-    tot(:,:) = 0.0_dp
+    tot(:,:) = (0.0_dp, 0.0_dp)
 
     squareSize = size(HSqr, dim=1)
     nAtom0 = size(this%species0)
@@ -2809,7 +3414,7 @@ contains
         iAtBfold = symNeighbourList%img2CentCell(iAtB)
         descB = getDescriptor(iAtBfold, iSquare)
         ! get real-space \vec{l} for gamma arguments
-        vecL(:) = nint(cellVecs(:, symNeighbourList%iCellVec(iAtB)))
+        vecL(:) = cellVecs(:, symNeighbourList%iCellVec(iAtB))
         ! get 2D pointer to Sbn overlap block
         ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
         nOrbAt = descN(iNOrb)
@@ -2826,7 +3431,7 @@ contains
           Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:)
           ! Pab = deltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iCurSpin)
           ! get real-space \vec{h} for gamma arguments
-          vecH(:) = nint(cellVecs(:, symNeighbourList%iCellVec(iAtA)))
+          vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
           ! get 2D pointer to Sam overlap block
           ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
           nOrbAt = descM(iNOrb)
@@ -2836,11 +3441,11 @@ contains
           ! S_{\mu\alpha}(-h)
           pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
 
-          tot(1:descM(iNOrb), 1:descN(iNOrb)) = 0.0_dp
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = (0.0_dp, 0.0_dp)
 
           loopGMN: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtN)%array)
             iGMN = this%nNonZeroGammaG(iAtM, iAtN)%array(iG)
-            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGMN) + real(vecH - vecL, dp))
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGMN) + vecH - vecL)
             phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGMN)))
 
             pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
@@ -2853,15 +3458,15 @@ contains
                 & 1:descB(iNOrb)), pSbn)
 
             tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-                & * this%lrGammaEvalG(iAtM, iAtN)%array(iG) * phase
+                & + cmplx(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+                & * this%lrGammaEvalG(iAtM, iAtN)%array(iG), 0, dp) * phase
           end do loopGMN
 
           loopGMB: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtBfold)%array)
             iGMB = this%nNonZeroGammaG(iAtM, iAtBfold)%array(iG)
-            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGMB) + real(vecH, dp))
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGMB) + vecH)
             phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGMB)&
-                & + real(vecL, dp)))
+                & + vecL))
 
             pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
                 & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
@@ -2870,15 +3475,15 @@ contains
 
             ! term #2
             tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * this%lrGammaEvalG(iAtM,&
-                & iAtBfold)%array(iG), pSbn) * phase
+                & + cmplx(matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb))&
+                & * this%lrGammaEvalG(iAtM, iAtBfold)%array(iG), pSbn), 0, dp) * phase
           end do loopGMB
 
           loopGAN: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtN)%array)
             iGAN = this%nNonZeroGammaG(iAtAfold, iAtN)%array(iG)
-            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGAN) - real(vecL, dp))
+            bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGAN) - vecL)
             phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGAN)&
-                & - real(vecH, dp)))
+                & - vecH))
 
             pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
                 & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
@@ -2887,15 +3492,15 @@ contains
 
             ! term #3
             tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb))&
-                & * this%lrGammaEvalG(iAtAfold, iAtN)%array(iG)) * phase
+                & + cmplx(matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb))&
+                & * this%lrGammaEvalG(iAtAfold, iAtN)%array(iG)), 0, dp) * phase
           end do loopGAN
 
           loopGAB: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtBfold)%array)
             iGAB = this%nNonZeroGammaG(iAtAfold, iAtBfold)%array(iG)
             bvKIndex(:) = this%foldToBvKIndex(cellVecsG(:, iGAB))
             phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint, cellVecsG(:, iGAB)&
-                & + real(vecL - vecH, dp)))
+                & + vecL - vecH))
 
             pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
                 & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
@@ -2907,7 +3512,8 @@ contains
                 & bvKIndex(1), bvKIndex(2), bvKIndex(3))&
                 & * this%lrGammaEvalG(iAtAfold, iAtBfold)%array(iG))
             tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn) * phase
+                & + cmplx(matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn), 0, dp)&
+                & * phase
           end do loopGAB
 
           tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
@@ -3474,6 +4080,30 @@ contains
   end function getLrTruncatedGammaValue
 
 
+  !> Calculates analytical, long-range gamma for MIC algorithm.
+  function getLrMicGammaValue(this, iSp1, iSp2, dist) result(gamma)
+
+    !> Class instance
+    class(TRangeSepFunc_mic), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma
+    real(dp) :: gamma
+
+    gamma = getLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+        & dist)
+
+  end function getLrMicGammaValue
+
+
   !> Calculates analytical, truncated and poly5zero damped Coulomb, long-range gamma.
   function getLrTruncatedAndDampedGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
@@ -3531,6 +4161,29 @@ contains
     end if
 
   end function getHfTruncatedGammaValue
+
+
+  !> Calculates analytical, full-range Hartree-Fock gamma for MIC algorithm.
+  function getHfMicGammaValue(this, iSp1, iSp2, dist) result(gamma)
+
+    !> Class instance
+    class(TRangeSepFunc_mic), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma
+    real(dp) :: gamma
+
+    gamma = getHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+
+  end function getHfMicGammaValue
 
 
   !> Calculates analytical, truncated and poly5zero damped Coulomb, full-range Hartree-Fock gamma.
@@ -3802,6 +4455,30 @@ contains
   end function getdLrTruncatedGammaValue
 
 
+  !> Calculates analytical, long-range gamma derivative for MIC algorithm.
+  function getdLrMicGammaValue(this, iSp1, iSp2, dist) result(dGamma)
+
+    !> Class instance
+    class(TRangeSepFunc_mic), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma derivative
+    real(dp) :: dGamma
+
+    dGamma = getdLrAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
+        & dist)
+
+  end function getdLrMicGammaValue
+
+
   !> Calculates analytical, truncated Coulomb, full-range Hartree-Fock gamma derivative.
   function getdHfTruncatedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
 
@@ -3827,6 +4504,29 @@ contains
     end if
 
   end function getdHfTruncatedGammaValue
+
+
+  !> Calculates analytical, full-range Hartree-Fock gamma derivative for MIC algorithm.
+  function getdHfMicGammaValue(this, iSp1, iSp2, dist) result(dGamma)
+
+    !> Class instance
+    class(TRangeSepFunc_mic), intent(in) :: this
+
+    !> First species
+    integer, intent(in) :: iSp1
+
+    !> Second species
+    integer, intent(in) :: iSp2
+
+    !> Distance between atoms
+    real(dp), intent(in) :: dist
+
+    !> Resulting truncated gamma derivative
+    real(dp) :: dGamma
+
+    dGamma = getdHfAnalyticalGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), dist)
+
+  end function getdHfMicGammaValue
 
 
   !> Calculates analytical, truncated and poly5zero damped Coulomb, long-range gamma derivative.
