@@ -29,7 +29,8 @@ contains
   !! determined, but there are a few points with the wrong degeneracies. To avoid this I search for
   !! points in the -2:2 replicas (5^2 replicas). I had the same problem in createkmap for the g0vec
   !! shift, and also there I have fixed it by extending the replicas to -2:2 instead of -1:1.
-  subroutine generateWignerSeitzGrid(nk, latVecs, wsVectors, wsDegeneracy, wsDistances)
+  subroutine generateWignerSeitzGrid(nk, latVecs, wsVectors, tExcludeSurface, wsDegeneracy,&
+      & wsDistances)
 
     !> Supercell folding coefficients (diagonal elements)
     integer, intent(in) :: nk(:)
@@ -39,6 +40,9 @@ contains
 
     !> Wigner-Seitz grid points in units of lattice vectors
     integer, intent(out), allocatable :: wsVectors(:,:)
+
+    !> True, if surface should be excluded (default: true)
+    logical, intent(in), optional :: tExcludeSurface
 
     !> Degeneracy of the i-th Wigner-Seitz vector (weight is 1 / wsDegeneracy(iVec))
     integer, intent(out), allocatable, optional :: wsDegeneracy(:)
@@ -58,6 +62,9 @@ contains
     !! Work buffer of real-space lengths in absolute units
     real(dp), dimension(20 * nk(1) * nk(2) * nk(3)) :: wsDistances_
 
+    !> True, if surface should be excluded
+    logical :: tExcludeSurface_
+
     !! Auxiliary variables
     integer :: n1, n2, n3, i1, i2, i3, ii, ipol, jpol, ndiff(3), nind
     real(dp) :: tot, mindist, adot(3,3), dist(125)
@@ -68,6 +75,15 @@ contains
 
     !! True, if current point belongs to Wignez-Seitz cell
     logical :: tFound
+
+    !! Number of highest equal distances
+    integer :: nEqualDists
+
+    if (present(tExcludeSurface)) then
+      tExcludeSurface_ = tExcludeSurface
+    else
+      tExcludeSurface_ = .true.
+    end if
 
     nind = 20 * nk(1) * nk(3) * nk(3)
     if (nind < 125) then
@@ -182,6 +198,19 @@ contains
     ! Now wsDistances_ is already sorted, but we still have to sort wsVectors_ and wsDegeneracy_
     wsDegeneracy_(:nrr) = wsDegeneracy_(ind(:nrr))
     wsVectors_(:,:nrr) = wsVectors_(:, ind(:nrr))
+
+    if (tExcludeSurface_) then
+      ! Remove most outer shell, to be on the save side
+      nEqualDists = 1
+      do ii = 1, nrr - 1
+        if (abs(wsDistances_(nrr) - wsDistances_(nrr - ii)) < eps) then
+          nEqualDists = nEqualDists + 1
+        else
+          exit
+        end if
+      end do
+      if (nrr - nEqualDists > 0) nrr = nrr - nEqualDists
+    end if
 
     ! Hand over results
     wsVectors = wsVectors_(:, :nrr)
