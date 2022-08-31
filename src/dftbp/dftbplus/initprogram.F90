@@ -1453,16 +1453,6 @@ contains
       call error(trim(tmpStr))
     end if
 
-    if (this%isRangeSep .and. (.not. this%tRealHS)&
-        & .and. (input%ctrl%parallelOpts%nGroup > this%nAtom**2)) then
-      ! General k-point case (parallelized over k-points)
-      write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations beyond the Gamma point, the&
-          & number of MPI' // NEW_LINE('A') // '  groups must not exceed nAtom**2.'&
-          & // NEW_LINE('A') // '   Obtained (', env%mpi%globalComm%size, ')&
-          & processes, were maximum is (', this%nAtom**2, ') total MPI groups/processes!'
-      call error(trim(tmpStr))
-    end if
-
     if (this%isRangeSep .and. this%tPeriodic .and. this%tRealHS&
         & .and. (env%mpi%globalComm%size > this%nAtom**2)) then
       write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations at the Gamma point, the&
