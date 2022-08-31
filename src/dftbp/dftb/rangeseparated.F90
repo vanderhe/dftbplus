@@ -35,7 +35,7 @@ module dftbp_dftb_rangeseparated
 #:endif
 
 #:if WITH_MPI
-  use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip, mpifx_allreduce
+  use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip, mpifx_allreduce, mpifx_bcast
 #:endif
 
   implicit none
@@ -1184,8 +1184,8 @@ contains
         & symNeighbourList%iPair, orb)
 
     if (this%tScreeningInited) then
-      this%hPrev(:,:) = 0.0_dp
-      this%dRhoPrev(:,:) = 0.0_dp
+      this%hPrevCplxHS(:,:,:) = 0.0_dp
+      this%dRhoPrevCplxHS(:,:,:,:,:,:) = 0.0_dp
       this%lrEnergy = 0.0_dp
       this%hfEnergy = 0.0_dp
     end if
@@ -1226,16 +1226,6 @@ contains
 
     ! ##################### Beginning of \gamma(\bm{g}) pre-tabulation #############################
 
-    ! Build up composite index iAtMN for collapsing iAtM and iAtN
-    ind = 1
-    loopM: do iAtM = 1, nAtom0
-      loopN: do iAtN = 1, nAtom0
-        iAtMN(1, ind) = iAtM
-        iAtMN(2, ind) = iAtN
-        ind = ind + 1
-      end do loopN
-    end do loopM
-
     if (this%gammaType == rangeSepGammaTypes%mic) then
       if (allocated(this%wsVectors)) deallocate(this%wsVectors)
       ! Generate "save" Wigner-Seitz vectors for density matrix arguments
@@ -1249,63 +1239,17 @@ contains
         this%rCellVecsG(:, iG) = matmul(latVecs, this%cellVecsG(:, iG))
       end do
 
-      ! ! Find minimum and maximum real-space shifts occuring in neighbour list
-      ! minVecX = 0
-      ! minVecY = 0
-      ! minVecZ = 0
-      ! maxVecX = 0
-      ! maxVecY = 0
-      ! maxVecZ = 0
-
-      ! do iAtN = 1, nAtom0
-      !   do iNeighN = 0, nNeighbourCamSym(iAtN)
-      !     iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
-      !     minVecX = min(-nint(cellVecs(1, symNeighbourList%iCellVec(iAtB))), minVecX)
-      !     minVecY = min(-nint(cellVecs(2, symNeighbourList%iCellVec(iAtB))), minVecY)
-      !     minVecZ = min(-nint(cellVecs(3, symNeighbourList%iCellVec(iAtB))), minVecZ)
-      !     maxVecX = max(-nint(cellVecs(1, symNeighbourList%iCellVec(iAtB))), maxVecX)
-      !     maxVecY = max(-nint(cellVecs(2, symNeighbourList%iCellVec(iAtB))), maxVecY)
-      !     maxVecZ = max(-nint(cellVecs(3, symNeighbourList%iCellVec(iAtB))), maxVecZ)
-      !   end do
-      ! end do
-
-      ! allocate(this%lrGammaEvalGMic(nAtom0, nAtom0,&
-      !     & minVecX:maxVecX, minVecY:maxVecY, minVecZ:maxVecZ,&
-      !     & minVecX:maxVecX, minVecY:maxVecY, minVecZ:maxVecZ))
-
-      ! loopMN: do ii = 1, nAtom0**2
-      !   iAtM = iAtMN(1, ii)
-      !   iAtN = iAtMN(2, ii)
-      !   iSpM = this%species0(iAtM)
-      !   iSpN = this%species0(iAtN)
-      !   do vecHz = minVecZ, maxVecZ
-      !     vecH(3) = vecHz
-      !     do vecHy = minVecY, maxVecY
-      !       vecH(2) = vecHy
-      !       do vecHx = minVecX, maxVecX
-      !         vecH(1) = vecHx
-      !         rVecH(:) = matmul(latVecs, real(vecH, dp))
-      !         do vecLz = minVecZ, maxVecZ
-      !           vecL(3) = vecLz
-      !           do vecLy = minVecY, maxVecY
-      !             vecL(2) = vecLy
-      !             do vecLx = minVecX, maxVecX
-      !               vecL(1) = vecLx
-      !               rVecL(:) = matmul(latVecs, real(vecL, dp))
-
-      !               this%lrGammaEvalGMic(iAtM, iAtN, vecL(1), vecL(2), vecL(3), vecH(1), vecH(2),&
-      !                   & vecH(3))%array = getLrGammaGResolved(this, iAtM, iAtN, iSpM, iSpN,&
-      !                   & this%rCoords, this%rCellVecsG, rVecL - rVecH)
-
-      !             end do
-      !           end do
-      !         end do
-      !       end do
-      !     end do
-      !   end do
-      ! end do loopMN
-
     else
+
+      ! Build up composite index iAtMN for collapsing iAtM and iAtN
+      ind = 1
+      loopM: do iAtM = 1, nAtom0
+        loopN: do iAtN = 1, nAtom0
+          iAtMN(1, ind) = iAtM
+          iAtMN(2, ind) = iAtN
+          ind = ind + 1
+        end do loopN
+      end do loopM
 
       ! get all cell translations within given cutoff
       call getCellTranslations(this%cellVecsG, this%rCellVecsG, latVecs, recVecs2p,&
@@ -1494,8 +1438,8 @@ contains
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian
   !! (k-point version).
   subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
-      & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb, kPoint,&
-      & kWeight, iKS, iCurSpin, nKS, HSqr)
+      & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb, kPoints,&
+      & kWeights, HSqr)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -1506,8 +1450,8 @@ contains
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
     real(dp), intent(in), pointer :: deltaRhoSqr(:,:,:,:,:,:)
 
-    !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in), pointer :: deltaRhoSqrCplx(:,:)
+    !> Square (unpacked) delta spin-density matrix in k-space for all k-points/spins iKS
+    complex(dp), intent(in), pointer :: deltaRhoSqrCplx(:,:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -1536,23 +1480,14 @@ contains
     !> Orbital information.
     type(TOrbitals), intent(in) :: orb
 
-    !> K-point in relative coordinates to calculate delta H(k) for
-    real(dp), intent(in) :: kPoint(:)
+    !> K-points in relative coordinates to calculate delta H(k) for
+    real(dp), intent(in) :: kPoints(:,:)
 
-    !> K-point weight (for energy contribution)
-    real(dp), intent(in) :: kWeight
+    !> K-point weights (for energy contribution)
+    real(dp), intent(in) :: kWeights(:)
 
-    !> Spin/k-point composite index of current diagonalization
-    integer, intent(in) :: iKS
-
-    !> Spin index of current diagonalization
-    integer, intent(in) :: iCurSpin
-
-    !> Number of Spin/k-point combinations
-    integer, intent(in) :: nKS
-
-    !> Square (unpacked) Hamiltonian of a certain k-point/spin composite index to be updated
-    complex(dp), intent(inout) :: HSqr(:,:)
+    !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
+    complex(dp), intent(inout) :: HSqr(:,:,:)
 
     call env%globalTimer%startTimer(globalTimers%rangeSeparatedH)
 
@@ -1561,7 +1496,7 @@ contains
     if (this%tLc .or. this%tCam) then
       call addLrHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
           & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb,&
-          & kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
+          & kPoints, kWeights, HSqr)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
@@ -1683,8 +1618,8 @@ contains
   !> Interface routine for adding LC range-separated contributions to the Hamiltonian
   !! (k-point version).
   subroutine addLrHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
-      & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb, kPoint,&
-      & kWeight, iKS, iCurSpin, nKS, HSqr)
+      & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb, kPoints,&
+      & kWeights, HSqr)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -1696,7 +1631,7 @@ contains
     real(dp), intent(in), pointer :: deltaRhoSqr(:,:,:,:,:,:)
 
     !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in), pointer :: deltaRhoSqrCplx(:,:)
+    complex(dp), intent(in), pointer :: deltaRhoSqrCplx(:,:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -1725,23 +1660,14 @@ contains
     !> Orbital information.
     type(TOrbitals), intent(in) :: orb
 
-    !> K-point in relative coordinates to calculate delta H(k) for
-    real(dp), intent(in) :: kPoint(:)
+    !> K-points in relative coordinates to calculate delta H(k) for
+    real(dp), intent(in) :: kPoints(:,:)
 
-    !> K-point weight (for energy contribution)
-    real(dp), intent(in) :: kWeight
+    !> K-point weights (for energy contribution)
+    real(dp), intent(in) :: kWeights(:)
 
-    !> Spin/k-point composite index of current diagonalization
-    integer, intent(in) :: iKS
-
-    !> Spin index of current diagonalization
-    integer, intent(in) :: iCurSpin
-
-    !> Number of Spin/k-point combinations
-    integer, intent(in) :: nKS
-
-    !> Square (unpacked) Hamiltonian of a certain k-point/spin composite index to be updated
-    complex(dp), intent(inout) :: HSqr(:,:)
+    !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
+    complex(dp), intent(inout) :: HSqr(:,:,:)
 
     select case(this%rsAlg)
     case (rangeSepTypes%threshold)
@@ -1750,11 +1676,12 @@ contains
       if (this%gammaType == rangeSepGammaTypes%mic) then
       call addLrHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
           & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-          & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
+          & iSquare, orb, kPoints, kWeights, HSqr)
     else
-      call addLrHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
-          & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-          & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
+      error stop
+      ! call addLrHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
+      !     & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
+      !     & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
       end if
     case (rangeSepTypes%matrixBased)
       call error('Matrix based algorithm not implemented for periodic systems.')
@@ -2741,7 +2668,7 @@ contains
   !! (k-point version).
   subroutine addLrHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
       & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-      & iSquare, orb, kPoint, kWeight, iKS, iCurSpin, nKS, HSqr)
+      & iSquare, orb, kPoints, kWeights, HSqr)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout), target :: this
@@ -2753,7 +2680,7 @@ contains
     real(dp), intent(in), pointer :: deltaRhoSqr(:,:,:,:,:,:)
 
     !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:)
+    complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
 
     !> list of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -2782,23 +2709,14 @@ contains
     !> Orbital information.
     type(TOrbitals), intent(in) :: orb
 
-    !> K-point in relative coordinates to calculate delta H(k) for
-    real(dp), intent(in) :: kPoint(:)
+    !> K-points in relative coordinates to calculate delta H(k) for
+    real(dp), intent(in) :: kPoints(:,:)
 
-    !> K-point weight (for energy contribution)
-    real(dp), intent(in) :: kWeight
+    !> K-point weights (for energy contribution)
+    real(dp), intent(in) :: kWeights(:)
 
-    !> Spin/k-point composite index of current diagonalization
-    integer, intent(in) :: iKS
-
-    !> Spin index of current diagonalization
-    integer, intent(in) :: iCurSpin
-
-    !> Number of Spin/k-point combinations
-    integer, intent(in) :: nKS
-
-    !> Square (unpacked) Hamiltonian of a certain k-point/spin composite index to be updated
-    complex(dp), intent(inout) :: HSqr(:,:)
+    !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
+    complex(dp), intent(inout) :: HSqr(:,:,:)
 
     !! Dense matrix descriptor indices
     integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
@@ -2818,8 +2736,8 @@ contains
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
 
     !! Temporary storages
-    real(dp), allocatable :: deltaDeltaRhoSqr(:,:,:,:,:)
-    complex(dp), allocatable :: tmpHSqr(:,:)
+    real(dp), allocatable :: deltaDeltaRhoSqr(:,:,:,:,:,:)
+    complex(dp), allocatable :: tmpHSqr(:,:,:)
 
     !! Number of atoms in central cell
     integer :: nAtom0
@@ -2833,8 +2751,15 @@ contains
 
     !! Temporary arrays for gemm operations
     real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab, pSamT_Pab_pSbn, Pab_Sbn
-    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB
-    complex(dp), dimension(orb%mOrb, orb%mOrb) :: tot
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB, pSamT_Pab_gammaMB_pSbn
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_Sbn_gammaAN, pSamT_Pab_gammaAB_pSbn
+    complex(dp) :: tot(orb%mOrb, orb%mOrb, size(kPoints, dim=2) * size(deltaRhoSqr, dim=6))
+
+    !! K-point-spin compound index
+    integer :: iKS
+
+    !! K-point index
+    integer :: iK
 
     !! Atom indices (central cell)
     integer :: iAtM, iAtN
@@ -2868,7 +2793,7 @@ contains
     integer :: iSpM, iSpN, iSpA, iSpB
 
     !! Iterates over all BvK real-space vectors
-    integer :: iG, iGMN, iGMB, iGAN, iGAB
+    integer :: iG
 
     !! Start and end index for MPI parallelization, if applicable
     integer :: iParallelStart, iParallelEnd
@@ -2876,38 +2801,27 @@ contains
     !! Composite index iAtM/iAtN
     integer :: ii, iAtMN(2, size(this%species0)**2)
 
-    !! Real-space shift of delta density matrix argument
-    real(dp) :: dPabArg(3)
-
-    !! Lower and upper bound of density matrix argument screening w.r.t. BvK WS cell estimate
-    real(dp) :: relLBound(3), relUBound(3)
-
-    !! Overlap matrix elements
-    real(dp) :: Sam, Sbn
-
-    !! Density matrix elements
-    real(dp) :: dPmn, dPab
-
-    !! Orbital indices
-    integer :: mu, nu, alpha, beta
-
-    !! Product Sam * dPab * Sbn * gamma
-    real(dp) :: SamdPabSbnGamma
-
     !! Dummy array with zeros
     real(dp) :: zeros(3)
 
+    !! Number of k-points
+    integer :: nK
+
+    !! Number of k-point-spin compound indices
+    integer :: nKS
+
+    !! Pre-factor
+    real(dp) :: fac
+
     zeros(:) = 0.0_dp
 
-    ! Get lower and upper bound of density matrix argument screening w.r.t. BvK WS cell estimate
-    relLBound = -0.5_dp * this%coeffsDiag
-    relUBound = 0.5_dp * this%coeffsDiag
-
     ! this initialization is also valid for OMP, since tot is firstprivate
-    tot(:,:) = (0.0_dp, 0.0_dp)
+    tot(:,:,:) = (0.0_dp, 0.0_dp)
 
     squareSize = size(HSqr, dim=1)
     nAtom0 = size(this%species0)
+    nK = size(kPoints, dim=2)
+    nKS = nK * size(deltaRhoSqr, dim=6)
 
     ! Build up composite index iAtMN for collapsing iAtM and iAtN
     ind = 1
@@ -2920,7 +2834,7 @@ contains
     end do loopM
 
   #:if WITH_MPI
-    call getStartAndEndIndex(nAtom0**2, env%mpi%groupComm%size, env%mpi%groupComm%rank,&
+    call getStartAndEndIndex(nAtom0**2, env%mpi%globalComm%size, env%mpi%globalComm%rank,&
         & iParallelStart, iParallelEnd)
   #:else
     iParallelStart = 1
@@ -2928,30 +2842,26 @@ contains
   #:endif
 
     ! allocate delta Hamiltonian
-    allocate(tmpHSqr(squareSize, squareSize))
-    tmpHSqr(:,:) = (0.0_dp, 0.0_dp)
+    allocate(tmpHSqr(squareSize, squareSize, nKS))
+    tmpHSqr(:,:,:) = (0.0_dp, 0.0_dp)
 
     ! check and initialize screening
     if (.not. this%tScreeningInited) then
-      if (iKS == 1) then
-        allocate(this%hprevCplxHS(squareSize, squareSize, nKS))
-        this%hprevCplxHS(:,:,:) = cmplx(0, 0, dp)
-        this%dRhoPrevCplxHS = deltaRhoSqr
-      end if
-      if (iKS == nKS .or. iCurSpin == 2) this%tScreeningInited = .true.
+      allocate(this%hprevCplxHS(squareSize, squareSize, nKS))
+      this%hprevCplxHS(:,:,:) = (0.0_dp, 0.0_dp)
+      this%dRhoPrevCplxHS = deltaRhoSqr
       ! there is no previous delta density matrix, therefore just copy over
-      deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin)
+      deltaDeltaRhoSqr = deltaRhoSqr
+      this%tScreeningInited = .true.
     else
       ! allocate and initialize difference of delta rho to previous SCC iteration
-      deltaDeltaRhoSqr = deltaRhoSqr(:,:,:,:,:, iCurSpin) - this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin)
+      deltaDeltaRhoSqr = deltaRhoSqr - this%dRhoPrevCplxHS
     end if
 
     pMax = maxval(abs(deltaDeltaRhoSqr))
-    ! pMax = maxval(abs(deltaRhoSqr))
-    ! store delta density matrix only once per spin and SCC iteration
-    if (iKS == nKS .or. iCurSpin == 2) then
-      this%dRhoPrevCplxHS(:,:,:,:,:, iCurSpin) = deltaRhoSqr(:,:,:,:,:, iCurSpin)
-    end if
+    ! store delta density matrix
+    this%dRhoPrevCplxHS = deltaRhoSqr
+
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
 
@@ -2960,7 +2870,7 @@ contains
     allocate(gammaAN(size(this%cellVecsG, dim=2)))
     allocate(gammaAB(size(this%cellVecsG, dim=2)))
 
-    loopMN: do ii = 1, nAtom0**2
+    loopMN: do ii = iParallelStart, iParallelEnd
       iAtM = iAtMN(1, ii)
       iAtN = iAtMN(2, ii)
       iSpM = this%species0(iAtM)
@@ -2969,7 +2879,6 @@ contains
       descN = getDescriptor(iAtN, iSquare)
       loopB: do iNeighN = 0, nNeighbourCamSym(iAtN)
         iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
-        ! pSbnMax = this%testSquareOver(iAtN)%array(iNeighNsort + 1)
         pSbnPabMax = pMax * this%testSquareOver(iAtN)%array(iNeighNsort + 1)
         if (pSbnPabMax < this%pScreeningThreshold) exit loopB
         iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
@@ -2985,10 +2894,8 @@ contains
         nOrbAt = descN(iNOrb)
         nOrbNeigh = descB(iNOrb)
         pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-        ! pSbn = reshape(this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1), [nOrbNeigh, nOrbAt])
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
-          ! maxEstimate = pSbnMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
           maxEstimate = pSbnPabMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
           if (maxEstimate < this%pScreeningThreshold) exit loopA
           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighMsort, iAtM)
@@ -2996,8 +2903,7 @@ contains
           descA = getDescriptor(iAtAfold, iSquare)
           iSpA = this%species0(iAtAfold)
           ! get continuous 2D copy of Pab density matrix block
-          Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:)
-          ! Pab = deltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iCurSpin)
+          Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:,1)
           ! get real-space \vec{h} for gamma arguments
           rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
           vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
@@ -3008,10 +2914,8 @@ contains
           nOrbNeigh = descA(iNOrb)
           ! S_{\alpha\mu}(h)
           pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-          ! pSam = reshape(this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1), [nOrbNeigh, nOrbAt])
           ! S_{\mu\alpha}(-h)
           pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
-          ! pSamT = transpose(pSam)
 
           gammaAB(:) = getLrGammaGResolved(this, iAtAfold, iAtBfold, iSpA, iSpB, this%rCoords,&
               & this%rCellVecsG, zeros)
@@ -3022,75 +2926,112 @@ contains
           gammaMN(:) = getLrGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCoords,&
               & this%rCellVecsG, rVecL - rVecH)
 
-          tot(1:descM(iNOrb), 1:descN(iNOrb)) = (0.0_dp, 0.0_dp)
+          tot(1:descM(iNOrb), 1:descN(iNOrb), :) = (0.0_dp, 0.0_dp)
 
           loopG: do iG = 1, size(this%cellVecsG, dim=2)
             bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iG))
 
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoint,&
-                & this%cellVecsG(:, iG) + vecL - vecH))
-
+            ! term #1/2
             pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab(:,:, bvKIndex(1),&
                 & bvKIndex(2), bvKIndex(3)))
 
             ! term #1
             pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
                 & 1:descB(iNOrb)), pSbn)
-            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + cmplx(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) * gammaMN(iG), 0, dp)&
-                & * phase
 
             ! term #2
-            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + cmplx(matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(iG), pSbn),&
-                & 0, dp) * phase
+            pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+                & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(iG), pSbn)
 
             ! term #3
             Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
                 & bvKIndex(3)), pSbn)
-            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + cmplx(matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(iG)), 0,&
-                & dp) * phase
+            pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb))&
+                & = matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(iG))
 
             ! term #4
             pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
                 & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG))
-            tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-                & + cmplx(matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn), 0, dp)&
-                & * phase
+            pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+                & = matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
+
+            loopKS: do iK = 1, nK
+
+              ! Workaround for spin-restricted calculations
+              iKS = iK
+
+              phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+                  & this%cellVecsG(:, iG) + vecL - vecH))
+
+              ! term #1
+              tot(1:descM(iNOrb), 1:descN(iNOrb), iKS) = tot(1:descM(iNOrb), 1:descN(iNOrb), iKS)&
+                  & + cmplx(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) * gammaMN(iG), 0, dp)&
+                  & * phase
+
+              ! term #2
+              tot(1:descM(iNOrb), 1:descN(iNOrb), iKS) = tot(1:descM(iNOrb), 1:descN(iNOrb), iKS)&
+                  & + cmplx(pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+
+              ! term #3
+              tot(1:descM(iNOrb), 1:descN(iNOrb), iKS) = tot(1:descM(iNOrb), 1:descN(iNOrb), iKS)&
+                  & + cmplx(pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+
+              ! term #4
+              tot(1:descM(iNOrb), 1:descN(iNOrb), iKS) = tot(1:descM(iNOrb), 1:descN(iNOrb), iKS)&
+                  & + cmplx(pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+
+            end do loopKS
 
           end do loopG
 
-          tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-              & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-              & + tot(1:descM(iNOrb), 1:descN(iNOrb))
+          tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
+              & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
+              & + tot(1:descM(iNOrb), 1:descN(iNOrb), :)
 
         end do loopA
       end do loopB
     end do loopMN
 
     if (this%tSpin .or. this%tREKS) then
-      tmpHSqr(:,:) = -0.25_dp * tmpHSqr
+      tmpHSqr(:,:,:) = -0.25_dp * tmpHSqr
     else
-      tmpHSqr(:,:) = -0.125_dp * tmpHSqr
+      tmpHSqr(:,:,:) = -0.125_dp * tmpHSqr
     end if
 
   #:if WITH_MPI
     ! Sum up contributions of current MPI group
-    call mpifx_allreduceip(env%mpi%groupComm, tmpHSqr, MPI_SUM)
+    call mpifx_allreduceip(env%mpi%globalComm, tmpHSqr, MPI_SUM)
   #:endif
 
-    this%hprevCplxHS(:,:, iKS) = this%hprevCplxHS(:,:, iKS) + tmpHSqr
-    HSqr(:,:) = HSqr + this%camBeta * this%hprevCplxHS(:,:, iKS)
+    if (env%tGlobalLead) then
+      this%hprevCplxHS(:,:,:) = this%hprevCplxHS + tmpHSqr
+      HSqr(:,:,:) = HSqr + this%camBeta * this%hprevCplxHS
+    end if
 
-    ! Add energy contribution but divide by the number of processes working on iKS
   #:if WITH_MPI
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
-        & deltaRhoOutSqrCplx) / real(env%mpi%groupComm%size, dp)
-  #:else
-    this%lrEnergy = this%lrEnergy + evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeight,&
-        & deltaRhoOutSqrCplx)
+    call mpifx_bcast(env%mpi%globalComm, this%hprevCplxHS)
+    call mpifx_bcast(env%mpi%globalComm, HSqr)
   #:endif
+
+  !   if (env%tGlobalLead) then
+  !     ! Add energy contribution but divide by the number of processes working on iKS
+  !   #:if WITH_MPI
+  !     fac = 1.0_dp / real(env%mpi%globalComm%size, dp)
+  !   #:else
+  !     fac = 1.0_dp
+  !   #:endif
+  !     do iK = 1, nK
+  !       ! Workaround for spin-restricted calculations
+  !       iKS = iK
+  !       this%lrEnergy = this%lrEnergy&
+  !           & + fac * evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeights(iK),&
+  !           & deltaRhoOutSqrCplx(:,:, iKS))
+  !     end do
+  !   end if
+
+  ! #:if WITH_MPI
+  !   call mpifx_bcast(env%mpi%globalComm, this%lrEnergy)
+  ! #:endif
 
   end subroutine addLrHamiltonianNeighbour_kpts_mic
 

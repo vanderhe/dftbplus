@@ -3154,18 +3154,23 @@ contains
 
     eigen(:,:,:) = 0.0_dp
     if (allocated(SSqrCplxKpts)) then
-      SSqrCplxKpts(:,:,:) = 0.0_dp
+      SSqrCplxKpts(:,:,:) = (0.0_dp, 0.0_dp)
       allocate(HSqrCplxCam(size(SSqrCplxKpts, dim=1), size(SSqrCplxKpts, dim=1),&
-          & parallelKS%nLocalKS))
-      HSqrCplxCam(:,:,:) = 0.0_dp
+          & size(kPoint, dim=2)))
+      HSqrCplxCam(:,:,:) = (0.0_dp, 0.0_dp)
     end if
 
   #:if WITH_MPI
     if (allocated(rangeSep)) then
       ! Pre-calculate CAM-Hamiltonian and overlap
+
+      ! Get CAM-Hamiltonian contribution for all spins/k-points
+      call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx,&
+          & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
+          & denseDesc%iAtomStart, orb, kPoint, kWeight, HSqrCplxCam)
+
       do iKS = 1, parallelKS%nLocalKS
         iK = parallelKS%localKS(1, iKS)
-        iSpin = parallelKS%localKS(2, iKS)
 
         ! Get full complex, square, k-space overlap and store for later q0 substraction
         call env%globalTimer%startTimer(globalTimers%sparseToDense)
@@ -3173,11 +3178,6 @@ contains
             & nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart, img2CentCell)
         call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
-        ! Get CAM-Hamiltonian contribution for current spin/k-point
-        call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
-            & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-            & denseDesc%iAtomStart, orb, kPoint(:, iK), kWeight(iK), iKS, iSpin,&
-            & parallelKS%nLocalKS, HSqrCplxCam(:,:, iKS))
       end do
     end if
   #:endif
@@ -3211,7 +3211,8 @@ contains
       ! Add CAM contribution to local Hamiltonian
       ! (Works only if total number of MPI processes matches number of MPI groups.)
       if (allocated(rangeSep)) then
-        HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iKS)
+        ! Index iK at this point is only working for spin-restricted calculations
+        HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iK)
       end if
 
       call diagDenseMtxBlacs(env, electronicSolver, iKS, 'V', denseDesc%blacsOrbSqr, HSqrCplx,&
@@ -3672,13 +3673,6 @@ contains
   #:if WITH_SCALAPACK
     ! Add up and distribute density matrix contribution from each group
     call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
-  #:endif
-
-  #:if WITH_MPI
-    if (allocated(rangeSep)) then
-      ! Add up and distribute density matrix contribution from each group
-      ! call mpifx_allreduceip(env%mpi%globalComm, deltaRhoOutSqrCplx, MPI_SUM)
-    end if
   #:endif
 
   end subroutine getDensityFromCplxEigvecs
