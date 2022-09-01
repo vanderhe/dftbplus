@@ -1439,7 +1439,7 @@ contains
   !! (k-point version).
   subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
       & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb, kPoints,&
-      & kWeights, HSqr)
+      & kWeights, localKS, HSqr)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -1486,6 +1486,10 @@ contains
     !> K-point weights (for energy contribution)
     real(dp), intent(in) :: kWeights(:)
 
+    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
+    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
+    integer, intent(in) :: localKS(:,:)
+
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(inout) :: HSqr(:,:,:)
 
@@ -1496,7 +1500,7 @@ contains
     if (this%tLc .or. this%tCam) then
       call addLrHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
           & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb,&
-          & kPoints, kWeights, HSqr)
+          & kPoints, kWeights, localKS, HSqr)
     end if
 
     ! Add full-range Hartree-Fock contribution if needed.
@@ -1619,7 +1623,7 @@ contains
   !! (k-point version).
   subroutine addLrHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
       & nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p, iSquare, orb, kPoints,&
-      & kWeights, HSqr)
+      & kWeights, localKS, HSqr)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout) :: this
@@ -1666,6 +1670,10 @@ contains
     !> K-point weights (for energy contribution)
     real(dp), intent(in) :: kWeights(:)
 
+    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
+    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
+    integer, intent(in) :: localKS(:,:)
+
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(inout) :: HSqr(:,:,:)
 
@@ -1676,7 +1684,7 @@ contains
       if (this%gammaType == rangeSepGammaTypes%mic) then
       call addLrHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
           & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-          & iSquare, orb, kPoints, kWeights, HSqr)
+          & iSquare, orb, kPoints, kWeights, localKS, HSqr)
     else
       error stop
       ! call addLrHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
@@ -2668,7 +2676,7 @@ contains
   !! (k-point version).
   subroutine addLrHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
       & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-      & iSquare, orb, kPoints, kWeights, HSqr)
+      & iSquare, orb, kPoints, kWeights, localKS, HSqr)
 
     !> Class instance
     class(TRangeSepFunc), intent(inout), target :: this
@@ -2715,6 +2723,10 @@ contains
     !> K-point weights (for energy contribution)
     real(dp), intent(in) :: kWeights(:)
 
+    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
+    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
+    integer, intent(in) :: localKS(:,:)
+
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(inout) :: HSqr(:,:,:)
 
@@ -2756,10 +2768,13 @@ contains
     complex(dp) :: tot(orb%mOrb, orb%mOrb, size(kPoints, dim=2) * size(deltaRhoSqr, dim=6))
 
     !! K-point-spin compound index
-    integer :: iKS
+    integer :: iGlobalKS, iLocalKS
 
     !! K-point index
     integer :: iK
+
+    !! Spin index
+    integer :: iS
 
     !! Atom indices (central cell)
     integer :: iAtM, iAtN
@@ -2802,11 +2817,14 @@ contains
     integer, allocatable :: compositeIndex(:,:)
     integer :: ii
 
+    !! Composite index for mapping iK/iS --> iGlobalKS
+    integer, allocatable :: iKiSToiGlobalKS(:,:)
+
     !! Dummy array with zeros
     real(dp) :: zeros(3)
 
-    !! Number of k-points
-    integer :: nK
+    !! Number of k-points and spins
+    integer :: nK, nS
 
     !! Number of k-point-spin compound indices
     integer :: nKS
@@ -2821,8 +2839,9 @@ contains
 
     squareSize = size(HSqr, dim=1)
     nAtom0 = size(this%species0)
+    nS = size(deltaRhoSqr, dim=6)
     nK = size(kPoints, dim=2)
-    nKS = nK * size(deltaRhoSqr, dim=6)
+    nKS = nK * nS
 
     ! check and initialize screening
     if (.not. this%tScreeningInited) then
@@ -2843,6 +2862,16 @@ contains
 
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
+
+    ! Build spin/k-point composite index for all spins and k-points (global)
+    iGlobalKS = 1
+    allocate(iKiSToiGlobalKS(nK, nS))
+    do iS = 1, nS
+      do iK = 1, nK
+        iKiSToiGlobalKS(iK, iS) = iGlobalKS
+        iGlobalKS = iGlobalKS + 1
+      end do
+    end do
 
     ! Lead process builds up composite index for MPI parallelization (includes thresholding)
     if (env%tGlobalLead) then
@@ -2951,8 +2980,6 @@ contains
       iAtAfold = symNeighbourList%img2CentCell(iAtA)
       descA = getDescriptor(iAtAfold, iSquare)
       iSpA = this%species0(iAtAfold)
-      ! get continuous 2D copy of Pab density matrix block
-      Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:,1)
       ! get real-space \vec{h} for gamma arguments
       rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
       vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
@@ -2977,61 +3004,71 @@ contains
 
       tot(1:descM(iNOrb), 1:descN(iNOrb), :) = (0.0_dp, 0.0_dp)
 
-      loopG: do iG = 1, size(this%cellVecsG, dim=2)
-        bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iG))
+      loopS: do iS = 1, nS
 
-        ! term #1/2
-        pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab(:,:, bvKIndex(1),&
-            & bvKIndex(2), bvKIndex(3)))
+        ! get continuous 2D copy of Pab density matrix block
+        Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iS)
 
-        ! term #1
-        pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
-            & 1:descB(iNOrb)), pSbn)
+        loopG: do iG = 1, size(this%cellVecsG, dim=2)
+          bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iG))
 
-        ! term #2
-        pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-            & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(iG), pSbn)
-
-        ! term #3
-        Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
-            & bvKIndex(3)), pSbn)
-        pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb))&
-            & = matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(iG))
-
-        ! term #4
-        pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
-            & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG))
-        pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-            & = matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
-
-        loopK: do iK = 1, nK
-
-          ! Workaround for spin-restricted calculations
-          iKS = iK
-
-          phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-              & this%cellVecsG(:, iG) + vecL - vecH))
+          ! term #1/2
+          pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab(:,:, bvKIndex(1),&
+              & bvKIndex(2), bvKIndex(3)))
 
           ! term #1
-          tot(1:descM(iNOrb), 1:descN(iNOrb), iKS) = tot(1:descM(iNOrb), 1:descN(iNOrb), iKS)&
-              & + cmplx(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) * gammaMN(iG), 0, dp)&
-              & * phase
+          pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
+              & 1:descB(iNOrb)), pSbn)
 
           ! term #2
-          tot(1:descM(iNOrb), 1:descN(iNOrb), iKS) = tot(1:descM(iNOrb), 1:descN(iNOrb), iKS)&
-              & + cmplx(pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+          pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+              & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB(iG), pSbn)
 
           ! term #3
-          tot(1:descM(iNOrb), 1:descN(iNOrb), iKS) = tot(1:descM(iNOrb), 1:descN(iNOrb), iKS)&
-              & + cmplx(pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+          Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
+              & bvKIndex(3)), pSbn)
+          pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb))&
+              & = matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN(iG))
 
           ! term #4
-          tot(1:descM(iNOrb), 1:descN(iNOrb), iKS) = tot(1:descM(iNOrb), 1:descN(iNOrb), iKS)&
-              & + cmplx(pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+          pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
+              & bvKIndex(1), bvKIndex(2), bvKIndex(3)) * gammaAB(iG))
+          pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+              & = matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
 
-        end do loopK
+          loopK: do iK = 1, nK
 
-      end do loopG
+            iGlobalKS = iKiSToiGlobalKS(iK, iS)
+
+            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+                & this%cellVecsG(:, iG) + vecL - vecH))
+
+            ! term #1
+            tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                & + cmplx(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) * gammaMN(iG), 0, dp)&
+                & * phase
+
+            ! term #2
+            tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                & + cmplx(pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+
+            ! term #3
+            tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                & + cmplx(pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+
+            ! term #4
+            tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                & + cmplx(pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
+
+          end do loopK
+
+        end do loopG
+
+      end do loopS
 
       tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
           & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
@@ -3060,25 +3097,22 @@ contains
     call mpifx_bcast(env%mpi%globalComm, HSqr)
   #:endif
 
-  !   if (env%tGlobalLead) then
-  !     ! Add energy contribution but divide by the number of processes working on iKS
-  !   #:if WITH_MPI
-  !     fac = 1.0_dp / real(env%mpi%globalComm%size, dp)
-  !   #:else
-  !     fac = 1.0_dp
-  !   #:endif
-  !     do iK = 1, nK
-  !       ! Workaround for spin-restricted calculations
-  !       iKS = iK
-  !       this%lrEnergy = this%lrEnergy&
-  !           & + fac * evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iKS), kWeights(iK),&
-  !           & deltaRhoOutSqrCplx(:,:, iKS))
-  !     end do
-  !   end if
+    ! Add energy contribution but divide by the number of processes
+    ! (when querying this%lrEnergy, an in-place allreduce is performed)
+  #:if WITH_MPI
+    fac = 1.0_dp / real(env%mpi%groupComm%size, dp)
+  #:else
+    fac = 1.0_dp
+  #:endif
 
-  ! #:if WITH_MPI
-  !   call mpifx_bcast(env%mpi%globalComm, this%lrEnergy)
-  ! #:endif
+    do iLocalKS = 1, size(localKS, dim=2)
+      iK = localKS(1, iLocalKS)
+      iS = localKS(2, iLocalKS)
+      iGlobalKS = iKiSToiGlobalKS(iK, iS)
+      this%lrEnergy = this%lrEnergy&
+          & + fac * evaluateEnergy_cplx_kptrho(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
+          & deltaRhoOutSqrCplx(:,:, iLocalKS))
+    end do
 
   end subroutine addLrHamiltonianNeighbour_kpts_mic
 
@@ -3456,6 +3490,33 @@ contains
     this%lrEnergy = 0.0_dp
 
   end subroutine addLrEnergy
+
+
+  !> Add the full-range Hartree-Fock Energy contribution to the total energy.
+  subroutine addHfEnergy(this, env, energy)
+
+    !> Class instance
+    class(TRangeSepFunc), intent(inout) :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
+
+    !> Total energy
+    real(dp), intent(inout) :: energy
+
+    !! Total full-range Hartree-Fock energy of all MPI processes
+    real(dp) :: hfEnergy
+
+  #:if WITH_MPI
+    call mpifx_allreduceip(env%mpi%globalComm, this%hfEnergy, MPI_SUM)
+  #:endif
+
+    energy = energy + this%camAlpha * this%hfEnergy
+
+    ! hack for spin unrestricted calculation
+    this%hfEnergy = 0.0_dp
+
+  end subroutine addHfEnergy
 
 
   !> Finds location of relevant atomic block indices in a dense matrix.
@@ -6024,35 +6085,6 @@ contains
     end subroutine evaluateHamiltonian
 
   end subroutine addHfHamiltonianMatrix_cluster
-
-
-  !> Add the full-range Hartree-Fock Energy contribution to the total energy.
-  subroutine addHfEnergy(this, env, energy)
-
-    !> Class instance
-    class(TRangeSepFunc), intent(inout) :: this
-
-    !> Environment settings
-    type(TEnvironment), intent(inout) :: env
-
-    !> Total energy
-    real(dp), intent(inout) :: energy
-
-    !! Total full-range Hartree-Fock energy of all MPI processes
-    real(dp) :: hfEnergy
-
-  #:if WITH_MPI
-    call mpifx_allreduce(env%mpi%globalComm, this%hfEnergy, hfEnergy, MPI_SUM)
-  #:else
-    hfEnergy = this%hfEnergy
-  #:endif
-
-    energy = energy + this%camAlpha * hfEnergy
-
-    ! hack for spin unrestricted calculation
-    this%hfEnergy = 0.0_dp
-
-  end subroutine addHfEnergy
 
 
   !> Calculates analytical full-range Hartree-Fock gamma.

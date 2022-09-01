@@ -3150,24 +3150,37 @@ contains
     !! Temporary storage for square, k-space CAM-Hamiltonian contribution
     complex(dp), allocatable :: HSqrCplxCam(:,:,:)
 
+    !! Composite index for mapping iK/iS --> iKS
+    integer, allocatable :: iKiSToiKS(:,:)
+
     integer :: iKS, iK, iSpin
 
     eigen(:,:,:) = 0.0_dp
     if (allocated(SSqrCplxKpts)) then
       SSqrCplxKpts(:,:,:) = (0.0_dp, 0.0_dp)
+      ! HSqrCplxCam is allocated for all existing spins and k-points (no distribution)
       allocate(HSqrCplxCam(size(SSqrCplxKpts, dim=1), size(SSqrCplxKpts, dim=1),&
-          & size(kPoint, dim=2)))
+          & size(kPoint, dim=2) * size(deltaRhoInSqrCplxHS, dim=6)))
       HSqrCplxCam(:,:,:) = (0.0_dp, 0.0_dp)
     end if
 
   #:if WITH_MPI
     if (allocated(rangeSep)) then
-      ! Pre-calculate CAM-Hamiltonian and overlap
+      ! Build spin/k-point composite index for all spins and k-points (global)
+      iKS = 1
+      allocate(iKiSToiKS(size(kPoint, dim=2), size(deltaRhoInSqrCplxHS, dim=6)))
+      do iSpin = 1, size(deltaRhoInSqrCplxHS, dim=6)
+        do iK = 1, size(kPoint, dim=2)
+          iKiSToiKS(iK, iSpin) = iKS
+          iKS = iKS + 1
+        end do
+      end do
 
+      ! Pre-calculate CAM-Hamiltonian and overlap
       ! Get CAM-Hamiltonian contribution for all spins/k-points
       call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx,&
           & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-          & denseDesc%iAtomStart, orb, kPoint, kWeight, HSqrCplxCam)
+          & denseDesc%iAtomStart, orb, kPoint, kWeight, parallelKS%localKS, HSqrCplxCam)
 
       do iKS = 1, parallelKS%nLocalKS
         iK = parallelKS%localKS(1, iKS)
@@ -3212,7 +3225,7 @@ contains
       ! (Works only if total number of MPI processes matches number of MPI groups.)
       if (allocated(rangeSep)) then
         ! Index iK at this point is only working for spin-restricted calculations
-        HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iK)
+        HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iKiSToiKS(iK, iSpin))
       end if
 
       call diagDenseMtxBlacs(env, electronicSolver, iKS, 'V', denseDesc%blacsOrbSqr, HSqrCplx,&
@@ -3240,10 +3253,10 @@ contains
         ! Store all square, dense, k-space overlaps for later q0 substraction
         SSqrCplxKpts(:,:, iK) = SSqrCplx
         ! Pass real-space deltaRhoInSqrCplxHS for all BvK lattice shifts
-        call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
-            & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-            & denseDesc%iAtomStart, orb, kPoint(:, iK), kWeight(iK), iKS, iSpin,&
-            & parallelKS%nLocalKS, HSqrCplx)
+        ! call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
+        !     & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
+        !     & denseDesc%iAtomStart, orb, kPoint(:, iK), kWeight(iK), iKS, iSpin,&
+        !     & parallelKS%nLocalKS, HSqrCplx)
       end if
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
