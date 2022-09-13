@@ -2934,7 +2934,7 @@ contains
         & env%mpi%globalComm%rank, iParallelStart, iParallelEnd)
   #:else
     iParallelStart = 1
-    iParallelEnd = nAtom0**2
+    iParallelEnd = size(compositeIndex, dim=2)
   #:endif
 
     ! allocate delta Hamiltonian
@@ -3363,7 +3363,7 @@ contains
         & env%mpi%globalComm%rank, iParallelStart, iParallelEnd)
   #:else
     iParallelStart = 1
-    iParallelEnd = nAtom0**2
+    iParallelEnd = size(compositeIndex, dim=2)
   #:endif
 
     ! allocate delta Hamiltonian

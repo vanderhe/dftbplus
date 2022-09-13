@@ -3164,7 +3164,6 @@ contains
       HSqrCplxCam(:,:,:) = (0.0_dp, 0.0_dp)
     end if
 
-  #:if WITH_MPI
     if (allocated(rangeSep)) then
       ! Build spin/k-point composite index for all spins and k-points (global)
       iKS = 1
@@ -3193,7 +3192,6 @@ contains
 
       end do
     end if
-  #:endif
 
     ! Loop over all spins/k-points associated with MPI group
     do iKS = 1, parallelKS%nLocalKS
@@ -3248,15 +3246,11 @@ contains
       end if
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
-      ! Add CAM contribution
+      ! Add CAM contribution to local Hamiltonian
+      ! (Works only if total number of MPI processes matches number of MPI groups.)
       if (allocated(rangeSep)) then
-        ! Store all square, dense, k-space overlaps for later q0 substraction
-        SSqrCplxKpts(:,:, iK) = SSqrCplx
-        ! Pass real-space deltaRhoInSqrCplxHS for all BvK lattice shifts
-        ! call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx(:,:,iKS),&
-        !     & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-        !     & denseDesc%iAtomStart, orb, kPoint(:, iK), kWeight(iK), iKS, iSpin,&
-        !     & parallelKS%nLocalKS, HSqrCplx)
+        ! Index iK at this point is only working for spin-restricted calculations
+        HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iKiSToiKS(iK, iSpin))
       end if
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
