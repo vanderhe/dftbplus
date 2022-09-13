@@ -7787,13 +7787,6 @@ contains
 
       ! Additional options for periodic sytems
       if (geo%tPeriodic) then
-        call getChild(value1, "GSummationCutoff", child=child3, modifier=modifier,&
-            & requested=.false.)
-        if (associated(child3)) then
-          allocate(input%gSummationCutoff)
-          call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
-          call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
-        end if
 
         ! parse gamma function type (full, truncated, screened, ...)
         call getNodeName(value1, buffer)
@@ -7817,6 +7810,17 @@ contains
               & // tolower(unquote(trim(char(strBuffer)))) // "'")
         end select
 
+        ! g-Summation cutoff not needed for MIC CAM Hamiltonian
+        if (input%gammaType /= rangeSepGammaTypes%mic) then
+          call getChild(value1, "GSummationCutoff", child=child3, modifier=modifier,&
+              & requested=.false.)
+          if (associated(child3)) then
+            allocate(input%gSummationCutoff)
+            call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
+            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
+          end if
+        end if
+
         if (input%gammaType == rangeSepGammaTypes%truncated&
             & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped&
             & .or. input%gammaType == rangeSepGammaTypes%screenedAndDamped) then
@@ -7839,6 +7843,15 @@ contains
       else
         ! Always use unaltered gamma function for non-periodic systems
         input%gammaType = rangeSepGammaTypes%full
+      end if
+
+      ! Number of primitive cells regarded in MIC, along each supercell folding direction
+      if (input%gammaType == rangeSepGammaTypes%mic) then
+        call getChild(value1, "WignerSeitzReduction", child=child3, requested=.false.)
+        if (associated(child3)) then
+          allocate(input%wignerSeitzReduction)
+          call getChildValue(child3, "", input%wignerSeitzReduction, child=child4)
+        end if
       end if
 
       call getNodeName(value2, buffer)

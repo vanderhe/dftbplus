@@ -230,6 +230,10 @@ module dftbp_dftb_rangeseparated
     !> Cutoff for real-space g-summation
     real(dp) :: gSummationCutoff
 
+    !> Number of unitcells along each supercell folding direction to substract from MIC Wigner-Seitz
+    !! cell construction
+    integer :: wignerSeitzReduction
+
     !> Cutoff for truncated Gamma
     real(dp) :: gammaCutoff
 
@@ -422,7 +426,7 @@ contains
   !> Intitializes the range-separated module.
   subroutine TRangeSepFunc_init(this, nAtom, species0, hubbu, screen, omega, camAlpha, camBeta,&
       & tSpin, tREKS, rsAlg, gammaType, tPeriodic, tRealHS, gammaCutoff, gSummationCutoff,&
-      & auxiliaryScreening, coeffsDiag, latVecs)
+      & wignerSeitzReduction, auxiliaryScreening, coeffsDiag, latVecs)
 
     !> Class instance
     class(TRangeSepFunc), intent(out), allocatable :: this
@@ -471,6 +475,10 @@ contains
 
     !> Cutoff for real-space g-summation
     real(dp), intent(in), optional :: gSummationCutoff
+
+    !> Number of unitcells along each supercell folding direction to substract from MIC Wigner-Seitz
+    !! cell construction
+    integer, intent(in), optional :: wignerSeitzReduction
 
     !> Auxiliary gamma damping/screening parameter
     real(dp), intent(in), optional :: auxiliaryScreening
@@ -559,6 +567,7 @@ contains
     this%hfEnergy = 0.0_dp
 
     if (present(gSummationCutoff)) this%gSummationCutoff = gSummationCutoff
+    if (present(wignerSeitzReduction)) this%wignerSeitzReduction = wignerSeitzReduction
     if (present(auxiliaryScreening)) this%auxiliaryScreening = auxiliaryScreening
 
     if (present(gammaCutoff)) then
@@ -1229,7 +1238,8 @@ contains
     if (this%gammaType == rangeSepGammaTypes%mic) then
       if (allocated(this%wsVectors)) deallocate(this%wsVectors)
       ! Generate "save" Wigner-Seitz vectors for density matrix arguments
-      call generateWignerSeitzGrid(this%coeffsDiag, latVecs, this%wsVectors, tExcludeSurface=.true.)
+      call generateWignerSeitzGrid(max(this%coeffsDiag - this%wignerSeitzReduction, 1), latVecs,&
+          & this%wsVectors, tExcludeSurface=.false.)
 
       ! The Wigner-Seitz grid actually defines all the relevant g-vectors, therefore copy over
       this%cellVecsG = this%wsVectors
@@ -1448,10 +1458,10 @@ contains
     type(TEnvironment), intent(inout) :: env
 
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
-    real(dp), intent(in), pointer :: deltaRhoSqr(:,:,:,:,:,:)
+    real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
 
     !> Square (unpacked) delta spin-density matrix in k-space for all k-points/spins iKS
-    complex(dp), intent(in), pointer :: deltaRhoSqrCplx(:,:,:)
+    complex(dp), intent(in) :: deltaRhoSqrCplx(:,:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -1632,10 +1642,10 @@ contains
     type(TEnvironment), intent(inout) :: env
 
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
-    real(dp), intent(in), pointer :: deltaRhoSqr(:,:,:,:,:,:)
+    real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
 
     !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in), pointer :: deltaRhoSqrCplx(:,:,:)
+    complex(dp), intent(in) :: deltaRhoSqrCplx(:,:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -2684,10 +2694,10 @@ contains
     type(TEnvironment), intent(inout) :: env
 
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
-    real(dp), intent(in), pointer :: deltaRhoSqr(:,:,:,:,:,:)
+    real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
 
     !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
+    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
 
     !> list of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -3129,10 +3139,10 @@ contains
     type(TEnvironment), intent(inout) :: env
 
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
-    real(dp), intent(in), pointer :: deltaRhoSqr(:,:,:,:,:,:)
+    real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
 
     !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
+    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
 
     !> list of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -3671,7 +3681,7 @@ contains
     complex(dp), intent(in) :: hamiltonian(:,:)
 
     !> Density matrix
-    real(dp), intent(in), pointer :: densityMat(:,:,:,:,:)
+    real(dp), intent(in) :: densityMat(:,:,:,:,:)
 
     !> K-point compatible BvK real-space shifts in relative coordinates
     real(dp), intent(in) :: bvKShifts(:,:)
@@ -3718,7 +3728,7 @@ contains
     real(dp), intent(in) :: kWeight
 
     !> Density matrix in k-space
-    complex(dp), intent(in), pointer :: densityMat(:,:)
+    complex(dp), intent(in) :: densityMat(:,:)
 
     !> Resulting energy due to CAM contribution
     real(dp) :: energy

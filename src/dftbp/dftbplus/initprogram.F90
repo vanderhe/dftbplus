@@ -171,6 +171,10 @@ module dftbp_dftbplus_initprogram
     !> Cutoff for real-space g-summation in CAM Hartree-Fock contributions
     real(dp), allocatable :: gSummationCutoff
 
+    !> Number of unitcells along each supercell folding direction to substract from MIC Wigner-Seitz
+    !! cell construction
+    integer, allocatable :: wignerSeitzReduction
+
     !> Cutoff for truncated long-range Gamma integral
     real(dp), allocatable :: gammaCutoff
 
@@ -2670,6 +2674,7 @@ contains
           call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
               & input%ctrl%rangeSepInp%cutoffRed, this%supercellFoldingDiag,&
               & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
+              & wignerSeitzReduction=input%ctrl%rangeSepInp%wignerSeitzReduction,&
               & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
               & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
         end if
@@ -2719,6 +2724,7 @@ contains
         call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
             & input%ctrl%rangeSepInp%cutoffRed, this%supercellFoldingDiag,&
             & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
+            & wignerSeitzReduction=input%ctrl%rangeSepInp%wignerSeitzReduction,&
             & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
             & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
       end if
@@ -2732,6 +2738,7 @@ contains
           & input%ctrl%rangeSepInp%gammaType, this%tPeriodic, this%tRealHS,&
           & coeffsDiag=this%supercellFoldingDiag, gammaCutoff=this%cutOff%gammaCutoff,&
           & gSummationCutoff=this%cutOff%gSummationCutoff,&
+          & wignerSeitzReduction=this%cutOff%wignerSeitzReduction,&
           & auxiliaryScreening=this%cutOff%auxiliaryScreening, latVecs=input%geom%latVecs)
       ! now all information are present to properly allocate density matrices and associate pointers
       call this%reallocateRangeSeparated()
@@ -3524,6 +3531,8 @@ contains
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "full"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%mic) then
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "minimal image convention"
+            write(stdOut, "(2X,A,':',T30,2X,I0,A)") "Wigner-Seitz cell reduction",&
+                & input%ctrl%rangeSepInp%wignerSeitzReduction, " primitive cell(s)"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated) then
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
@@ -3533,8 +3542,10 @@ contains
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screenedAndDamped) then
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened+poly5zero"
           end if
-          write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
-              & this%cutOff%gSummationCutoff, " Bohr"
+          if (input%ctrl%rangeSepInp%gammaType /= rangeSepGammaTypes%mic) then
+            write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
+                & this%cutOff%gSummationCutoff, " Bohr"
+          end if
           if (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated&
               & .or. input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped&
               & .or. input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screenedAndDamped) then
@@ -3550,7 +3561,7 @@ contains
       select case(input%ctrl%rangeSepInp%rangeSepAlg)
       case (rangeSepTypes%neighbour)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "NeighbourBased"
-        write(stdOut, "(2X,A,':',T30,E14.6,A)") "Spatially cutoff at",&
+        write(stdOut, "(2X,A,':',T30,E14.6,A)") "Reduce neighlist cutoff by",&
             & input%ctrl%rangeSepInp%cutoffRed * Bohr__AA, " A"
         if (this%tPeriodic) then
           write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
@@ -5679,7 +5690,7 @@ contains
 
   !> Determine range separated cut-off and also update maximal cutoff
   subroutine getRangeSeparatedCutOff_kpts(cutOff, latVecs, cutoffRed, supercellFoldingDiag,&
-      & gSummationCutoff, gammaCutoff, auxiliaryScreening)
+      & gSummationCutoff, wignerSeitzReduction, gammaCutoff, auxiliaryScreening)
 
     !> Resulting cutoff
     type(TCutoffs), intent(inout) :: cutOff
@@ -5695,6 +5706,10 @@ contains
 
     !> Cutoff for real-space g-summation
     real(dp), intent(in), optional :: gSummationCutoff
+
+    !> Number of unitcells along each supercell folding direction to substract from MIC Wigner-Seitz
+    !! cell construction
+    integer, intent(in), optional :: wignerSeitzReduction
 
     !> Coulomb truncation cutoff for Gamma electrostatics
     real(dp), intent(in), optional :: gammaCutoff
@@ -5751,6 +5766,12 @@ contains
       ! This would correspond to "the savest option"
       ! cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
       cutOff%gSummationCutoff = 2.0_dp * cutOff%gammaCutoff
+    end if
+
+    if (present(wignerSeitzReduction)) then
+      cutOff%wignerSeitzReduction = wignerSeitzReduction
+    else
+      cutOff%wignerSeitzReduction = 1
     end if
 
   end subroutine getRangeSeparatedCutOff_kpts

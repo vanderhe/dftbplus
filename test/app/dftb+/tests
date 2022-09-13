@@ -109,6 +109,8 @@ rangesep/periodic/GaAs-gamma-matrix            #? MPI_PROCS <= 1
 rangesep/periodic/GaAs-gamma-neigh             #? MPI_PROCS <= 4
 rangesep/periodic/Acene-gamma-force            #? MPI_PROCS <= 4
 rangesep/periodic/GaAs-gamma-restart           #? MPI_PROCS <= 4
+rangesep/periodic/GaAs-kpts-ct                 #? MPI_PROCS <= 1
+rangesep/periodic/GaAs-kpts-mic                #? MPI_PROCS <= 1
 
 reks/C2H4_3SSR_rangesep                #? not WITH_MPI
 reks/C2H4_direct                       #? not WITH_MPI

@@ -132,6 +132,10 @@ module dftbp_dftbplus_inputdata
     !> Cutoff for real-space g-summation
     real(dp), allocatable :: gSummationCutoff
 
+    !> Number of unitcells along each supercell folding direction to substract from MIC Wigner-Seitz
+    !! cell construction
+    integer, allocatable :: wignerSeitzReduction
+
     !> Coulomb truncation cutoff of Gamma electrostatics
     real(dp), allocatable :: gammaCutoff
 
@@ -148,13 +152,13 @@ module dftbp_dftbplus_inputdata
     integer :: hamiltonian = hamiltonianTypes%none
 
     !> random number generator seed
-    integer :: iSeed       = 0
+    integer :: iSeed = 0
 
     !> maximum force for geometry convergence
-    real(dp) :: maxForce    = 0.0_dp
+    real(dp) :: maxForce = 0.0_dp
 
     !> SCC calculation?
-    logical :: tScc        = .false.
+    logical :: tScc = .false.
 
     !> l-shell resolved SCC
     logical :: tShellResolved = .false.
@@ -177,13 +181,13 @@ module dftbp_dftbplus_inputdata
     logical :: isGeoOpt = .false.
 
     !> coordinate optimisation
-    logical :: tCoordOpt   = .false.
+    logical :: tCoordOpt = .false.
 
     !> maximum line search step for atoms
     real(dp) :: maxAtomDisp = 0.2_dp
 
     !> should probably be packaged
-    logical :: tLatOpt     = .false.
+    logical :: tLatOpt = .false.
 
     !> Fix angles during lattice optimisation
     logical :: tLatOptFixAng = .false.
@@ -198,13 +202,13 @@ module dftbp_dftbplus_inputdata
     real(dp) :: maxLatDisp = 0.2_dp
 
     !> add new geometries at the end of files
-    logical :: tAppendGeo  = .false.
+    logical :: tAppendGeo = .false.
 
     !> use converged SCC charges for properties like forces or charge dependent dispersion
     logical :: isSccConvRequired = .true.
 
     !> geometry step
-    integer :: iGeoOpt     = 0
+    integer :: iGeoOpt = 0
 
     !> used for gDIIS
     real(dp) :: deltaGeoOpt = 0.0_dp
