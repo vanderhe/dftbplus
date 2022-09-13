@@ -1500,7 +1500,6 @@ contains
         ctrl%isNonAufbau = .true.
         call getChildValue(child, "SpinPurify", ctrl%isSpinPurify, .true.)
         call getChildValue(child, "GroundGuess", ctrl%isGroundGuess, .false.)
-        ctrl%nrChrg = 0.0_dp
         ctrl%tSpin = .true.
         ctrl%t2Component = .false.
         ctrl%nrSpinPol = 0.0_dp
@@ -1563,13 +1562,20 @@ contains
     ! Electronic solver
   #:if WITH_TRANSPORT
     call readSolver(node, ctrl, geo, tp, greendens, poisson)
+
+    if (tp%taskUpload) then
+      ! Initialise variable, but unused
+      ctrl%nrChrg =  0.0_dp
+    else
+      ! Charge
+      call getChildValue(node, "Charge", ctrl%nrChrg, 0.0_dp)
+    end if
   #:else
     call readSolver(node, ctrl, geo, poisson)
-  #:endif
-
 
     ! Charge
     call getChildValue(node, "Charge", ctrl%nrChrg, 0.0_dp)
+  #:endif
 
     ! K-Points
     call readKPoints(node, ctrl, geo, tBadIntegratingKPoints)
@@ -1888,7 +1894,6 @@ contains
         ctrl%isNonAufbau = .true.
         call getChildValue(child, "SpinPurify", ctrl%isSpinPurify, .true.)
         call getChildValue(child, "GroundGuess", ctrl%isGroundGuess, .false.)
-        ctrl%nrChrg = 0.0_dp
         ctrl%tSpin = .true.
         ctrl%t2Component = .false.
         ctrl%nrSpinPol = 0.0_dp
@@ -1922,12 +1927,20 @@ contains
     ! Electronic solver
   #:if WITH_TRANSPORT
     call readSolver(node, ctrl, geo, tp, greendens, poisson)
+
+    if (tp%taskUpload) then
+      ! Initialise, but unused
+      ctrl%nrChrg =  0.0_dp
+    else
+      ! Charge
+      call getChildValue(node, "Charge", ctrl%nrChrg, 0.0_dp)
+    end if
   #:else
     call readSolver(node, ctrl, geo, poisson)
-  #:endif
 
     ! Charge
     call getChildValue(node, "Charge", ctrl%nrChrg, 0.0_dp)
+  #:endif
 
     ! K-Points
     call readKPoints(node, ctrl, geo, tBadIntegratingKPoints)
@@ -5566,6 +5579,7 @@ contains
     call getChildValue(node, "Forces", input%tForces, .false.)
     call getChildValue(node, "WriteBondEnergy", input%tBondE, .false.)
     call getChildValue(node, "WriteBondPopulation", input%tBondP, .false.)
+    call getChildValue(node, "WriteAtomicEnergies", input%tWriteAtomEnergies, .false.)
     call getChildValue(node, "Pump", input%tPump, .false.)
     call getChildValue(node, "FillingsFromFile", input%tFillingsFromFile, .false.)
 
@@ -5892,10 +5906,11 @@ contains
 
     call readContacts(pNodeList, transpar%contacts, geom, char(buffer))
 
+    transpar%taskUpload = .false.
+
     select case (char(buffer))
     case ("contacthamiltonian")
 
-      transpar%taskUpload = .false.
       call getChildValue(pTaskType, "ContactId", buffer, child=pTmp)
       contact = getContactByName(transpar%contacts(:)%name, tolower(trim(unquote(char(buffer)))),&
           & pTmp)
@@ -8139,8 +8154,6 @@ contains
     #:if WITH_CHIMES
       allocate(chimesRepInput)
       call getChildValue(chimes, "ParameterFile", buffer, default="chimes.dat")
-      print *, "LENS:", len(unquote(char(buffer))), len_trim(unquote(char(buffer)))
-      print *, "|", unquote(char(buffer)), "|"
       chimesFile = unquote(char(buffer))
       call getParamSearchPath(searchPath)
       call findFile(searchPath, chimesFile, chimesRepInput%chimesFile)
