@@ -3532,7 +3532,7 @@ contains
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%mic) then
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "minimal image convention"
             write(stdOut, "(2X,A,':',T30,2X,I0,A)") "Wigner-Seitz cell reduction",&
-                & input%ctrl%rangeSepInp%wignerSeitzReduction, " primitive cell(s)"
+                & this%cutOff%wignerSeitzReduction, " primitive cell(s)"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated) then
             write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated"
           elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
