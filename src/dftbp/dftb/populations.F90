@@ -13,7 +13,7 @@ module dftbp_dftb_populations
   use dftbp_common_accuracy, only : dp
   use dftbp_common_constants, only : pi
   use dftbp_type_commontypes, only : TOrbitals, TParallelKS
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc
+  use dftbp_dftb_hybridxc, only : THybridXcFunc
   use dftbp_dftb_sparse2dense, only : symmetrizeHS
   implicit none
 
@@ -46,7 +46,7 @@ module dftbp_dftb_populations
 
 
   !> Interface to subtract superposition of atomic densities from dense density matrix.
-  !> Required for rangeseparated calculations
+  !> Required for hybrid xc-functional calculations
   interface denseSubtractDensityOfAtoms
     module procedure denseSubtractDensityOfAtoms_nospin_real_nonperiodic
     module procedure denseSubtractDensityOfAtoms_nospin_real_periodic
@@ -180,7 +180,7 @@ contains
   !>
   !> To do: add description of algorithm to programer manual / documentation.
   subroutine mullikenPerOrbital_bvKDensityMatrix(qq, over, rho, orb, iNeighbour, nNeighbourSK,&
-      & img2CentCell, iPair, iSquare, iCellVec, cellVecs, rangeSep)
+      & img2CentCell, iPair, iSquare, iCellVec, cellVecs, hybridXc)
 
     !> Mulliken orbital charges on output (mOrb, nAtom, nSpin)
     real(dp), intent(out) :: qq(:,:,:)
@@ -215,8 +215,8 @@ contains
     !> Vectors to neighbouring unit cells in relative coordinates
     real(dp), intent(in) :: cellVecs(:,:)
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), intent(in) :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), intent(in) :: hybridXc
 
     !! Real-space overlap shift in relative coordinates
     real(dp) :: overShift(3)
@@ -266,7 +266,7 @@ contains
           iOrig = iPair(iNeigh, iAtom1) + 1
           ! get real-space overlap shift (relative coordinates)
           overShift(:) = cellVecs(:, iCellVec(iAtom2))
-          bvKIndex(:) = rangeSep%foldToBvKIndex(overShift)
+          bvKIndex(:) = hybridXc%foldToBvKIndex(overShift)
           iAt2SqrStart = iSquare(iAtom2f)
           iAt2SqrEnd = iSquare(iAtom2f + 1) - 1
           sqrTmp(1:nOrb2, 1:nOrb1) = reshape(over(iOrig:iOrig+nOrb1*nOrb2-1), [nOrb2, nOrb1])&
@@ -538,7 +538,7 @@ contains
 
   !> Subtracts superposition of atomic densities from BvK density matrix.
   !> Works only for closed shell!
-  subroutine denseSubtractDensityOfAtoms_nospin_bvKDensityMatrix(q0, iSquare, rho, rangeSep)
+  subroutine denseSubtractDensityOfAtoms_nospin_bvKDensityMatrix(q0, iSquare, rho, hybridXc)
 
     !> Reference atom populations
     real(dp), intent(in) :: q0(:,:,:)
@@ -549,8 +549,8 @@ contains
     !> Real-space BvK density matrix in square format for every shift
     real(dp), intent(in), pointer :: rho(:,:,:,:,:,:)
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), intent(in) :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), intent(in) :: hybridXc
 
     !! Integer BvK real-space shift translated to density matrix indices
     integer :: bvKIndex(3)
@@ -574,8 +574,8 @@ contains
     nSpin = size(q0, dim=3)
 
     do iSpin = 1, nSpin
-      do iG = 1, size(rangeSep%bvKShifts, dim=2)
-        bvKIndex(:) = rangeSep%foldToBvKIndex(rangeSep%bvKShifts(:, iG))
+      do iG = 1, size(hybridXc%bvKShifts, dim=2)
+        bvKIndex(:) = hybridXc%foldToBvKIndex(hybridXc%bvKShifts(:, iG))
         do iAtom = 1, nAtom
           iStart = iSquare(iAtom)
           iEnd = iSquare(iAtom + 1) - 1
@@ -592,7 +592,7 @@ contains
 
 
   !> Subtracts superposition of atomic densities from dense density matrix (spin unrestricted).
-  !> RangeSep: For spin-unrestricted calculation the initial guess should be equally distributed to
+  !> HybridXc: For spin-unrestricted calculation the initial guess should be equally distributed to
   !> alpha and beta density matrices.
   subroutine denseSubtractDensityOfAtoms_spin_real_nonperiodic(q0, iSquare, rho, iSpin)
 
@@ -626,7 +626,7 @@ contains
 
 
   !> Subtracts superposition of atomic densities from dense density matrix (spin unrestricted).
-  !> RangeSep: For spin-unrestricted calculation the initial guess should be equally distributed to
+  !> HybridXc: For spin-unrestricted calculation the initial guess should be equally distributed to
   !> alpha and beta density matrices.
   subroutine denseSubtractDensityOfAtoms_spin_real_periodic(q0, iSquare, overSqr, rho, iSpin)
 
@@ -662,9 +662,9 @@ contains
 
 
   !> Subtracts superposition of atomic densities from BvK density matrix (spin unrestricted version)
-  !> RangeSep: for spin-unrestricted calculation
+  !> HybridXc: for spin-unrestricted calculation
   !> Note: The initial guess should be equally distributed to alpha and beta density matrices.
-  subroutine denseSubtractDensityOfAtoms_spin_bvKDensityMatrix(q0, iSquare, rho, rangeSep, iSpin)
+  subroutine denseSubtractDensityOfAtoms_spin_bvKDensityMatrix(q0, iSquare, rho, hybridXc, iSpin)
 
     !> Reference atom populations
     real(dp), intent(in) :: q0(:,:,:)
@@ -678,8 +678,8 @@ contains
     !> Spin index
     integer, intent(in) :: iSpin
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), intent(in) :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), intent(in) :: hybridXc
 
     !! Integer BvK real-space shift translated to density matrix indices
     integer :: bvKIndex(3)
@@ -698,8 +698,8 @@ contains
 
     nAtom = size(iSquare) - 1
 
-    do iG = 1, size(rangeSep%bvKShifts, dim=2)
-      bvKIndex(:) = rangeSep%foldToBvKIndex(rangeSep%bvKShifts(:, iG))
+    do iG = 1, size(hybridXc%bvKShifts, dim=2)
+      bvKIndex(:) = hybridXc%foldToBvKIndex(hybridXc%bvKShifts(:, iG))
       do iAtom = 1, nAtom
         iStart = iSquare(iAtom)
         iEnd = iSquare(iAtom + 1) - 1
@@ -788,9 +788,8 @@ contains
 
 
   !> Subtracts superposition of atomic densities from dense density matrix.
-  !> The spin unrestricted version
-  !> RangeSep: for spin-unrestricted calculation
-  !> the initial guess should be equally distributed to
+  !> (spin unrestricted version)
+  !> HybridXc: for spin-unrestricted calculation the initial guess should be equally distributed to
   !> alpha and beta density matrices
   subroutine denseSubtractDensityOfAtoms_spin_cmplx_nonperiodic(q0, iSquare, rho, iSpin)
 
@@ -825,9 +824,8 @@ contains
 
 
   !> Subtracts superposition of atomic densities from dense density matrix.
-  !> The spin unrestricted version
-  !> RangeSep: for spin-unrestricted calculation
-  !> the initial guess should be equally distributed to
+  !> (spin unrestricted version)
+  !> HybridXc: For spin-unrestricted calculation the initial guess should be equally distributed to
   !> alpha and beta density matrices
   subroutine denseSubtractDensityOfAtoms_spin_cmplx_periodic(q0, iSquare, parallelKS, overSqr, rho,&
       & iSpin)

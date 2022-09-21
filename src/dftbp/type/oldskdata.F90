@@ -12,14 +12,16 @@
 module dftbp_type_oldskdata
   use dftbp_common_accuracy, only : dp, lc
   use dftbp_common_constants, only : amu__au
-  use dftbp_dftb_rangeseparated, only : TRangeSepSKTag
+  use dftbp_dftb_hybridxc, only : THybridXcSKTag
   use dftbp_dftb_repulsive_polyrep, only : TPolyRepInp
   use dftbp_dftb_repulsive_splinerep, only : TSplineRepInp
   use dftbp_io_message, only : error
+  use dftbp_dftb_hybridxc, only : hybridXcFunc
+  use dftbp_io_charmanip, only : tolower
   implicit none
 
   private
-  public :: TOldSKData, readFromFile, readSplineRep
+  public :: TOldSKData, readFromFile, readSplineRep, inquireHybridXcTag
 
 
   !> Represents the Slater-Koster data in an SK file.
@@ -79,7 +81,7 @@ contains
 
   !> Reads the data from an SK-file.
   subroutine OldSKData_readFromFile(skData, fileName, homo, iSp1, iSp2, splineRepIn, polyRepIn,&
-      & rangeSepSK, tHyb, tLc, tCam)
+      & hybridXcSK)
 
     !> Contains the content of the SK-file on exit
     type(TOldSKData), intent(out) :: skData
@@ -102,17 +104,8 @@ contains
     !> Repulsive polynomial part of the SK-file.
     type(TPolyRepInp), intent(out), optional :: polyRepIn
 
-    !> Reads rangeseparation parameter from SK file
-    type(TRangeSepSKTag), intent(inout), optional :: rangeSepSK
-
-    !> True, if global hybrid functional is requested
-    logical, intent(in), optional :: tHyb
-
-    !> True, if purely long-range corrected functional is requested
-    logical, intent(in), optional :: tLc
-
-    !> True, if CAM range-separation is requested
-    logical, intent(in), optional :: tCam
+    !> Reads hybrid xc-functional parameter(s) from SK file
+    type(THybridXcSKTag), intent(inout), optional :: hybridXcSK
 
     integer :: file
     character(lc) :: chDummy
@@ -177,14 +170,14 @@ contains
     skData%skOver(:,:) = 0.0_dp
     do iGrid = 1, skData%nGrid
       if (tExtended) then
-        read (file, *, iostat=iostat) &
-            &(skData%skHam(iGrid, ii), ii = 1, nSKInter), &
-            &(skData%skOver(iGrid, ii), ii = 1, nSKInter)
+        read (file, *, iostat=iostat)&
+            & (skData%skHam(iGrid, ii), ii = 1, nSKInter),&
+            & (skData%skOver(iGrid, ii), ii = 1, nSKInter)
         call checkIoError(iostat, fileName, "Reading error for integrals")
       else
-        read(file,*, iostat=iostat) &
-            &(skData%skHam(iGrid, iSKInterOld(ii)), ii = 1, nSKInterOld), &
-            &(skData%skOver(iGrid, iSKInterOld(ii)), ii = 1, nSKInterOld)
+        read(file,*, iostat=iostat)&
+            & (skData%skHam(iGrid, iSKInterOld(ii)), ii = 1, nSKInterOld),&
+            & (skData%skOver(iGrid, iSKInterOld(ii)), ii = 1, nSKInterOld)
         call checkIoError(iostat, fileName, "Reading error for integrals")
       end if
     end do
@@ -196,20 +189,82 @@ contains
 
     call readSplineRep(file, fileName, splineRepIn, iSp1, iSp2)
 
-    ! Read range-separation parameter(s)
-    if (present(rangeSepSK)) then
-      if (tHyb) then
-        call readRangeSepHyb(file, fileName, rangeSepSK)
-      elseif (tLc) then
-        call readRangeSepLc(file, fileName, rangeSepSK)
-      elseif (tCam) then
-        call readRangeSepCam(file, fileName, rangeSepSK)
-      end if
+    ! Read hybrid xc-functional parameter(s)
+    if (present(hybridXcSK)) then
+      call readHybridXcParams(file, fileName, hybridXcSK)
     end if
 
     close(file)
 
   end subroutine OldSKData_readFromFile
+
+
+  !> Reads hybrid xc-functional parameter(s) from an open file.
+  subroutine readHybridXcParams(fp, fname, hybridXcSK)
+
+    !> File identifier
+    integer, intent(in) :: fp
+
+    !> File name
+    character(len=*), intent(in) :: fname
+
+    !> Hybrid xc-functional parameter(s)
+    type(THybridXcSKTag), intent(inout) :: hybridXcSK
+
+    !! Error status
+    integer :: iErr
+
+    !! Temporary character storage
+    character(lc) :: strDummy
+
+    !! True, if hybrid xc-functional extra tag was found in SK-file
+    logical :: tHybridXcTag
+
+    !! Extra tag in SK-files, defining the type of hybrid xc-functional
+    integer, allocatable :: hybridXcTag
+
+    call inquireHybridXcTag(fname, hybridXcTag, fp=fp)
+    rewind(fp)
+
+    ! Seek hybrid xc-functional section in SK file
+    do
+      read(fp, '(A)', iostat=iErr) strDummy
+      if (iErr /= 0) then
+        tHybridXcTag = .false.
+        exit
+      elseif (strDummy == "RangeSep" .or. strDummy == "GlobalHybrid") then
+        tHybridXcTag = .true.
+        exit
+      end if
+    end do
+
+    if (.not. tHybridXcTag) then
+      write(strDummy, "(A,A,A)") "Hybrid xc-functional extension tag not found in file '",&
+          & trim(fname), "'"
+      call error(strDummy)
+    end if
+
+    if (hybridXcTag == hybridXcFunc%hyb) then
+      hybridXcSK%omega = 0.0_dp
+      hybridXcSK%camBeta = 0.0_dp
+      read(fp, *, iostat=iErr) strDummy, hybridXcSK%camAlpha
+      call checkioerror(iErr, fname, "Error in reading hybrid xc-functional parameter(s)")
+    elseif (hybridXcTag == hybridXcFunc%lc) then
+      hybridXcSK%camAlpha = 0.0_dp
+      hybridXcSK%camBeta = 1.0_dp
+      read(fp, *, iostat=iErr) strDummy, hybridXcSK%omega
+      call checkioerror(iErr, fname, "Error in reading hybrid xc-functional parameter(s)")
+    elseif (hybridXcTag == hybridXcFunc%cam) then
+      read(fp, *, iostat=iErr) strDummy, hybridXcSK%omega, hybridXcSK%camAlpha, hybridXcSK%camBeta
+      call checkioerror(iErr, fname, "Error in reading hybrid xc-functional parameter(s)")
+    end if
+
+    if (hybridXcTag /= hybridXcFunc%hyb .and. hybridXcSK%omega < 0.0_dp) then
+      write(strDummy, "(A)") "Range-separation parameter is negative"
+      call error(strDummy)
+    end if
+
+  end subroutine readHybridXcParams
 
 
   !> Reads the repulsive from an open file.
@@ -282,188 +337,77 @@ contains
   end subroutine OldSKData_readsplinerep
 
 
-  !> Reads global hybrid extra tag from an open file.
-  subroutine readRangeSepHyb(fp, fname, rangeSepSK)
-
-    !> File identifier
-    integer, intent(in) :: fp
+  !> Inquires hybrid xc-functional extra tag of SK-file.
+  subroutine inquireHybridXcTag(fname, hybridXcTag, fp)
 
     !> File name
     character(len=*), intent(in) :: fname
 
-    !> Rangesep data
-    type(TRangeSepSKTag), intent(inout) :: rangeSepSK
+    !> Hybrid xc-functional extra tag, if allocated
+    integer, intent(out), allocatable :: hybridXcTag
 
-    !! Error status
-    integer :: iostat
+    !> File identifier, if file is already open
+    integer, intent(in), optional :: fp
 
-    !! Temporary character storage
-    character(lc) :: chdummy
-
-    !! Fraction of exact Hartree-Fock exchange used for parametrization
-    real(dp) :: camAlpha
-
-    !! True, if global hybrid extra tag was found
-    logical :: hasGlobalHybrid
-
-    ! Seek global hybrid extra tag in SK file to get amount of exact Hartree-Fock exchange
-    do
-      read(fp, '(A)', iostat=iostat) chdummy
-      if (iostat /= 0) then
-        hasGlobalHybrid = .false.
-        exit
-      elseif (chdummy == "GlobalHybrid") then
-        hasGlobalHybrid = .true.
-        exit
-      end if
-    end do
-
-    if (.not. hasGlobalHybrid) then
-      write(chdummy, "(A,A,A)") "GlobalHybrid extension tag not found in file '", trim(fname), "'"
-      call error(chdummy)
-    end if
-
-    read(fp, *, iostat=iostat) chdummy, camAlpha
-    call checkioerror(iostat, fname, "Error in reading global hybrid method and parameter")
-
-    if (chdummy /= "HF") then
-      write(chdummy, "(A,A,A)") "Unknown global hybrid method in SK file '", trim(fname), "'"
-      call error(chdummy)
-    end if
-
-    if (camAlpha < 0.0_dp) then
-      write(chdummy, "(A)") "Fraction of exact Hartree-Fock exchange is negative"
-      call error(chdummy)
-    end if
-
-    rangeSepSK%omega = 0.0_dp
-    rangeSepSK%camAlpha = camAlpha
-    rangeSepSK%camBeta = 0.0_dp
-
-  end subroutine readRangeSepHyb
-
-
-  !> Reads LC RangeSep data from an open file.
-  subroutine readRangeSepLc(fp, fname, rangeSepSK)
-
-    !> File identifier
-    integer, intent(in) :: fp
-
-    !> File name
-    character(len=*), intent(in) :: fname
-
-    !> Rangesep data
-    type(TRangeSepSKTag), intent(inout) :: rangeSepSK
-
-    integer :: iostat
-    character(lc) :: chdummy
-    real(dp) :: omega
-    logical :: hasRangeSep
-
-    ! Seek rangesep part in SK file
-    do
-      read(fp, '(A)', iostat=iostat) chdummy
-      if (iostat /= 0) then
-        hasRangeSep = .false.
-        exit
-      elseif (chdummy == "RangeSep") then
-        hasRangeSep = .true.
-        exit
-      end if
-    end do
-
-    if (.not. hasRangeSep) then
-      write(chdummy, "(A,A,A)") "RangeSep extension tag not found in file '",&
-          & trim(fname), "'"
-      call error(chdummy)
-    end if
-
-    read(fp, *, iostat=iostat) chdummy, omega
-    call checkioerror(iostat, fname, "Error in reading range-sep method and range-sep parameter")
-
-    if (chdummy /= "LC") then
-      write(chdummy, "(A,A,A)") "Unknown range-separation method in SK file '", trim(fname), "'"
-      call error(chdummy)
-    end if
-
-    if (omega < 0.0_dp) then
-      write(chdummy, "(A)") "Range-separation parameter is negative"
-      call error(chdummy)
-    end if
-
-    rangeSepSK%omega = omega
-    rangeSepSK%camAlpha = 0.0_dp
-    rangeSepSK%camBeta = 1.0_dp
-
-  end subroutine readRangeSepLc
-
-
-  !> Reads CAM RangeSep data from an open file.
-  subroutine readRangeSepCam(fp, fname, rangeSepSK)
-
-    !> File identifier
-    integer, intent(in) :: fp
-
-    !> File name
-    character(len=*), intent(in) :: fname
-
-    !> Rangesep data
-    type(TRangeSepSKTag), intent(inout) :: rangeSepSK
+    !! File identifier
+    integer :: fd
 
     !! Error status
     integer :: iErr
 
-    !! String buffer
-    character(lc) :: chdummy
+    !! Temporary character storage
+    character(lc) :: strDummy
 
-    !! CAM parameters
-    real(dp) :: omega, alpha, beta
+    !! True, if hybrid xc-functional extra tag was found in SK-file
+    logical :: tHybridXcTag
 
-    !! True, if Rangesep tag was found in SK-files
-    logical :: tHasRangeSep
+    if (present(fp)) then
+      fd = fp
+    else
+      open(newunit=fd, file=fname, status="old", action="read", iostat=iErr)
+      call checkIoError(iErr, fname, "Unable to open file")
+    end if
 
-    ! Seek rangesep part in SK file
+    ! Seek hybrid xc-functional extra tag in SK-file
     do
-      read(fp, '(A)', iostat=iErr) chdummy
+      read(fd, '(A)', iostat=iErr) strDummy
       if (iErr /= 0) then
-        tHasRangeSep = .false.
+        tHybridXcTag = .false.
         exit
-      elseif (chdummy == "RangeSep") then
-        tHasRangeSep = .true.
+      elseif (strDummy == "RangeSep" .or. strDummy == "GlobalHybrid") then
+        tHybridXcTag = .true.
         exit
       end if
     end do
 
-    if (.not. tHasRangeSep) then
-      write(chdummy, "(A,A,A)") "RangeSep extension tag not found in file '", trim(fname), "'"
-      call error(chdummy)
+    if (tHybridXcTag) then
+      read(fd, *, iostat=iErr) strDummy
+      call checkIoError(iErr, fname, "Error in reading hybrid xc-functional extra tag and method")
+
+      select case(tolower(trim(strDummy)))
+      case ("hf")
+        hybridXcTag = hybridXcFunc%hyb
+      case ("lc")
+        hybridXcTag = hybridXcFunc%lc
+      case ("cam")
+        hybridXcTag = hybridXcFunc%cam
+      case default
+        write(strDummy, "(A,A,A)") "Unknown hybrid xc-functional method in SK file '",&
+            & trim(fname), "'"
+        call error(strDummy)
+      end select
     end if
 
-    read(fp, *, iostat=iErr) chdummy, omega, alpha, beta
-    call checkioerror(iErr, fname, "Error in reading range-sep method and range-sep parameters")
+    if (.not. present(fp)) close(fd)
 
-    if (chdummy /= "CAM") then
-      write(chdummy, "(A,A,A)") "Unknown range-separation method in SK file '", trim(fname), "'"
-      call error(chdummy)
-    end if
-
-    if (omega < 0.0_dp) then
-      write(chdummy, "(A)") "Range-separation parameter is negative"
-      call error(chdummy)
-    end if
-
-    rangeSepSK%omega = omega
-    rangeSepSK%camAlpha = alpha
-    rangeSepSK%camBeta = beta
-
-  end subroutine readRangeSepCam
+  end subroutine inquireHybridXcTag
 
 
   !> Checks for IO errors and prints message.
-  subroutine checkIOError(iostat, fname, msg)
+  subroutine checkIOError(iErr, fname, msg)
 
     !> Flag of the IO operation.
-    integer, intent(in) :: iostat
+    integer, intent(in) :: iErr
 
     !> Name of the file.
     character(*), intent(in) :: fname
@@ -471,7 +415,7 @@ contains
     !> Message to print if IO operation flag is non-zero.
     character(*), intent(in) :: msg
 
-    if (iostat /= 0) then
+    if (iErr /= 0) then
       call error("IO error in file '" // trim(fname) // "': " // trim(msg))
     end if
 

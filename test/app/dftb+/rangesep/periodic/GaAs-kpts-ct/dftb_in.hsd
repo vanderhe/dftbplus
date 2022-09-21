@@ -23,7 +23,7 @@ Hamiltonian = DFTB {
     Suffix = ".skf"
   }
 
-  RangeSeparated = LC {
+  Hybrid {
     GammaType = "truncated+damping"
     GSummationCutoff = 0.140693E+02
     GammaCutoff = 0.703465E+01
@@ -51,7 +51,7 @@ Options {
 }
 
 ParserOptions {
-  ParserVersion = 11
+  ParserVersion = 13
 }
 
 Parallel {

@@ -49,7 +49,7 @@ module dftbp_dftbplus_inputdata
   private
   public :: TControl, TSlater, TInputData, TParallelOpts
   public :: TBlacsOpts
-  public :: TRangeSepInp
+  public :: THybridXcInp
   public :: init, destruct
   public :: TNEGFInfo
 
@@ -96,8 +96,8 @@ module dftbp_dftbplus_inputdata
   end type TLbfgsInput
 
 
-  !> Range separation input
-  type TRangeSepInp
+  !> Hybrid xc-functional input
+  type THybridXcInp
 
     !> Threshold for integral screening
     real(dp) :: screeningThreshold
@@ -114,17 +114,11 @@ module dftbp_dftbplus_inputdata
     !> CAM beta parameter
     real(dp) :: camBeta
 
-    !> True, for global hybrids
-    logical :: tHyb
+    !> Choice of hybrid xc-functional algorithm to build Hamiltonian
+    integer :: hybridXcAlg
 
-    !> True, for long-range corrected functionals
-    logical :: tLc
-
-    !> True, for general CAM range-separation
-    logical :: tCam
-
-    !> Choice of range separation method
-    integer :: rangeSepAlg
+    !> Hybrid xc-functional type, as extracted from SK-file(s)
+    integer :: hybridXcType
 
     !> Choice of range separation gamma function type (periodic cases only)
     integer :: gammaType
@@ -142,7 +136,7 @@ module dftbp_dftbplus_inputdata
     !> Auxiliary gamma damping/screening parameter
     real(dp), allocatable :: auxiliaryScreening
 
-  end type TRangeSepInp
+  end type THybridXcInp
 
 
   !> Main control data for program as extracted by the parser
@@ -541,8 +535,8 @@ module dftbp_dftbplus_inputdata
     !> Geometry optimizer input
     type(TGeoOptInput), allocatable :: geoOpt
 
-    !> Range separated input
-    type(TRangeSepInp), allocatable :: rangeSepInp
+    !> Hybrid xc-functional input
+    type(THybridXcInp), allocatable :: hybridXcInp
 
   #:if WITH_SOCKETS
     !> socket communication

@@ -30,7 +30,7 @@ module dftbp_derivs_perturb
   use dftbp_dftb_periodic, only : TNeighbourList
   use dftbp_dftb_populations, only : mulliken, denseMulliken, getChargePerShell, getOnsitePopulation
   use dftbp_dftb_potentials, only : TPotentials, TPotentials_init
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc
+  use dftbp_dftb_hybridxc, only : THybridXcFunc
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_shift, only : addShift, totalShift
   use dftbp_dftb_spin, only : getSpinShift, ud2qm, qm2ud
@@ -133,7 +133,7 @@ contains
       & over, orb, nAtom, species, neighbourList, nNeighbourSK, denseDesc, iSparseStart,&
       & img2CentCell, coord, sccCalc, maxSccIter, sccTol, isSccConvRequired, nMixElements,&
       & nIneqMixElements, iEqOrbitals, tempElec, Ef, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs,&
-      & iEqBlockOnSite, rangeSep, nNeighbourCam, pChrgMixer, kPoint, kWeight, iCellVec, cellVec,&
+      & iEqBlockOnSite, hybridXc, nNeighbourCam, pChrgMixer, kPoint, kWeight, iCellVec, cellVec,&
       & polarisability, dEi, dqOut, neFermi, dEfdE, errStatus, omega)
 
     !> Instance
@@ -237,7 +237,7 @@ contains
     integer, intent(in), allocatable :: iEqBlockDftbu(:,:,:,:)
 
     !> Data for range-separated calculation
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
@@ -319,7 +319,7 @@ contains
     write(stdOut,*)
 
     call init_perturbation(parallelKS, this%tolDegen, nOrbs, nKpts, nSpin, nIndepHam, maxFill,&
-        & filling, ham, nFilled, nEmpty, dHam, dRho, idHam, idRho, transform, rangesep, sSqrReal,&
+        & filling, ham, nFilled, nEmpty, dHam, dRho, idHam, idRho, transform, hybridXc, sSqrReal,&
         & over, neighbourList, nNeighbourSK, denseDesc, iSparseStart, img2CentCell, dRhoOut,&
         & dRhoIn, dRhoInSqr, dRhoOutSqr, dPotential, orb, nAtom, tMetallic, neFermi, eigvals,&
         & tempElec, Ef, kWeight)
@@ -389,7 +389,7 @@ contains
         call response(env, parallelKS, dPotential, nAtom, orb, species, neighbourList,&
             & nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over, iEqOrbitals, sccCalc,&
             & sccTol, isSccConvRequired, maxSccIter, pChrgMixer, nMixElements, nIneqMixElements,&
-            & dqIn, dqOut(:,:,:,iCart), rangeSep, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr,&
+            & dqIn, dqOut(:,:,:,iCart), hybridXc, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr,&
             & dRhoIn, dRhoOut, nSpin, maxFill, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs,&
             & iEqBlockOnSite, dqBlockIn, dqBlockOut, eigVals, transform, dEiTmp, dEfdETmp, Ef,&
             & this%isEfFixed, dHam, idHam, dRho, idRho, tempElec, tMetallic, neFermi, nFilled,&
@@ -447,7 +447,7 @@ contains
       & filling, eigvals, eigVecsReal, eigVecsCplx, ham, over, orb, nAtom, species, neighbourList,&
       & nNeighbourSK, denseDesc, iSparseStart, img2CentCell, isRespKernelRPA, sccCalc, maxSccIter,&
       & sccTol, isSccConvRequired, nMixElements, nIneqMixElements, iEqOrbitals, tempElec, Ef,&
-      & spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite, rangeSep, nNeighbourCam,&
+      & spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite, hybridXc, nNeighbourCam,&
       & pChrgMixer, kPoint, kWeight, iCellVec, cellVec, nEFermi, errStatus, omega, isHelical, coord)
 
     !> Instance
@@ -572,7 +572,7 @@ contains
     integer, intent(in), allocatable :: iEqBlockDftbu(:,:,:,:)
 
     !> Data for range-separated calculation
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
@@ -659,7 +659,7 @@ contains
     end if
 
     call init_perturbation(parallelKS, this%tolDegen, nOrbs, nKpts, nSpin, nIndepHam, maxFill,&
-        & filling, ham, nFilled, nEmpty, dHam, dRho, idHam, idRho, transform, rangesep, sSqrReal,&
+        & filling, ham, nFilled, nEmpty, dHam, dRho, idHam, idRho, transform, hybridXc, sSqrReal,&
         & over, neighbourList, nNeighbourSK, denseDesc, iSparseStart, img2CentCell, dRhoOut,&
         & dRhoIn, dRhoInSqr, dRhoOutSqr, dPotential, orb, nAtom, tMetallic, neFermi, eigvals,&
         & tempElec, Ef, kWeight)
@@ -728,7 +728,7 @@ contains
         call response(env, parallelKS, dPotential, nAtom, orb, species, neighbourList,&
             & nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over, iEqOrbitals, sccCalc,&
             & sccTol, isSccRequired, nIter, pChrgMixer, nMixElements, nIneqMixElements, dqIn,&
-            & dqOut, rangeSep, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut,&
+            & dqOut, hybridXc, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut,&
             & nSpin, maxFill, spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite,&
             & dqBlockIn, dqBlockOut, eigVals, transform, dEi, dEf, Ef, this%isEfFixed, dHam, idHam,&
             & dRho, idRho, tempElec, tMetallic, neFermi, nFilled, nEmpty, kPoint, kWeight, cellVec,&
@@ -824,7 +824,7 @@ contains
   subroutine response(env, parallelKS, dPotential, nAtom, orb, species, neighbourList,&
       & nNeighbourSK, img2CentCell, iSparseStart, denseDesc, over, iEqOrbitals, sccCalc, sccTol,&
       & isSccConvRequired, maxSccIter, pChrgMixer, nMixElements, nIneqMixElements, dqIn, dqOut,&
-      & rangeSep, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut, nSpin, maxFill,&
+      & hybridXc, nNeighbourCam, sSqrReal, dRhoInSqr, dRhoOutSqr, dRhoIn, dRhoOut, nSpin, maxFill,&
       & spinW, thirdOrd, dftbU, iEqBlockDftbu, onsMEs, iEqBlockOnSite, dqBlockIn, dqBlockOut,&
       & eigVals, transform, dEi, dEf, Ef, isEfFixed, dHam, idHam, dRho, idRho, tempElec, tMetallic,&
       & neFermi, nFilled, nEmpty, kPoint, kWeight, cellVec, iCellVec, eigVecsReal, eigVecsCplx,&
@@ -930,7 +930,7 @@ contains
     !> Derivative of density matrix
     real(dp), target, allocatable, intent(inout) :: dRhoOut(:)
 
-    !> delta density matrix for rangeseparated calculations
+    !> Delta density matrix for hybrid xc-functional calculations
     real(dp), pointer :: dRhoOutSqr(:,:,:), dRhoInSqr(:,:,:)
 
     !> Are there orbital potentials present
@@ -991,7 +991,7 @@ contains
     integer, intent(in), allocatable :: iEqBlockOnSite(:,:,:,:)
 
     !> Data for range-separated calculation
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> Square matrix for overlap (if needed)
     real(dp), allocatable, intent(inout) :: sSqrReal(:,:)
@@ -1075,7 +1075,7 @@ contains
     if (tSccCalc) then
       dqInpRed(:) = 0.0_dp
       dqPerShell(:,:,:) = 0.0_dp
-      if (allocated(rangeSep)) then
+      if (allocated(hybridXc)) then
         dRhoIn(:) = 0.0_dp
         dRhoOut(:) = 0.0_dp
       end if
@@ -1187,7 +1187,7 @@ contains
 
           call dRhoReal(env, dHam, neighbourList, nNeighbourSK, iSparseStart, img2CentCell,&
               & denseDesc, iKS, parallelKS, nFilled, nEmpty, eigVecsReal, eigVals, Ef, tempElec,&
-              & orb, drho(:,iS), dRhoOutSqr, rangeSep, over, nNeighbourCam, transform(iKS),&
+              & orb, drho(:,iS), dRhoOutSqr, hybridXc, over, nNeighbourCam, transform(iKS),&
               & species,&
             #:if WITH_SCALAPACK
               & desc,&
@@ -1361,7 +1361,7 @@ contains
 
       if (tSccCalc) then
 
-        if (allocated(rangeSep)) then
+        if (allocated(hybridXc)) then
           dqDiffRed(:) = dRhoOut - dRhoIn
         else
           dqOutRed(:) = 0.0_dp
@@ -1383,7 +1383,7 @@ contains
 
         if ((.not. tConverged) .and. iSCCiter /= maxSccIter) then
           if (iSCCIter == 1) then
-            if (allocated(rangeSep)) then
+            if (allocated(hybridXc)) then
               dRhoIn(:) = dRhoOut
               call denseMulliken(dRhoInSqr, SSqrReal, denseDesc%iAtomStart, dqIn)
             else
@@ -1396,7 +1396,7 @@ contains
 
           else
 
-            if (allocated(rangeSep)) then
+            if (allocated(hybridXc)) then
               call mix(pChrgMixer, dRhoIn, dqDiffRed)
               call denseMulliken(dRhoInSqr, SSqrReal, denseDesc%iAtomStart, dqIn)
             else
@@ -1423,7 +1423,7 @@ contains
 
           end if
 
-          if (allocated(rangeSep)) then
+          if (allocated(hybridXc)) then
             call ud2qm(dqIn)
           end if
 
@@ -1468,7 +1468,7 @@ contains
 
   !> Initialise variables for perturbation
   subroutine init_perturbation(parallelKS, tolDegen, nOrbs, nKpts, nSpin, nIndepHam, maxFill,&
-      & filling, ham, nFilled, nEmpty, dHam, dRho, idHam, idRho, transform, rangesep, sSqrReal,&
+      & filling, ham, nFilled, nEmpty, dHam, dRho, idHam, idRho, transform, hybridXc, sSqrReal,&
       & over, neighbourList, nNeighbourSK, denseDesc, iSparseStart, img2CentCell, dRhoOut, dRhoIn,&
       & dRhoInSqr, dRhoOutSqr, dPotential, orb, nAtom, tMetallic, neFermi, eigvals, tempElec, Ef,&
       & kWeight)
@@ -1522,7 +1522,7 @@ contains
     type(TRotateDegen), intent(out), allocatable :: transform(:)
 
     !> Data for range-separated calculation
-    class(TRangeSepFunc), allocatable, intent(in) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(in) :: hybridXc
 
     !> Square matrix for overlap (if needed in range separated calculation)
     real(dp), allocatable, intent(out) :: sSqrReal(:,:)
@@ -1551,10 +1551,10 @@ contains
     !> Derivative of density matrix
     real(dp), target, allocatable, intent(out) :: dRhoOut(:)
 
-    !> delta density matrix for rangeseparated calculations
+    !> Delta density matrix for hybrid xc-functional calculations
     real(dp), pointer :: dRhoInSqr(:,:,:)
 
-    !> delta density matrix for rangeseparated calculations
+    !> Delta density matrix for hybrid xc-functional calculations
     real(dp), pointer :: dRhoOutSqr(:,:,:)
 
     ! derivative of potentials
@@ -1651,7 +1651,7 @@ contains
       call TRotateDegen_init(transform(ii), tolDegen)
     end do
 
-    if (allocated(rangeSep)) then
+    if (allocated(hybridXc)) then
       allocate(sSqrReal(nOrbs, nOrbs))
       sSqrReal(:,:) = 0.0_dp
     #:if not WITH_SCALAPACK

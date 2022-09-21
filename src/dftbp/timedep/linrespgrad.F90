@@ -15,7 +15,7 @@ module dftbp_timedep_linrespgrad
   use dftbp_common_accuracy, only : dp, elecTolMax, lc, rsp
   use dftbp_common_constants, only : Hartree__eV, au__Debye, cExchange
   use dftbp_dftb_nonscc, only : TNonSccDiff
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, getDirectedLrGammaPrimeValue
+  use dftbp_dftb_hybridxc, only : THybridXcFunc, getDirectedCamGammaPrimeValue
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_shortgammafuncs, only : expGammaPrime
   use dftbp_dftb_sk, only : rotateH0
@@ -72,7 +72,7 @@ contains
   !> based on Time Dependent DFRT
   subroutine LinRespGrad_old(tSpin, this, iAtomStart, grndEigVecs, grndEigVal, sccCalc, dq, coord0,&
       & SSqr, filling, species0, iNeighbour, img2CentCell, orb, tWriteTagged, fdTagged,&
-      & taggedWriter, rangeSep, omega, allOmega, deltaRho, shift, skHamCont, skOverCont, excgrad,&
+      & taggedWriter, hybridXc, omega, allOmega, deltaRho, shift, skHamCont, skOverCont, excgrad,&
       & derivator, rhoSqr, occNatural, naturalOrbs)
 
     !> spin polarized calculation
@@ -126,7 +126,7 @@ contains
     type(TTaggedWriter), intent(inout) :: taggedWriter
 
     !> Data for range-separated calculation
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> excitation energy of state nStat
     real(dp), intent(out) :: omega
@@ -194,7 +194,7 @@ contains
 
     !> control variables
     logical :: tZVector, tFracOcc
-    logical :: tRangeSep = .false.
+    logical :: tHybridXc = .false.
 
     !> should gradients be calculated
     logical :: tForces
@@ -268,10 +268,10 @@ contains
     @:ASSERT(present(occNatural) .eqv. present(naturalOrbs))
 
     ! Should possibly not use allocation status but have a dedicated derived type variable?
-    if (allocated(rangeSep)) then
-      tRangeSep = .true.
+    if (allocated(hybridXc)) then
+      tHybridXc = .true.
       allocate(lrGamma(this%nAtom, this%nAtom))
-      call rangeSep%getLrGammaCluster(lrGamma)
+      call hybridXc%getCamGammaCluster(lrGamma)
     end if
 
     ! Try to detect fractional occupations
@@ -284,7 +284,7 @@ contains
         end if
       end do
     end do
-    if (tFracOcc .and. tRangeSep) then
+    if (tFracOcc .and. tHybridXc) then
       call error('Fractional occupations not implemented for TD-LC-DFTB.')
     end if
 
@@ -538,7 +538,7 @@ contains
     call writeSPExcitations(wij, win, nxov_ud(1), getIA, this%writeSPTrans, sposz, nxov_rd, tSpin)
 
     ALLOCATE(xpy(nxov_rd, this%nExc))
-    if (tZVector .or. tRangeSep) then
+    if (tZVector .or. tHybridXc) then
       ALLOCATE(xmy(nxov_rd, this%nExc))
     end if
 
@@ -546,25 +546,25 @@ contains
     ALLOCATE(iatrans(norb, norb, nSpin))
     call rindxov_array(win, nxov, nxoo, nxvv, getIA, getIJ, getAB, iatrans)
 
-    if (this%tUseArpack .and. tRangeSep) then
+    if (this%tUseArpack .and. tHybridXc) then
       call error("Range separation requires the Stratmann solver for excitations")
     end if
 
     do isym = 1, size(symmetries)
 
       sym = symmetries(isym)
-      if (withArpack .and. this%tUseArpack .and. (.not. tRangeSep)) then
+      if (withArpack .and. this%tUseArpack .and. (.not. tHybridXc)) then
         call buildAndDiagExcMatrixArpack(tSpin, wij(:nxov_rd), sym, win, nocc_ud, nvir_ud,&
             & nxoo_ud, nxvv_ud, nxov_ud, nxov_rd, iaTrans, getIA, getIJ, getAB, iAtomStart,&
             & ovrXev, grndEigVecs, filling, sqrOccIA(:nxov_rd), gammaMat, species0, this%spinW,&
             & transChrg, this%testArnoldi, eval, xpy, xmy, this%onSiteMatrixElements, orb,&
-            & tRangeSep, tZVector)
+            & tHybridXc, tZVector)
       else
         call buildAndDiagExcMatrixStratmann(tSpin, this%subSpaceFactorStratmann, wij(:nxov_rd),&
             & sym, win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, nxov_ud, nxov_rd, iaTrans, getIA,&
             & getIJ, getAB, iAtomStart, ovrXev, grndEigVecs, filling, sqrOccIA(:nxov_rd), gammaMat,&
             & species0, this%spinW, transChrg, eval, xpy, xmy, this%onSiteMatrixElements, orb,&
-            & tRangeSep, lrGamma, tZVector)
+            & tHybridXc, lrGamma, tZVector)
       end if
 
       ! Excitation oscillator strengths for resulting states
@@ -657,7 +657,7 @@ contains
         omega = sqrt(eval(iLev))
 
         ! solve for Z and W to get excited state density matrix
-        call getZVectorEqRHS(tRangeSep, xpy(:,iLev), xmy(:,iLev), win, iAtomStart, nocc_ud,&
+        call getZVectorEqRHS(tHybridXc, xpy(:,iLev), xmy(:,iLev), win, iAtomStart, nocc_ud,&
             & nxov_ud(1), transChrg, getIA, getIJ, getAB, iatrans, this%nAtom, species0, &
             & grndEigVal, ovrXev, grndEigVecs, gammaMat, lrGamma, this%spinW, omega, sym, rhs, t,&
             & wov, woo, wvv)
@@ -665,11 +665,11 @@ contains
         call solveZVectorPrecond(rhs, tSpin, wij(:nxov_rd), sym, win, nocc_ud, nvir_ud, nxoo_ud, &
             & nxvv_ud, nxov_ud, nxov_rd, iaTrans, getIA, getIJ, getAB, this%nAtom, iAtomStart, &
             & ovrXev, grndEigVecs, filling, sqrOccIA(:nxov_rd), gammaMat, species0, this%spinW, &
-            & this%onSiteMatrixElements, orb, transChrg, tRangeSep, lrGamma)
+            & this%onSiteMatrixElements, orb, transChrg, tHybridXc, lrGamma)
 
         call calcWVectorZ(rhs, win, nocc_ud, nxov_ud(1), getIA, getIJ, getAB, iaTrans, iAtomStart,&
             & ovrXev, grndEigVecs, gammaMat, grndEigVal, wov, woo, wvv, transChrg, species0, &
-            & this%spinW, tRangeSep, lrGamma)
+            & this%spinW, tHybridXc, lrGamma)
 
         call calcPMatrix(t, rhs, win, getIA, pc)
 
@@ -696,7 +696,7 @@ contains
               & getIA, getIJ, getAB, win, grndEigVecs, pc, ovrXev, dq, dqex, gammaMat, &
               & lrGamma, this%HubbardU, this%spinW, shift, woo, wov, wvv, transChrg, xpy(:,iLev), &
               & xmy(:,iLev), coord0, orb, skHamCont, skOverCont, derivator, rhoSqr, deltaRho,  &
-              & tRangeSep, rangeSep, excgrad)
+              & tHybridXc, hybridXc, excgrad)
         end if
 
       end do
@@ -729,7 +729,7 @@ contains
   subroutine buildAndDiagExcMatrixArpack(tSpin, wij, sym, win, nocc_ud, nvir_ud,&
       & nxoo_ud, nxvv_ud, nxov_ud, nxov_rd, iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev,&
       & grndEigVecs, filling, sqrOccIA, gammaMat, species0, spinW, transChrg, testArnoldi,&
-      & eval, xpy, xmy, onsMEs, orb, tRangeSep, tZVector)
+      & eval, xpy, xmy, onsMEs, orb, tHybridXc, tZVector)
 
     !> spin polarisation?
     logical, intent(in) :: tSpin
@@ -819,7 +819,7 @@ contains
     type(TOrbitals), intent(in) :: orb
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> is the Z-vector equation to be solved later?
     logical, intent(in) :: tZVector
@@ -841,7 +841,7 @@ contains
     natom = size(gammaMat, dim=1)
 
     @:ASSERT(all(shape(xpy) == [ nxov_rd, nexc ]))
-    @:ASSERT(tRangeSep .eqv. .false.)
+    @:ASSERT(tHybridXc .eqv. .false.)
 
     ! Three times more Lanczos vectors than desired eigenstates
     ncv = min(3 * nexc, nxov_rd)
@@ -893,7 +893,7 @@ contains
       call actionAplusB(tSpin, wij, sym, win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, nxov_ud,&
           & nxov_rd, iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev, grndEigVecs, filling,&
           & sqrOccIA, gammaMat, species0, spinW, onsMEs, orb, .false., transChrg, &
-          & workd(ipntr(1):ipntr(1)+nxov_rd-1), workd(ipntr(2):ipntr(2)+nxov_rd-1), tRangeSep)
+          & workd(ipntr(1):ipntr(1)+nxov_rd-1), workd(ipntr(2):ipntr(2)+nxov_rd-1), tHybridXc)
 
     end do
 
@@ -978,7 +978,7 @@ contains
   subroutine buildAndDiagExcMatrixStratmann(tSpin, subSpaceFactor, wij, sym, win, nocc_ud, nvir_ud,&
       & nxoo_ud, nxvv_ud, nxov_ud, nxov_rd, iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev,&
       & grndEigVecs, filling, sqrOccIA, gammaMat, species0, spinW, transChrg, eval, xpy, xmy,&
-      & onsMEs, orb, tRangeSep, lrGamma, tZVector)
+      & onsMEs, orb, tHybridXc, lrGamma, tZVector)
 
     !> spin polarisation?
     logical, intent(in) :: tSpin
@@ -1068,7 +1068,7 @@ contains
     type(TOrbitals), intent(in) :: orb
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> electrostatic matrix, long-range corrected
     real(dp), allocatable, intent(in) :: lrGamma(:,:)
@@ -1156,10 +1156,10 @@ contains
           call actionAplusB(tSpin, wij, sym, win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, nxov_ud,&
             & nxov_rd, iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev, grndEigVecs, filling,&
             & sqrOccIA, gammaMat, species0, spinW, onsMEs, orb, .true., transChrg, vecB(:,ii),&
-            & vP(:,ii), tRangeSep, lrGamma)
+            & vP(:,ii), tHybridXc, lrGamma)
           call actionAminusB(tSpin, wij, win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, nxov_ud, nxov_rd,&
             & iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev, grndEigVecs, filling, sqrOccIA,&
-            & transChrg, vecB(:,ii), vM(:,ii), tRangeSep, lrGamma)
+            & transChrg, vecB(:,ii), vM(:,ii), tHybridXc, lrGamma)
         end do
 
         do ii = prevSubSpaceDim + 1, subSpaceDim
@@ -1176,7 +1176,7 @@ contains
         ! Specific routine for this task is more effective
         call intialSubSpaceMatrixApmB(transChrg, subSpaceDim, wij, sym, win, &
             & nxov_ud(1), iAtomStart, ovrXev, grndEigVecs, filling, sqrOccIA, getIA, getIJ, getAB,&
-            & iaTrans, gammaMat, lrGamma, species0, spinW, tSpin, tRangeSep, vP, vM, mP, mM)
+            & iaTrans, gammaMat, lrGamma, species0, spinW, tSpin, tHybridXc, vP, vM, mP, mM)
       end if
 
       call calcMatrixSqrt(mM, subSpaceDim, memDim, workArray, workDim, mMsqrt, mMsqrtInv)
@@ -1385,12 +1385,12 @@ contains
 
   !> Build right hand side of the equation for the Z-vector and those parts of the W-vectors which
   !> do not depend on Z.
-  subroutine getZVectorEqRHS(tRangeSep, xpy, xmy, win, iAtomStart, homo, nmatup, transChrg, getIA, &
+  subroutine getZVectorEqRHS(tHybridXc, xpy, xmy, win, iAtomStart, homo, nmatup, transChrg, getIA, &
       & getIJ, getAB, iatrans, natom, species0, grndEigVal, ovrXev, grndEigVecs, gammaMat, lrGamma,&
       & spinW, omega, sym, rhs, t, wov, woo, wvv)
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> X+Y Furche term
     real(dp), intent(in) :: xpy(:)
@@ -1754,7 +1754,7 @@ contains
     end do
 
     ! Contributions due to range-separation
-    if (tRangeSep) then
+    if (tHybridXc) then
 
       allocate(vecHvvXpY(sum(nxvv)))
       allocate(vecHvvXmY(sum(nxvv)))
@@ -1830,7 +1830,7 @@ contains
   !> Solving the (A+B) Z = -R equation via diagonally preconditioned conjugate gradient
   subroutine solveZVectorPrecond(rhs, tSpin, wij, sym, win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, &
       & nxov_ud, nxov_rd, iaTrans, getIA, getIJ, getAB, natom, iAtomStart, ovrXev, grndEigVecs, &
-      & occNr, sqrOccIA, gammaMat, species0, spinW, onsMEs, orb, transChrg, tRangeSep, lrGamma)
+      & occNr, sqrOccIA, gammaMat, species0, spinW, onsMEs, orb, transChrg, tHybridXc, lrGamma)
 
     !> on entry -R, on exit Z
     real(dp), intent(inout) :: rhs(:)
@@ -1914,7 +1914,7 @@ contains
     type(TTransCharges), intent(in) :: transChrg
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> long-range Gamma
     real(dp), allocatable, intent(in) :: lrGamma(:,:)
@@ -1942,7 +1942,7 @@ contains
       end if
 
       !! Possibly reorder spin case
-      if (tRangeSep) then
+      if (tHybridXc) then
         call hemv(qTmp, lrGamma, qTr)
         rs = rs - cExchange * dot_product(qTr, qTmp)
         call indXov(win, ia, getIA, i, a, s)
@@ -1967,7 +1967,7 @@ contains
     ! we need the singlet action even for triplet excitations!
     call actionAplusB(tSpin, wij, 'S', win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, nxov_ud,&
       & nxov_rd, iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev, grndEigVecs, occNr, sqrOccIA,&
-      & gammaMat, species0, spinW, onsMEs, orb, .true., transChrg, rhs2, rkm1, tRangeSep, lrGamma)
+      & gammaMat, species0, spinW, onsMEs, orb, .true., transChrg, rhs2, rkm1, tHybridXc, lrGamma)
 
     rkm1(:) = rhs - rkm1
     zkm1(:) = P * rkm1
@@ -1979,7 +1979,7 @@ contains
       ! action of matrix on vector
       call actionAplusB(tSpin, wij, 'S', win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, nxov_ud,&
          & nxov_rd, iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev, grndEigVecs, occNr, sqrOccIA,&
-         & gammaMat, species0, spinW, onsMEs, orb, .true., transChrg, pkm1, apk, tRangeSep, lrGamma)
+         & gammaMat, species0, spinW, onsMEs, orb, .true., transChrg, pkm1, apk, tHybridXc, lrGamma)
 
       tmp1 = dot_product(rkm1, zkm1)
       tmp2 = dot_product(pkm1, apk)
@@ -2020,7 +2020,7 @@ contains
   !> 2.
   subroutine calcWvectorZ(zz, win, homo, nmatup, getIA, getIJ, getAB, iaTrans, iAtomStart,&
       & ovrXev, grndEigVecs, gammaMat, grndEigVal, wov, woo, wvv, transChrg, species0, spinW, &
-      & tRangeSep, lrGamma)
+      & tHybridXc, lrGamma)
 
     !> Z vector
     real(dp), intent(in) :: zz(:)
@@ -2080,7 +2080,7 @@ contains
     real(dp), intent(in) :: spinW(:)
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> long-range Gamma
     real(dp), allocatable, intent(in) :: lrGamma(:,:)
@@ -2152,7 +2152,7 @@ contains
       end do
     end do
 
-    if (tRangeSep) then
+    if (tHybridXc) then
 
       allocate(vecHooZ(sum(nxoo)))
       call getHooXY(1, nxoo, homo, natom, iaTrans, getIA, getIJ, win,&
@@ -2276,7 +2276,7 @@ contains
   subroutine addGradients(sym, nxov, natom, species0, iAtomStart, norb, homo, getIA,&
       & getIJ, getAB, win, grndEigVecs, pc, ovrXev, dq_ud, dqex, gammaMat, lrGamma, HubbardU, &
       & spinW, shift, woo, wov, wvv, transChrg, xpy, xmy, coord0, orb, skHamCont, skOverCont, &
-      & derivator, rhoSqr, deltaRho, tRangeSep, rangeSep, excgrad)
+      & derivator, rhoSqr, deltaRho, tHybridXc, hybridXc, excgrad)
 
     !> symmetry of the transition
     character, intent(in) :: sym
@@ -2381,10 +2381,10 @@ contains
     real(dp), intent(inout), pointer :: deltaRho(:,:,:)
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> Data for range-separated calculation
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> resulting excited state gradient
     real(dp), intent(out) :: excgrad(:,:)
@@ -2422,10 +2422,10 @@ contains
     ALLOCATE(tmp7(nSpin))
 
     ALLOCATE(Dens(norb,norb))
-    !! TO CHANGE: For tRangeSep density from call seems to be incorrect, have
+    !! TO CHANGE: For tHybridXc density from call seems to be incorrect, have
     !! to recreate it from eigenvectors.
     Dens = 0._dp
-    if (tRangeSep) then
+    if (tHybridXc) then
       Dens = 0._dp
       call herk(Dens, grndEigVecs(:,1:homo(1),1), alpha=2.0_dp)
     else
@@ -2463,7 +2463,7 @@ contains
       dm(:) = dq_ud(:,2)
     end if
 
-    if (tRangeSep) then
+    if (tHybridXc) then
       ALLOCATE(xmycc(norb, norb, nSpin))
       ALLOCATE(xpyas(norb, norb, nSpin))
       ALLOCATE(xmyas(norb, norb, nSpin))
@@ -2490,11 +2490,11 @@ contains
 
       ! Compute long-range gamma derivative
       gammaLongRangePrime(:,:,:) = 0._dp
-      call rangeSep%getCentralCellSpecies(species)
+      call hybridXc%getCentralCellSpecies(species)
       do iAt1 = 1, nAtom
         do iAt2 = 1, nAtom
           if(iAt1 /= iAt2) then
-            call getDirectedLrGammaPrimeValue(rangeSep, tmpVec, iAt1, iAt2)
+            call getDirectedCamGammaPrimeValue(hybridXc, tmpVec, iAt1, iAt2)
             gammaLongRangePrime(:, iAt1, iAt2) = tmpVec
           end if
         end do
@@ -2556,7 +2556,7 @@ contains
       end do
     end do
 
-    if (tRangeSep) then
+    if (tHybridXc) then
 
       ! Asymmetric contribution: xmycc_as = sum_ias (X-Y)_ias c_mas c_nis
       xmycc(:,:,:) = 0.0_dp
@@ -2705,7 +2705,7 @@ contains
           tmp11(:) = spinW(iSp1) * dqex(iAt1,:) + spinW(iSp2) * dqex(iAt2,:)
         end if
 
-        if (tRangeSep) then
+        if (tHybridXc) then
           tmprs = 0.0_dp
           tmps(:) = 0.0_dp
           do iSpin = 1, nSpin
@@ -2775,7 +2775,7 @@ contains
                   tmp10 = tmp10 + tmp11(iSpin) * dSo(n,m,xyz) * dsigma(iSpin) * SpinDens(mu,nu)
                 end if
 
-                if (tRangeSep) then
+                if (tHybridXc) then
                   tmprs = 0.0_dp
                   do ka = 1, nOrb
                     tmprs = tmprs +&

@@ -19,7 +19,7 @@ module dftbp_dftb_getenergies
   use dftbp_dftb_periodic, only : TNeighbourList
   use dftbp_dftb_populations, only : mulliken
   use dftbp_dftb_potentials, only : TPotentials
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc
+  use dftbp_dftb_hybridxc, only : THybridXcFunc
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_spinorbit, only : getDualSpinOrbitShift, getDualSpinOrbitEnergy
@@ -46,7 +46,7 @@ contains
   subroutine calcEnergies(env, sccCalc, tblite, qOrb, q0, chargePerShell, multipole, species,&
       & isExtField, isXlbomd, dftbU, tDualSpinOrbit, rhoPrim, H0, orb, neighbourList,&
       & nNeighbourSK, img2CentCell, iSparseStart, cellVol, extPressure, TS, potential, &
-      & energy, thirdOrd, solvation, rangeSep, reks, qDepExtPot, qBlock, qiBlock, xi,&
+      & energy, thirdOrd, solvation, hybridXc, reks, qDepExtPot, qBlock, qiBlock, xi,&
       & iAtInCentralRegion, tFixEf, Ef, onSiteElements, qNetAtom, vOnSiteAtomInt,&
       & vOnSiteAtomExt)
 
@@ -128,8 +128,8 @@ contains
     !> Solvation model
     class(TSolvation), allocatable, intent(inout) :: solvation
 
-    !> Data from rangeseparated calculations
-    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    !> Data from hybrid xc-functional calculations
+    class(THybridXcFunc), intent(inout), allocatable :: hybridXc
 
     !> data type for REKS
     type(TReksCalc), allocatable, intent(inout) :: reks
@@ -261,9 +261,9 @@ contains
     end if
 
     ! Add exchange contribution for range separated calculations
-    if (allocated(rangeSep) .and. .not. allocated(reks)) then
+    if (allocated(hybridXc) .and. .not. allocated(reks)) then
       energy%Efock = 0.0_dp
-      call rangeSep%addCamEnergy(env, energy%Efock)
+      call hybridXc%addCamEnergy(env, energy%Efock)
     end if
 
     ! Free energy contribution if attached to an electron reservoir

@@ -135,7 +135,7 @@ module dftbp_common_environment
     integer :: diagonalization = 12
     integer :: sparseToDense = 13
     integer :: denseToSparse = 14
-    integer :: rangeSeparatedH = 15
+    integer :: hybridXcH = 15
     integer :: densityMatrix = 16
     integer :: energyEval = 17
     integer :: postScc = 18

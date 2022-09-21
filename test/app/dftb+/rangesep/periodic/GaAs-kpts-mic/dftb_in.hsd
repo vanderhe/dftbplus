@@ -23,7 +23,7 @@ Hamiltonian = DFTB {
     Suffix = ".skf"
   }
 
-  RangeSeparated = LC {
+  Hybrid {
     GammaType = "mic"
     WignerSeitzReduction = 1
     Screening = NeighbourBased {

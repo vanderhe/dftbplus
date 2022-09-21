@@ -21,7 +21,7 @@ module dftbp_reks_reksinterface
   use dftbp_dftb_nonscc, only : TNonSccDiff
   use dftbp_dftb_periodic, only : TNeighbourList
   use dftbp_dftb_populations, only : mulliken
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc
+  use dftbp_dftb_hybridxc, only : THybridXcFunc
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_slakocont, only : TSlakoCont
@@ -226,7 +226,7 @@ module dftbp_reks_reksinterface
 
 
   !> Calculate SI-SA-REKS state gradient by solving CP-REKS equations
-  subroutine getReksGradients(env, denseDesc, sccCalc, rangeSep, dispersion, &
+  subroutine getReksGradients(env, denseDesc, sccCalc, hybridXc, dispersion, &
       & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
       & orb, nonSccDeriv, skHamCont, skOverCont, repulsive, coord, coord0, &
       & species, q0, eigenvecs, chrgForces, over, spinW, derivs, tWriteTagged, &
@@ -242,7 +242,7 @@ module dftbp_reks_reksinterface
     type(TScc), allocatable, intent(inout) :: sccCalc
 
     !> Range separation contributions
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> dispersion interactions
     class(TDispersionIface), allocatable, intent(inout) :: dispersion
@@ -328,14 +328,14 @@ module dftbp_reks_reksinterface
     call getHellmannFeynmanGradientL_(env, denseDesc, sccCalc, neighbourList, &
         & nNeighbourSK, iSparseStart, img2CentCell, orb, &
         & nonSccDeriv, skHamCont, skOverCont, repulsive, coord, species, q0, &
-        & dispersion, rangeSep, chrgForces, eigenvecs, derivs, this)
+        & dispersion, hybridXc, chrgForces, eigenvecs, derivs, this)
 
     if (this%Efunction == 1) then
       call weightGradient(this%gradL, this%weight, derivs)
     else
 
       ! get REKS parameters used in CP-REKS and gradient equations
-      call getReksParameters_(env, denseDesc, sccCalc, rangeSep, &
+      call getReksParameters_(env, denseDesc, sccCalc, hybridXc, &
           & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
           & eigenvecs, coord, species, over, spinW, this)
 
@@ -779,7 +779,7 @@ module dftbp_reks_reksinterface
   subroutine getHellmannFeynmanGradientL_(env, denseDesc, sccCalc, neighbourList, &
       & nNeighbourSK, iSparseStart, img2CentCell, orb, &
       & nonSccDeriv, skHamCont, skOverCont, repulsive, coord, species, q0, &
-      & dispersion, rangeSep, chrgForces, eigenvecs, derivs, this)
+      & dispersion, hybridXc, chrgForces, eigenvecs, derivs, this)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -830,7 +830,7 @@ module dftbp_reks_reksinterface
     class(TDispersionIface), allocatable, intent(inout) :: dispersion
 
     !> Range separation contributions
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> forces on external charges
     real(dp), allocatable, intent(inout) :: chrgForces(:,:)
@@ -856,7 +856,7 @@ module dftbp_reks_reksinterface
 
     allocate(repDerivs(3,nAtom))
     allocate(dispDerivs(3,nAtom))
-    if (this%isRangeSep) then
+    if (this%isHybridXc) then
       allocate(lcDerivs(3,nAtom,this%Lmax))
     end if
 
@@ -866,7 +866,7 @@ module dftbp_reks_reksinterface
     call getEnergyWeightedDensityL(env, denseDesc, neighbourList, &
         & nNeighbourSK, iSparseStart, img2CentCell, orb, this%hamSqrL, &
         & this%hamSpL, this%fillingL, eigenvecs(:,:,1), this%Lpaired, &
-        & this%Efunction, this%isRangeSep, this%edmSpL)
+        & this%Efunction, this%isHybridXc, this%edmSpL)
     call env%globalTimer%stopTimer(globalTimers%energyDensityMatrix)
 
     ! rhoSpL has (my_qm) component
@@ -901,10 +901,10 @@ module dftbp_reks_reksinterface
 !            & coord, img2CentCell, derivs)
 !      end if
 
-      if (this%isRangeSep) then
+      if (this%isHybridXc) then
         ! deltaRhoSqrL has (my_ud) component
         lcDerivs(:,:,iL) = 0.0_dp
-        call rangeSep%addCamGradients_cluster(lcDerivs(:,:,iL), nonSccDeriv,&
+        call hybridXc%addCamGradients_cluster(lcDerivs(:,:,iL), nonSccDeriv,&
             & this%deltaRhoSqrL(:,:,:,iL), skOverCont, orb, denseDesc%iAtomStart, this%overSqr,&
             & neighbourList%iNeighbour, nNeighbourSK)
       end if
@@ -932,7 +932,7 @@ module dftbp_reks_reksinterface
 
     end do
 
-    if(this%isRangeSep) then
+    if(this%isHybridXc) then
       do iL = 1, this%Lmax
         if (iL <= this%Lpaired) then
           derivs(:,:) = lcDerivs(:,:,iL) + lcDerivs(:,:,iL)
@@ -951,7 +951,7 @@ module dftbp_reks_reksinterface
 
 
   !> Set several REKS variables used in CP-REKS equations
-  subroutine getReksParameters_(env, denseDesc, sccCalc, rangeSep, &
+  subroutine getReksParameters_(env, denseDesc, sccCalc, hybridXc, &
       & neighbourList, nNeighbourSK, iSparseStart, img2CentCell, &
       & eigenvecs, coord, species, over, spinW, this)
 
@@ -965,7 +965,7 @@ module dftbp_reks_reksinterface
     type(TScc), allocatable, intent(inout) :: sccCalc
 
     !> Range separation contributions
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> neighbours to atoms
     type(TNeighbourList), intent(in) :: neighbourList
@@ -998,14 +998,14 @@ module dftbp_reks_reksinterface
     type(TReksCalc), intent(inout) :: this
 
     ! get gamma, spinW, gamma deriv, LR-gamma, LR-gamma deriv, on-site constants
-    call getSccSpinLrPars(env, sccCalc, rangeSep, coord, species, &
+    call getSccSpinLrPars(env, sccCalc, hybridXc, coord, species, &
         & neighbourList%iNeighbour, img2CentCell, denseDesc%iAtomStart, &
-        & spinW, this%getAtomIndex, this%isRangeSep, this%GammaAO, &
+        & spinW, this%getAtomIndex, this%isHybridXc, this%GammaAO, &
         & this%GammaDeriv, this%SpinAO, this%LrGammaAO, this%LrGammaDeriv)
 
     ! get Hxc kernel -> (\mu,\nu|f_{Hxc}|\tau,\gam)
     call getHxcKernel(this%getDenseAO, over, this%overSqr, this%GammaAO, this%SpinAO,&
-        & this%LrGammaAO, this%Glevel, this%tSaveMem, this%isRangeSep, this%HxcSpS, &
+        & this%LrGammaAO, this%Glevel, this%tSaveMem, this%isHybridXc, this%HxcSpS, &
         & this%HxcSpD, this%HxcHalfS, this%HxcHalfD, this%HxcSqrS, this%HxcSqrD)
 
     ! get G1, weightIL, Omega, Rab values
@@ -1013,7 +1013,7 @@ module dftbp_reks_reksinterface
         & iSparseStart, img2CentCell, eigenvecs, this%hamSqrL, this%hamSpL, &
         & this%fockFa, this%fillingL, this%FONs, this%SAweight, this%enLtot, &
         & this%hess, this%Nc, this%Na, this%reksAlg, this%tSSR, &
-        & this%isRangeSep, this%G1, this%weightIL, this%omega, this%Rab)
+        & this%isHybridXc, this%G1, this%weightIL, this%omega, this%Rab)
 
     ! get A1e or Aall values based on GradOpt
     call getSuperAMatrix(eigenvecs, this%HxcSqrS, this%HxcSqrD, this%fockFc, &
@@ -1068,7 +1068,7 @@ module dftbp_reks_reksinterface
       call buildSaReksVectors(env, denseDesc, neighbourList, nNeighbourSK, &
           & iSparseStart, img2CentCell, eigenvecs, this%hamSqrL, this%hamSpL, &
           & this%fillingL, this%weightL, this%Nc, this%Na, this%rstate, &
-          & this%reksAlg, this%tSSR, this%isRangeSep, this%XT)
+          & this%reksAlg, this%tSSR, this%isHybridXc, this%XT)
 
       if (this%tSSR) then
 
@@ -1086,7 +1086,7 @@ module dftbp_reks_reksinterface
               & this%HxcSqrS, this%HxcSqrD, this%HxcHalfS, this%HxcHalfD, &
               & this%HxcSpS, this%HxcSpD, this%overSqr, over, this%GammaAO, &
               & this%SpinAO, this%LrGammaAO, this%orderRmatL, this%getDenseAO, &
-              & this%Lpaired, this%Glevel, this%tSaveMem, this%isRangeSep, this%ZdelL)
+              & this%Lpaired, this%Glevel, this%tSaveMem, this%isHybridXc, this%ZdelL)
 
           ! build XTdel with Z^delta values
           call buildInteractionVectors(eigenvecs, this%ZdelL, this%fockFc, &
@@ -1112,7 +1112,7 @@ module dftbp_reks_reksinterface
       call buildLstateVector(env, denseDesc, neighbourList, nNeighbourSK, &
           & iSparseStart, img2CentCell, eigenvecs, this%hamSqrL, this%hamSpL, &
           & this%fillingL, this%Nc, this%Na, this%Lstate, this%Lpaired, &
-          & this%reksAlg, this%isRangeSep, this%XT(:,1))
+          & this%reksAlg, this%isHybridXc, this%XT(:,1))
 
     end if
 
@@ -1193,7 +1193,7 @@ module dftbp_reks_reksinterface
           & this%G1, this%GammaAO, this%SpinAO, this%LrGammaAO, this%overSqr, &
           & over, eigenvecs, this%fillingL, this%weight, this%Glimit, this%orderRmatL, &
           & this%getDenseAO, this%Lpaired, this%Nc, this%Na, this%CGmaxIter, this%Glevel, &
-          & this%reksAlg, this%tSaveMem, this%isRangeSep, ZT, RmatL, ZmatL, Q2mat)
+          & this%reksAlg, this%tSaveMem, this%isHybridXc, ZT, RmatL, ZmatL, Q2mat)
 
     else if (this%Glevel == 3) then
 
@@ -1209,7 +1209,7 @@ module dftbp_reks_reksinterface
             & this%HxcSqrS, this%HxcSqrD, this%HxcHalfS, this%HxcHalfD, &
             & this%HxcSpS, this%HxcSpD, this%overSqr, over, this%GammaAO, &
             & this%SpinAO, this%LrGammaAO, this%orderRmatL, this%getDenseAO, &
-            & this%Lpaired, this%Glevel, this%tSaveMem, this%isRangeSep, ZmatL)
+            & this%Lpaired, this%Glevel, this%tSaveMem, this%isHybridXc, ZmatL)
         call getQ2mat(eigenvecs, this%fillingL, this%weight, ZmatL, Q2mat)
         write(stdOut,"(A)") repeat("-", 82)
       end if
@@ -1271,7 +1271,7 @@ module dftbp_reks_reksinterface
         & this%LrGammaDeriv, this%RmatL, this%RdelL, this%tmpRL, this%weight, &
         & this%extCharges, this%blurWidths, this%rVec, this%gVec, this%alpha, this%volume, &
         & this%getDenseAO, this%getDenseAtom, this%getAtomIndex, this%orderRmatL, &
-        & this%Lpaired, this%SAstates, this%tNAC, this%isRangeSep, this%tExtChrg, &
+        & this%Lpaired, this%SAstates, this%tNAC, this%isHybridXc, this%tExtChrg, &
         & this%tPeriodic, this%tBlur, this%SAgrad, this%SIgrad, this%SSRgrad)
 
   end subroutine getRTGradient_

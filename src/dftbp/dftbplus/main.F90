@@ -45,7 +45,7 @@ module dftbp_dftbplus_main
       & denseMulliken, denseBlockMulliken, skewMulliken, getOnsitePopulation, &
       & getAtomicMultipolePopulation
   use dftbp_dftb_potentials, only : TPotentials
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc
+  use dftbp_dftb_hybridxc, only : THybridXcFunc
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_shift, only : addShift
@@ -390,7 +390,7 @@ contains
           & this%nNeighbourSK, this%nNeighbourCam, this%denseDesc%iAtomStart, this%iSparseStart,&
           & this%img2CentCell, this%orb, this%coord0, this%spinW, this%repulsive, env,&
           & this%tDualSpinOrbit, this%xi, this%thirdOrd, this%solvation, this%eFieldScaling,&
-          & this%rangeSep, this%qDepExtPot, this%dftbU, this%iAtInCentralRegion, this%tFixEf,&
+          & this%hybridXc, this%qDepExtPot, this%dftbU, this%iAtInCentralRegion, this%tFixEf,&
           & this%Ef, this%coord, this%onsiteElements, this%skHamCont, this%skOverCont, this%latVec,&
           & this%invLatVec, this%iCellVec, this%rCellVec, this%cellVec, this%electronicSolver,&
           & this%eigvecsCplx, this%taggedWriter, this%refExtPot, errStatus)
@@ -440,7 +440,7 @@ contains
             & this%maxSccIter, this%sccTol, this%isSccConvRequired, this%nMixElements,&
             & this%nIneqOrb, this%iEqOrbitals, this%tempElec, this%Ef, this%spinW, this%thirdOrd,&
             & this%dftbU, this%iEqBlockDftbu, this%onSiteElements, this%iEqBlockOnSite,&
-            & this%rangeSep, this%nNeighbourCam, this%pChrgMixer, this%kPoint, this%kWeight,&
+            & this%hybridXc, this%nNeighbourCam, this%pChrgMixer, this%kPoint, this%kWeight,&
             & this%iCellVec, this%cellVec, this%polarisability, this%dEidE, this%dqOut,&
             & this%neFermi, this%dEfdE, errStatus, this%dynRespEFreq)
         if (errStatus%hasError()) then
@@ -465,7 +465,7 @@ contains
             & this%img2CentCell, this%isRespKernelRPA, this%scc, this%maxSccIter, this%sccTol,&
             & this%isSccConvRequired, this%nMixElements, this%nIneqOrb, this%iEqOrbitals,&
             & this%tempElec, this%Ef, this%spinW, this%thirdOrd, this%dftbU, this%iEqBlockDftbu,&
-            & this%onSiteElements, this%iEqBlockOnSite, this%rangeSep, this%nNeighbourCam,&
+            & this%onSiteElements, this%iEqBlockOnSite, this%hybridXc, this%nNeighbourCam,&
             & this%pChrgMixer, this%kPoint, this%kWeight, this%iCellVec, this%cellVec,&
             & this%neFermi, errStatus, this%dynKernelFreq, this%tHelical, this%coord)
         if (errStatus%hasError()) then
@@ -734,7 +734,7 @@ contains
       call handleCoordinateChange(env, this%boundaryCond, this%coord0, this%latVec, this%invLatVec,&
           & this%species0, this%cutOff, this%orb, this%tPeriodic, this%tRealHS, this%tHelical,&
           & this%scc, this%tblite, this%repulsive, this%dispersion,this%solvation, this%thirdOrd,&
-          & this%rangeSep, this%reks, this%img2CentCell, this%iCellVec, this%neighbourList,&
+          & this%hybridXc, this%reks, this%img2CentCell, this%iCellVec, this%neighbourList,&
           & this%symNeighbourList, this%nAllAtom, this%coord0Fold, this%coord,this%species,&
           & this%cellVec, this%rCellVec, this%denseDesc, this%nNeighbourSk, this%nNeighbourCam,&
           & this%nNeighbourCamSym, this%ints, this%H0, this%rhoPrim, this%iRhoPrim, this%ERhoPrim,&
@@ -863,7 +863,7 @@ contains
             & this%iSparseStart, this%cellVec, this%rCellVec, this%iCellVec, this%latVec,&
             & this%invLatVec, this%img2CentCell, this%H0, this%ints, this%spinW, this%cellVol,&
             & this%extPressure, this%dftbEnergy(1), this%q0, this%iAtInCentralRegion,&
-            & this%solvation, this%thirdOrd, this%potential, this%rangeSep, this%nNeighbourCam,&
+            & this%solvation, this%thirdOrd, this%potential, this%hybridXc, this%nNeighbourCam,&
             & this%nNeighbourCamSym, this%tDualSpinOrbit, this%xi, this%isExtField, this%isXlbomd,&
             & this%dftbU, this%dftbEnergy(1)%TS, this%qDepExtPot, this%qBlockOut, this%qiBlockOut,&
             & this%tFixEf, this%Ef, this%rhoPrim, this%onSiteElements, this%dispersion, tConverged,&
@@ -880,8 +880,8 @@ contains
             & this%orb, this%species, this%denseDesc%iAtomStart, this%coord, this%tPeriodic,&
             & this%tHelical, this%eigVecsReal, this%parallelKS, this%rhoPrim, this%SSqrReal,&
             & this%rhoSqrReal, this%densityMatrix%deltaRhoOutSqr)
-        ! For rangeseparated calculations deduct atomic charges from deltaRho
-        if (this%isRangeSep) then
+        ! For hybrid xc-functional calculations deduct atomic charges from deltaRho
+        if (this%isHybridXc) then
           call denseSubtractDensityOfAtoms(this%q0, this%denseDesc%iAtomStart,&
               & this%densityMatrix%deltaRhoOutSqr)
         end if
@@ -892,7 +892,7 @@ contains
 
         ! Check charge convergence and guess new eigenvectors
         tStopScc = hasStopFile(fStopScc)
-        if (this%isRangeSep) then
+        if (this%isHybridXc) then
           call getReksNextInputDensity(sccErrorQ, this%sccTol, tConverged, iSccIter,&
               & this%minSccIter, this%maxSccIter, iGeoStep, tStopScc, this%eigvecsReal,&
               & this%densityMatrix%deltaRhoOut, this%densityMatrix%deltaRhoIn,&
@@ -933,7 +933,7 @@ contains
                 & this%extPressure, this%cellVol, this%dftbEnergy(1)%TS, this%tAtomicEnergy,&
                 & this%dispersion, this%tPeriodic, this%tSccCalc, this%invLatVec, this%kPoint,&
                 & this%iAtInCentralRegion, this%electronicSolver, this%reks,&
-                & allocated(this%thirdOrd), this%isRangeSep, qNetAtom=this%qNetAtom)
+                & allocated(this%thirdOrd), this%isHybridXc, qNetAtom=this%qNetAtom)
           end if
           if (this%tWriteBandDat) then
             call writeBandOut(bandOut, this%eigen, this%filling, this%kWeight)
@@ -1015,7 +1015,7 @@ contains
             & this%latVec, this%invLatVec, this%tPeriodic, this%tRealHS, this%tSpinSharedEf,&
             & this%tSpinOrbit, this%tDualSpinOrbit, this%tFillKSep, this%tFixEf, this%tMulliken,&
             & this%iDistribFn, this%tempElec, this%nEl, this%parallelKS, this%Ef, this%mu,&
-            & this%dftbEnergy(this%deltaDftb%iDeterminant), this%rangeSep, this%eigen,&
+            & this%dftbEnergy(this%deltaDftb%iDeterminant), this%hybridXc, this%eigen,&
             & this%filling, this%rhoPrim, this%xi, this%orbitalL, this%HSqrReal, this%SSqrReal,&
             & this%eigvecsReal, this%iRhoPrim, this%HSqrCplx, this%SSqrCplx, this%SSqrCplxKpts,&
             & this%eigvecsCplx, this%rhoSqrReal, this%densityMatrix, this%nNeighbourCam,&
@@ -1023,7 +1023,7 @@ contains
         if (errStatus%hasError()) call error(errStatus%message)
 
         ! CAM calculations deduct atomic charges from delta density matrix
-        if (this%isRangeSep) then
+        if (this%isHybridXc) then
           if (this%tRealHS .and. this%tPeriodic) then
             allocate(SSqrReal, mold=this%SSqrReal)
             if (this%tHelical) then
@@ -1083,8 +1083,8 @@ contains
             ! Reset deltaRhoOutSqrCplxHS, because of internal summation
             this%densityMatrix%deltaRhoOutSqrCplxHS(:,:,:,:,:,:) = 0.0_dp
             call transformDualSpaceToBvKRealSpace(this%densityMatrix%deltaRhoOutSqrCplx,&
-                & this%parallelKS, this%kPoint, this%kWeight, this%rangeSep%bvKShifts,&
-                & this%rangeSep%coeffsDiag, this%densityMatrix%deltaRhoOutSqrCplxHS)
+                & this%parallelKS, this%kPoint, this%kWeight, this%hybridXc%bvKShifts,&
+                & this%hybridXc%coeffsDiag, this%densityMatrix%deltaRhoOutSqrCplxHS)
           #:if WITH_MPI
             ! Distribute all square, real-space density matrices to all nodes via global summation
             call mpifx_allreduceip(env%mpi%interGroupComm, this%densityMatrix%deltaRhoOutSqrCplxHS,&
@@ -1098,7 +1098,7 @@ contains
           call writeBandOut(bandOut, this%eigen, this%filling, this%kWeight)
         end if
 
-        if (this%tMulliken .or. this%isRangeSep) then
+        if (this%tMulliken .or. this%isHybridXc) then
           call getMullikenPopulation(this%rhoPrim, this%ints, this%orb, this%neighbourList,&
               & this%nNeighbourSk, this%img2CentCell, this%iSparseStart, this%qOutput,&
               & iRhoPrim=this%iRhoPrim, qBlock=this%qBlockOut, qiBlock=this%qiBlockOut,&
@@ -1166,7 +1166,7 @@ contains
             & this%nNeighbourSk, this%img2CentCell, this%iSparseStart, this%cellVol,&
             & this%extPressure, this%dftbEnergy(this%deltaDftb%iDeterminant)%TS, this%potential,&
             & this%dftbEnergy(this%deltaDftb%iDeterminant), this%thirdOrd, this%solvation,&
-            & this%rangeSep, this%reks, this%qDepExtPot, this%qBlockOut, this%qiBlockOut,&
+            & this%hybridXc, this%reks, this%qDepExtPot, this%qBlockOut, this%qiBlockOut,&
             & this%xi, this%iAtInCentralRegion, this%tFixEf, this%Ef, this%onSiteElements,&
             & this%qNetAtom, this%potential%intOnSiteAtom, this%potential%extOnSiteAtom)
 
@@ -1174,7 +1174,7 @@ contains
 
         ! Mix charges Input/Output
         if (this%tSccCalc) then
-          if (.not. this%isRangeSep) then
+          if (.not. this%isHybridXc) then
             call getNextInputCharges(env, this%pChrgMixer, this%qOutput, this%qOutRed, this%orb,&
                 & this%nIneqOrb, this%iEqOrbitals, iGeoStep, iSccIter, this%minSccIter,&
                 & this%maxSccIter, this%sccTol, tStopScc, this%tMixBlockCharges, this%tReadChrg,&
@@ -1197,7 +1197,7 @@ contains
                   & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell,&
                   & this%pChrgMixer, this%qOutput, this%orb, iGeoStep, iSccIter, this%minSccIter,&
                   & this%maxSccIter, this%sccTol, tStopScc, this%tReadChrg, this%q0, this%iCellVec,&
-                  & this%cellVec, this%rangeSep, this%qInput, sccErrorQ, tConverged,&
+                  & this%cellVec, this%hybridXc, this%qInput, sccErrorQ, tConverged,&
                   & this%densityMatrix%deltaRhoOut, this%densityMatrix%deltaRhoIn,&
                   & this%densityMatrix%deltaRhoDiff, this%qBlockIn, this%qBlockOut)
             end if
@@ -1253,7 +1253,7 @@ contains
               & this%dispersion, allocated(this%eField), this%tPeriodic, this%nSpin, this%tSpin,&
               & this%tSpinOrbit, this%tSccCalc, allocated(this%onSiteElements), this%tNegf,&
               & this%iAtInCentralRegion, this%electronicSolver, allocated(this%halogenXCorrection),&
-              & this%isRangeSep, allocated(this%thirdOrd), allocated(this%solvation))
+              & this%isHybridXc, allocated(this%thirdOrd), allocated(this%solvation))
         end if
 
         if (tConverged .or. tStopScc) then
@@ -1308,7 +1308,7 @@ contains
             & this%extPressure, this%cellVol, this%dftbEnergy(1)%TS, this%tAtomicEnergy,&
             & this%dispersion, this%tPeriodic, this%tSccCalc, this%invLatVec, this%kPoint,&
             & this%iAtInCentralRegion, this%electronicSolver, this%reks,&
-            & allocated(this%thirdOrd), this%isRangeSep, qNetAtom=this%qNetAtom)
+            & allocated(this%thirdOrd), this%isHybridXc, qNetAtom=this%qNetAtom)
       else
         call writeDetailedOut1(this%fdDetailedOut%unit, this%iDistribFn, this%nGeoSteps,&
             & iGeoStep, this%tMD, this%tDerivs, this%tCoordOpt, this%tLatOpt, iLatGeoStep,&
@@ -1325,7 +1325,7 @@ contains
             & this%dispersion, allocated(this%eField), this%tPeriodic, this%nSpin, this%tSpin,&
             & this%tSpinOrbit, this%tSccCalc, allocated(this%onSiteElements), this%tNegf,&
             & this%iAtInCentralRegion, this%electronicSolver, allocated(this%halogenXCorrection),&
-            & this%isRangeSep, allocated(this%thirdOrd), allocated(this%solvation))
+            & this%isHybridXc, allocated(this%thirdOrd), allocated(this%solvation))
       end if
     end if
 
@@ -1361,7 +1361,7 @@ contains
           & this%tPrintExcitedEigvecs, this%tPrintEigvecsTxt, this%nonSccDeriv,&
           & this%dftbEnergy(1), this%energiesCasida, this%SSqrReal, this%rhoSqrReal,&
           & this%densityMatrix%deltaRhoOutSqr, this%excitedDerivs, this%dQAtomEx, this%occNatural,&
-          & this%rangeSep)
+          & this%hybridXc)
     end if
 
     if (allocated(this%ppRPA)) then
@@ -1427,7 +1427,7 @@ contains
     if (this%tForces) then
       call env%globalTimer%startTimer(globalTimers%forceCalc)
       if (allocated(this%reks)) then
-        call getReksGradients(env, this%denseDesc, this%scc, this%rangeSep, this%dispersion,&
+        call getReksGradients(env, this%denseDesc, this%scc, this%hybridXc, this%dispersion,&
             & this%neighbourList, this%nNeighbourSK, this%iSparseStart, this%img2CentCell,&
             & this%orb, this%nonSccDeriv, this%skHamCont, this%skOverCont, this%repulsive,&
             & this%coord, this%coord0, this%species, this%q0, this%eigvecsReal,&
@@ -1458,7 +1458,7 @@ contains
             & this%img2CentCell, this%iSparseStart, this%orb, this%potential, this%coord,&
             & this%derivs, this%groundDerivs, this%tripletderivs, this%mixedderivs, this%iRhoPrim,&
             & this%thirdOrd, this%solvation, this%qDepExtPot, this%chrgForces, this%dispersion,&
-            & this%rangeSep, this%SSqrReal, this%ints, this%denseDesc,&
+            & this%hybridXc, this%SSqrReal, this%ints, this%denseDesc,&
             & this%densityMatrix%deltaRhoOutSqr, this%halogenXCorrection, this%tHelical,&
             & this%coord0, this%deltaDftb, this%tPeriodic)
 
@@ -1922,7 +1922,7 @@ contains
   !> Does the operations that are necessary after atomic coordinates change
   subroutine handleCoordinateChange(env, boundaryCond, coord0, latVec, invLatVec, species0, cutOff,&
       & orb, tPeriodic, tRealHS, tHelical, sccCalc, tblite, repulsive, dispersion, solvation,&
-      & thirdOrd, rangeSep, reks, img2CentCell, iCellVec, neighbourList, symNeighbourList,&
+      & thirdOrd, hybridXc, reks, img2CentCell, iCellVec, neighbourList, symNeighbourList,&
       & nAllAtom, coord0Fold, coord, species, cellVec, rCellVec, denseDescr, nNeighbourSK,&
       & nNeighbourCam, nNeighbourCamSym, ints, H0, rhoPrim, iRhoPrim, ERhoPrim, iSparseStart,&
       & cm5Cont, skOverCont, errStatus)
@@ -1979,7 +1979,7 @@ contains
     type(TThirdOrder), allocatable, intent(inout) :: thirdOrd
 
     !> Range separation contributions
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> data type for REKS
     type(TReksCalc), allocatable, intent(inout) :: reks
@@ -2116,14 +2116,14 @@ contains
     if (allocated(thirdOrd)) then
       call thirdOrd%updateCoords(neighbourList, species)
     end if
-    if (allocated(rangeSep)) then
+    if (allocated(hybridXc)) then
       if (.not. tPeriodic) then
-        call rangeSep%updateCoords_cluster(coord)
+        call hybridXc%updateCoords_cluster(coord)
       elseif (tPeriodic .and. tRealHS) then
-        call rangeSep%updateCoords_gamma(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
+        call hybridXc%updateCoords_gamma(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
             & latVec, invLatVec, denseDescr%iAtomStart)
       elseif (.not. tRealHS) then
-        call rangeSep%updateCoords_kpts(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
+        call hybridXc%updateCoords_kpts(env, symNeighbourList, nNeighbourCamSym, skOverCont, orb,&
             & latVec, invLatVec, cellVec, denseDescr%iAtomStart)
       end if
     end if
@@ -2406,7 +2406,7 @@ contains
       & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, kPoint, kWeight, orb,&
       & tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p, tPeriodic,&
       & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
-      & iDistribFn, tempElec, nEl, parallelKS, Ef, mu, energy, rangeSep, eigen, filling, rhoPrim,&
+      & iDistribFn, tempElec, nEl, parallelKS, Ef, mu, energy, hybridXc, eigen, filling, rhoPrim,&
       & xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx, SSqrCplxKpts,&
       & eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym,&
       & tLargeDenseMatrices, deltaDftb, errStatus)
@@ -2522,8 +2522,8 @@ contains
     !> Energy contributions and total
     type(TEnergies), intent(inout) :: energy
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> eigenvalues (level, kpoint, spin)
     real(dp), intent(out) :: eigen(:,:,:)
@@ -2614,7 +2614,7 @@ contains
           & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, kPoint, kWeight, orb,&
           & tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p, tPeriodic,&
           & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
-          & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, rangeSep, eigen, filling, rhoPrim,&
+          & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, hybridXc, eigen, filling, rhoPrim,&
           & xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx,&
           & SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym,&
           & deltaDftb, errStatus)
@@ -2642,7 +2642,7 @@ contains
       & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, kPoint, kWeight, orb,&
       & tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p, tPeriodic,&
       & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
-      & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, rangeSep, eigen, filling, rhoPrim, xi,&
+      & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, hybridXc, eigen, filling, rhoPrim, xi,&
       & orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx, SSqrCplxKpts,&
       & eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym, deltaDftb,&
       & errStatus)
@@ -2749,8 +2749,8 @@ contains
     !> Energy contributions and total
     type(TEnergies), intent(inout) :: energy
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), intent(inout), allocatable :: hybridXc
 
     !> eigenvalues (level, kpoint, spin)
     real(dp), intent(out) :: eigen(:,:,:)
@@ -2818,14 +2818,14 @@ contains
         call buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, cellVec, rCellVecs,&
             & iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord, electronicSolver,&
-            & parallelKS, rangeSep, densityMatrix%deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym,&
+            & parallelKS, hybridXc, densityMatrix%deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym,&
             & HSqrReal, SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
         @:PROPAGATE_ERROR(errStatus)
       else
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
             & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species,&
-            & coord, rangeSep, densityMatrix%deltaRhoOutSqrCplx, densityMatrix%deltaRhoInSqrCplxHS,&
+            & coord, hybridXc, densityMatrix%deltaRhoOutSqrCplx, densityMatrix%deltaRhoInSqrCplxHS,&
             & nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts, eigVecsCplx,&
             & eigen, errStatus)
         @:PROPAGATE_ERROR(errStatus)
@@ -2852,7 +2852,7 @@ contains
         call getDensityFromCplxEigvecs(env, denseDesc, filling, kPoint, kWeight, neighbourList,&
             & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, orb,&
             & parallelKS, tHelical, species, coord, eigvecsCplx, rhoPrim, SSqrCplx,&
-            & densityMatrix%deltaRhoOutSqrCplx, rangeSep)
+            & densityMatrix%deltaRhoOutSqrCplx, hybridXc)
       end if
       call ud2qm(rhoPrim)
     else
@@ -2873,7 +2873,7 @@ contains
   subroutine buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
       & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, cellVecs, rCellVecs,&
       & iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord, electronicSolver, parallelKS,&
-      & rangeSep, deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym, HSqrReal, SSqrReal, eigvecsReal,&
+      & hybridXc, deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym, HSqrReal, SSqrReal, eigvecsReal,&
       & eigen, errStatus)
 
     !> Environment settings
@@ -2936,10 +2936,10 @@ contains
     !> K-points and spins to be handled
     type(TParallelKS), intent(in) :: parallelKS
 
-    !>Data for rangeseparated calculation
-    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    !>Data for hybrid xc-functional calculation
+    class(THybridXcFunc), intent(inout), allocatable :: hybridXc
 
-    !> Change in density matrix during last rangesep SCC cycle
+    !> Change in density matrix during last hybridXc SCC cycle
     real(dp), intent(in), pointer :: deltaRhoInSqr(:,:,:)
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
@@ -2967,7 +2967,7 @@ contains
 
     eigen(:,:) = 0.0_dp
 
-    if (allocated(rangeSep) .and. tPeriodic) then
+    if (allocated(hybridXc) .and. tPeriodic) then
       ! Periodic, non-helical, Gamma-point only, range-separated
       ! For now, requires different, admittedly extremely stupid parallelization method,
       ! which only speeds up building the Hartree-Fock Hamiltonian (complain @vanderhe)!
@@ -2982,7 +2982,7 @@ contains
         call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
         ! Add CAM contribution (periodic case)
-        call rangeSep%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
+        call hybridXc%addCamHamiltonian_gamma(env, deltaRhoInSqr(:,:, iSpin), SSqrReal,&
             & symNeighbourList, nNeighbourCamSym, denseDesc%iAtomStart, orb, iKS,&
             & parallelKS%nLocalKS, HSqrReal)
 
@@ -3019,8 +3019,8 @@ contains
         call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
         ! Add CAM contribution (non-periodic case)
-        if (allocated(rangeSep)) then
-          call rangeSep%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
+        if (allocated(hybridXc)) then
+          call hybridXc%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
               & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
               & HSqrReal, SSqrReal)
         end if
@@ -3044,8 +3044,8 @@ contains
         call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
         ! Add CAM contribution (non-periodic case)
-        if (allocated(rangeSep)) then
-          call rangeSep%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
+        if (allocated(hybridXc)) then
+          call hybridXc%addCamHamiltonian_cluster(env, deltaRhoInSqr(:,:, iSpin), ints%overlap,&
               & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
               & HSqrReal, SSqrReal)
         end if
@@ -3072,7 +3072,7 @@ contains
   subroutine buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
       & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
       & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord,&
-      & rangeSep, deltaRhoOutSqrCplx, deltaRhoInSqrCplxHS, nNeighbourCam, nNeighbourCamSym,&
+      & hybridXc, deltaRhoOutSqrCplx, deltaRhoInSqrCplxHS, nNeighbourCam, nNeighbourCamSym,&
       & HSqrCplx, SSqrCplx, SSqrCplxKpts, eigvecsCplx, eigen, errStatus)
 
     !> Environment settings
@@ -3138,13 +3138,13 @@ contains
     !> Atomic coordinates
     real(dp), intent(in) :: coord(:,:)
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), intent(inout), allocatable :: hybridXc
 
-    !> Change in complex density matrix during last rangesep SCC cycle
+    !> Change in complex density matrix during last hybridXc SCC cycle
     complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
 
-    !> Change in complex density matrix during last rangesep SCC cycle
+    !> Change in complex density matrix during last hybridXc SCC cycle
     real(dp), intent(in), pointer :: deltaRhoInSqrCplxHS(:,:,:,:,:,:)
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
@@ -3188,7 +3188,7 @@ contains
       HSqrCplxCam(:,:,:) = (0.0_dp, 0.0_dp)
     end if
 
-    if (allocated(rangeSep)) then
+    if (allocated(hybridXc)) then
       ! Build spin/k-point composite index for all spins and k-points (global)
       iKS = 1
       allocate(iKiSToiKS(size(kPoint, dim=2), size(deltaRhoInSqrCplxHS, dim=6)))
@@ -3201,7 +3201,7 @@ contains
 
       ! Pre-calculate CAM-Hamiltonian and overlap
       ! Get CAM-Hamiltonian contribution for all spins/k-points
-      call rangeSep%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx,&
+      call hybridXc%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx,&
           & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
           & denseDesc%iAtomStart, orb, kPoint, kWeight, parallelKS%localKS, HSqrCplxCam)
 
@@ -3245,7 +3245,7 @@ contains
 
       ! Add CAM contribution to local Hamiltonian
       ! (Works only if total number of MPI processes matches number of MPI groups.)
-      if (allocated(rangeSep)) then
+      if (allocated(hybridXc)) then
         ! Index iK at this point is only working for spin-restricted calculations
         HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iKiSToiKS(iK, iSpin))
       end if
@@ -3272,7 +3272,7 @@ contains
 
       ! Add CAM contribution to local Hamiltonian
       ! (Works only if total number of MPI processes matches number of MPI groups.)
-      if (allocated(rangeSep)) then
+      if (allocated(hybridXc)) then
         ! Index iK at this point is only working for spin-restricted calculations
         HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iKiSToiKS(iK, iSpin))
       end if
@@ -3290,7 +3290,7 @@ contains
   #:endif
 
   #:if WITH_MPI
-    if (allocated(rangeSep)) then
+    if (allocated(hybridXc)) then
       ! Distribute all complex, square, k-space overlaps to all nodes via global summation
       call mpifx_allreduceip(env%mpi%interGroupComm, SSqrCplxKpts, MPI_SUM)
     end if
@@ -3478,7 +3478,7 @@ contains
     !> Dense density matrix if needed
     real(dp), intent(inout), allocatable  :: rhoSqrReal(:,:,:)
 
-    !> Change in density matrix during this SCC step for rangesep
+    !> Change in density matrix during this SCC step for hybridXc
     real(dp), intent(in), pointer :: deltaRhoOutSqr(:,:,:)
 
     integer :: iKS, iSpin
@@ -3588,7 +3588,7 @@ contains
   !> Creates sparse density matrix from complex eigenvectors.
   subroutine getDensityFromCplxEigvecs(env, denseDesc, filling, kPoint, kWeight, neighbourList,&
       & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, orb, parallelKS, tHelical,&
-      & species, coord, eigvecs, rhoPrim, work, deltaRhoOutSqrCplx, rangeSep)
+      & species, coord, eigvecs, rhoPrim, work, deltaRhoOutSqrCplx, hybridXc)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3650,8 +3650,8 @@ contains
     !> Complex, square dual-space deltaRho output from range separation
     complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), intent(in), allocatable :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), intent(in), allocatable :: hybridXc
 
     !! K-point-spin composite index and k-point/spin index
     integer :: iKS, iK, iSpin
@@ -3694,7 +3694,7 @@ contains
       end if
       call env%globalTimer%stopTimer(globalTimers%denseToSparse)
     #:endif
-      if (allocated(rangeSep)) then
+      if (allocated(hybridXc)) then
         ! Store square density matrix P(iKS), since currently needed for q0 substraction
         call hermitianSquareMatrix(work)
         deltaRhoOutSqrCplx(:,:, iKS) = work
@@ -4283,7 +4283,7 @@ contains
   end subroutine getNextInputCharges
 
 
-  !> Update delta density matrix rather than merely q for rangeseparation
+  !> Update delta density matrix rather than merely q for hybrid xc-functionals.
   subroutine getNextInputDensityReal(SSqrReal, ints, neighbourList, nNeighbourSK, iAtomStart,&
       & iSparseStart, img2CentCell, pChrgMixer, qOutput, orb, tHelical, species, coord, iGeoStep,&
       & iSccIter, minSccIter, maxSccIter, sccTol, tStopScc, tReadChrg, q0, qInput, sccErrorQ,&
@@ -4361,16 +4361,16 @@ contains
     !> Has the calculation converged?
     logical, intent(out) :: tConverged
 
-    !> delta density matrix for rangeseparated calculations
+    !> Delta density matrix for hybrid xc-functional calculations
     real(dp), intent(inout) :: deltaRhoOut(:)
 
-    !> delta density matrix as input for next SCC cycle
+    !> Delta density matrix as input for next SCC cycle
     real(dp), intent(inout), target :: deltaRhoIn(:)
 
-    !> difference of delta density matrix in and out
+    !> Difference of delta density matrix in and out
     real(dp), intent(inout) :: deltaRhoDiff(:)
 
-    !> block charge input (if needed for orbital potentials)
+    !> Block charge input (if needed for orbital potentials)
     real(dp), intent(inout), allocatable :: qBlockIn(:,:,:,:)
 
     !> Dual output charges
@@ -4413,7 +4413,7 @@ contains
         call mix(pChrgMixer, deltaRhoIn, deltaRhoDiff)
         call denseMulliken(deltaRhoInSqr, SSqrReal, iAtomStart, qInput)
 
-        ! RangeSep: for spin-unrestricted calculation the initial guess should be equally
+        ! HybridXc: For spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices
         if (nSpin == 2) then
           qInput(:,:,1) = qInput(:,:,1) + q0(:,:,1) * 0.5_dp
@@ -4443,10 +4443,10 @@ contains
   end subroutine getNextInputDensityReal
 
 
-  !> Update delta density matrix rather than merely q for rangeseparation
+  !> Update delta density matrix rather than merely q for hybrid xc-functionals.
   subroutine getNextInputDensityCplx(ints, neighbourList, nNeighbourSK, iAtomStart, iSparseStart,&
       & img2CentCell, pChrgMixer, qOutput, orb, iGeoStep, iSccIter, minSccIter, maxSccIter, sccTol,&
-      & tStopScc, tReadChrg, q0, iCellVec, cellVec, rangeSep, qInput, sccErrorQ, tConverged,&
+      & tStopScc, tReadChrg, q0, iCellVec, cellVec, hybridXc, qInput, sccErrorQ, tConverged,&
       & deltaRhoOut, deltaRhoIn, deltaRhoDiff, qBlockIn, qBlockOut)
 
     !> Integral container
@@ -4506,8 +4506,8 @@ contains
     !> Relative coordinates of the cell translation vectors.
     real(dp), intent(in) :: cellVec(:,:)
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), intent(in) :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), intent(in) :: hybridXc
 
     !> Resulting input charges for next SCC iteration
     real(dp), intent(inout) :: qInput(:,:,:)
@@ -4518,16 +4518,16 @@ contains
     !> Has the calculation converged>
     logical, intent(out) :: tConverged
 
-    !> delta density matrix for rangeseparated calculations
+    !> Delta density matrix for hybrid xc-functional calculations
     real(dp), intent(inout) :: deltaRhoOut(:)
 
-    !> delta density matrix as input for next SCC cycle
+    !> Delta density matrix as input for next SCC cycle
     real(dp), intent(inout), target :: deltaRhoIn(:)
 
-    !> difference of delta density matrix in and out
+    !> Difference of delta density matrix in and out
     real(dp), intent(inout) :: deltaRhoDiff(:)
 
-    !> block charge input (if needed for orbital potentials)
+    !> Block charge input (if needed for orbital potentials)
     real(dp), intent(inout), allocatable :: qBlockIn(:,:,:,:)
 
     !> Dual output charges
@@ -4541,8 +4541,8 @@ contains
 
     nSpin = size(qOutput, dim=3)
 
-    deltaRhoInSqrCplxHS(1:orb%nOrb, 1:orb%nOrb, 1:rangeSep%coeffsDiag(1), 1:rangeSep%coeffsDiag(2),&
-        & 1:rangeSep%coeffsDiag(3), 1:nSpin) => deltaRhoIn
+    deltaRhoInSqrCplxHS(1:orb%nOrb, 1:orb%nOrb, 1:hybridXc%coeffsDiag(1), 1:hybridXc%coeffsDiag(2),&
+        & 1:hybridXc%coeffsDiag(3), 1:nSpin) => deltaRhoIn
 
     deltaRhoDiff(:) = deltaRhoOut - deltaRhoIn
     sccErrorQ = maxval(abs(deltaRhoDiff))
@@ -4560,11 +4560,11 @@ contains
         call mix(pChrgMixer, deltaRhoIn, deltaRhoDiff)
 
         call mulliken(qInput, ints%overlap, deltaRhoInSqrCplxHS, orb, neighbourList%iNeighbour,&
-            & nNeighbourSK, img2CentCell, iSparseStart, iAtomStart, iCellVec, cellVec, rangeSep)
+            & nNeighbourSK, img2CentCell, iSparseStart, iAtomStart, iCellVec, cellVec, hybridXc)
 
-        ! RangeSep: for spin-unrestricted calculation the initial guess should be equally
-        ! distributed to alpha and beta density matrices
-        ! transforms net charges --> populations (i.e. number of electrons)
+        ! HybridXc: for spin-unrestricted calculation the initial guess should be equally
+        ! distributed to alpha and beta density matrices.
+        ! Transforms net charges --> populations (i.e. number of electrons)
         if (nSpin == 2) then
           qInput(:,:,1) = qInput(:,:,1) + q0(:,:,1) * 0.5_dp
           qInput(:,:,2) = qInput(:,:,2) + q0(:,:,1) * 0.5_dp
@@ -4827,7 +4827,7 @@ contains
       & skOverCont, autotestTag, taggedWriter, runId, neighbourList, nNeighbourSk, denseDesc,&
       & iSparseStart, img2CentCell, tWriteAutotest, tForces, tLinRespZVect, tPrintExcEigvecs,&
       & tPrintExcEigvecsTxt, nonSccDeriv, dftbEnergy, energies, work, rhoSqrReal, deltaRhoOutSqr,&
-      & excitedDerivs, dQAtomEx, occNatural, rangeSep)
+      & excitedDerivs, dQAtomEx, occNatural, hybridXc)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -4944,7 +4944,7 @@ contains
     real(dp), intent(inout), allocatable :: occNatural(:)
 
     !> Data for range-separated calculation
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     real(dp), allocatable :: dQAtom(:,:)
     real(dp), allocatable :: naturalOrbs(:,:,:)
@@ -4968,7 +4968,7 @@ contains
         call blockSymmetrizeHS(rhoSqrReal(:,:,iSpin), denseDesc%iAtomStart)
       end do
     end if
-    if (tForces .and. allocated(rangeSep)) then
+    if (tForces .and. allocated(hybridXc)) then
       do iSpin = 1, nSpin
         call blockSymmetrizeHS(deltaRhoOutSqr(:,:,iSpin), denseDesc%iAtomStart)
       end do
@@ -4984,7 +4984,7 @@ contains
       call LinResp_addGradients(tSpin, linearResponse, denseDesc%iAtomStart, eigvecsReal, eigen,&
           & work, filling, coord(:,:nAtom), sccCalc, dQAtom, pSpecies0, neighbourList%iNeighbour,&
           & img2CentCell, orb, skHamCont, skOverCont, tWriteAutotest, fdAutotest, taggedWriter,&
-          & rangeSep, dftbEnergy%Eexcited, energies, excitedDerivs, nonSccDeriv,&
+          & hybridXc, dftbEnergy%Eexcited, energies, excitedDerivs, nonSccDeriv,&
           & rhoSqrReal, deltaRhoOutSqr, occNatural, naturalOrbs)
       if (tPrintExcEigvecs) then
         call writeRealEigvecs(env, runId, neighbourList, nNeighbourSK, denseDesc, iSparseStart,&
@@ -4995,7 +4995,7 @@ contains
       call linResp_calcExcitations(linearResponse, tSpin, denseDesc, eigvecsReal, eigen, work,&
           & filling, coord(:,:nAtom), sccCalc, dQAtom, pSpecies0, neighbourList%iNeighbour,&
           & img2CentCell, orb, tWriteAutotest, fdAutotest, taggedWriter,&
-          & rangeSep, dftbEnergy%Eexcited, energies)
+          & hybridXc, dftbEnergy%Eexcited, energies)
     end if
     dftbEnergy%Etotal = dftbEnergy%Etotal + dftbEnergy%Eexcited
     dftbEnergy%EMermin = dftbEnergy%EMermin + dftbEnergy%Eexcited
@@ -5988,7 +5988,7 @@ contains
       & symNeighbourList, nNeighbourSK, nNeighbourCamSym, cellVecs, rCellVecs, iCellVec, latVecs,&
       & recVecs2p, species, img2CentCell, iSparseStart, orb, potential, coord, derivs,&
       & groundDerivs, tripletderivs, mixedderivs, iRhoPrim, thirdOrd, solvation, qDepExtPot,&
-      & chrgForces, dispersion, rangeSep, SSqrReal, ints, denseDesc, deltaRhoOutSqr,&
+      & chrgForces, dispersion, hybridXc, SSqrReal, ints, denseDesc, deltaRhoOutSqr,&
       & halogenXCorrection, tHelical, coord0, deltaDftb, tPeriodic)
 
     !> Environment settings
@@ -6108,19 +6108,19 @@ contains
     !> dispersion interactions
     class(TDispersionIface), intent(inout), allocatable :: dispersion
 
-    !> Data from rangeseparated calculations
-    class(TRangeSepFunc), intent(inout), allocatable :: rangeSep
+    !> Data from hybrid xc-functional calculations
+    class(THybridXcFunc), intent(inout), allocatable :: hybridXc
 
-    !> dense overlap matrix, required for rangeSep
+    !> dense overlap matrix, required for hybridXc
     real(dp), intent(inout), allocatable :: SSqrReal(:,:)
 
     !> Integral container
     type(TIntegral), intent(in) :: ints
 
-    !> Dense matrix descriptor, required for rangeSep
+    !> Dense matrix descriptor, required for hybridXc
     type(TDenseDescr), intent(in) :: denseDesc
 
-    !> Change in density matrix during this SCC step for rangesep
+    !> Change in density matrix during this SCC step for hybridXc
     real(dp), pointer, intent(in) :: deltaRhoOutSqr(:,:,:)
 
     !> Correction for halogen bonds
@@ -6252,7 +6252,7 @@ contains
       call halogenXCorrection%addGradients(derivs, coord, species, neighbourList, img2CentCell)
     end if
 
-    if (allocated(rangeSep)) then
+    if (allocated(hybridXc)) then
       if (tHelical) then
         call unpackHelicalHS(SSqrReal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK,&
             & denseDesc%iAtomStart, iSparseStart, img2CentCell, orb, species, coord)
@@ -6264,10 +6264,10 @@ contains
         call error("Range separated forces do not support non-colinear spin")
       else
         if (tPeriodic) then
-          call rangeSep%addCamGradients_gamma(deltaRhoOutSqr, skOverCont, symNeighbourList,&
+          call hybridXc%addCamGradients_gamma(deltaRhoOutSqr, skOverCont, symNeighbourList,&
               & nNeighbourCamSym, denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
         else
-          call rangeSep%addCamGradients_cluster(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont,&
+          call hybridXc%addCamGradients_cluster(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont,&
               & orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour, nNeighbourSK)
         end if
       end if
@@ -7387,22 +7387,22 @@ contains
     !> K-points and spins to process
     type(TParallelKS), intent(in) :: parallelKS
 
-    !> sparse density matrix
+    !> Sparse density matrix
     real(dp), intent(inout) :: rhoPrim(:,:)
 
-    !> work space array
+    !> Work space array
     real(dp), intent(inout) :: work(:,:)
 
     !> Dense density matrix if needed
     real(dp), intent(inout), allocatable :: rhoSqrReal(:,:,:)
 
-    !> reference atomic occupations
+    !> Reference atomic occupations
     real(dp), intent(in) :: q0(:,:,:)
 
-    !> Change in density matrix during this SCC step for rangesep
+    !> Change in density matrix during this SCC step for hybridXc
     real(dp), pointer, intent(inout) :: deltaRhoOutSqr(:,:,:)
 
-    !> data type for REKS
+    !> Data type for REKS
     type(TReksCalc), intent(inout) :: reks
 
     integer :: iL
@@ -7423,7 +7423,7 @@ contains
 
       if (reks%tForces) then
         ! reks%rhoSqrL has (my_ud) component
-        if (reks%isRangeSep) then
+        if (reks%isHybridXc) then
           reks%rhoSqrL(:,:,1,iL) = deltaRhoOutSqr(:,:,1)
         else
           reks%rhoSqrL(:,:,1,iL) = work
@@ -7433,7 +7433,7 @@ contains
         reks%rhoSpL(:,1,iL) = rhoPrim(:,1)
       end if
 
-      if (reks%isRangeSep) then
+      if (reks%isHybridXc) then
         ! reks%deltaRhoSqrL has (my_ud) component
         reks%deltaRhoSqrL(:,:,1,iL) = deltaRhoOutSqr(:,:,1)
       end if
@@ -7441,7 +7441,7 @@ contains
       if (reks%tForces) then
         call symmetrizeHS(reks%rhoSqrL(:,:,1,iL))
       end if
-      if (reks%isRangeSep) then
+      if (reks%isHybridXc) then
         call symmetrizeHS(reks%deltaRhoSqrL(:,:,1,iL))
         call denseSubtractDensityOfAtoms(q0, denseDesc%iAtomStart, reks%deltaRhoSqrL(:,:,:,iL), 1)
       end if
@@ -7556,7 +7556,7 @@ contains
   subroutine getHamiltonianLandEnergyL(env, denseDesc, sccCalc, tblite, orb, species,&
       & neighbourList, symNeighbourList, nNeighbourSK, iSparseStart, cellVecs, rCellVecs, iCellVec,&
       & latVecs, recVecs2p, img2CentCell, H0, ints, spinW, cellVol, extPressure, energy, q0,&
-      & iAtInCentralRegion, solvation, thirdOrd, potential, rangeSep, nNeighbourCam,&
+      & iAtInCentralRegion, solvation, thirdOrd, potential, hybridXc, nNeighbourCam,&
       & nNeighbourCamSym, tDualSpinOrbit, xi, isExtField, isXlbomd, dftbU, TS, qDepExtPot, qBlock,&
       & qiBlock, tFixEf, Ef, rhoPrim, onSiteElements, dispersion, tConverged, species0,&
       & referenceN0, qNetAtom, multipole, reks)
@@ -7642,8 +7642,8 @@ contains
     !> potentials acting
     type(TPotentials), intent(inout) :: potential
 
-    !> Data for rangeseparated calculation
-    class(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
+    !> Data for hybrid xc-functional calculation
+    class(THybridXcFunc), allocatable, intent(inout) :: hybridXc
 
     !> Nr. of neighbours for each atom in the CAM functional
     integer, intent(in), allocatable :: nNeighbourCam(:)
@@ -7724,11 +7724,11 @@ contains
     pSpecies0 => species(1:nAtom)
 
     allocate(tmpHamSp(sparseSize,1))
-    if (reks%isRangeSep) then
+    if (reks%isHybridXc) then
       allocate(tmpEn(reks%Lmax))
     end if
 
-    ! Calculate contribution to Hamiltonian except rangeseparated part
+    ! Calculate contribution to Hamiltonian except hybrid xc-functional part
     reks%intShellL(:,:,:,:) = 0.0_dp
     reks%intBlockL(:,:,:,:,:) = 0.0_dp
     do iL = 1, reks%Lmax
@@ -7770,7 +7770,7 @@ contains
           & iSparseStart, img2CentCell, potential, allocated(reks), tmpHamSp, ints%iHamiltonian)
       tmpHamSp(:,1) = 2.0_dp * tmpHamSp(:,1)
 
-      if (reks%isRangeSep) then
+      if (reks%isHybridXc) then
         ! reks%hamSqrL has (my_qm) component
         reks%hamSqrL(:,:,1,iL) = 0.0_dp
         call env%globalTimer%startTimer(globalTimers%sparseToDense)
@@ -7785,8 +7785,8 @@ contains
 
     end do
 
-    ! Calculate contribution to Hamiltonian including rangeseparated part
-    if (.not. reks%isRangeSep) then
+    ! Calculate contribution to Hamiltonian including hybrid xc-functional part
+    if (.not. reks%isHybridXc) then
       ! reks%hamSpL has (my_ud) component
       call qm2udL(reks%hamSpL, reks%Lpaired)
     else
@@ -7796,16 +7796,16 @@ contains
       do iL = 1, reks%Lmax
         ! Add range-separated contribution to Hamiltonian
         if (reks%tPeriodic) then
-          call rangeSep%addCamHamiltonian_gamma(env, reks%deltaRhoSqrL(:,:,1,iL), reks%overSqr,&
+          call hybridXc%addCamHamiltonian_gamma(env, reks%deltaRhoSqrL(:,:,1,iL), reks%overSqr,&
               & symNeighbourList, nNeighbourCamSym, denseDesc%iAtomStart, orb, 1, 1,&
               & reks%hamSqrL(:,:,1,iL))
         else
-          call rangeSep%addCamHamiltonian_cluster(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
+          call hybridXc%addCamHamiltonian_cluster(env, reks%deltaRhoSqrL(:,:,1,iL), ints%overlap,&
               & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
               & reks%hamSqrL(:,:,1,iL), reks%overSqr)
         end if
         ! Calculate range-separated exchange energy for spin up
-        call rangeSep%addCamEnergy(env, tmpEn(iL))
+        call hybridXc%addCamEnergy(env, tmpEn(iL))
       end do
     end if
 
@@ -7813,7 +7813,7 @@ contains
     ! Calculate energy contribution corresponding to upper Hamiltonian
     do iL = 1, reks%Lmax
 
-      ! Get microstate index for non-SCC and rangeseparation energy contribution
+      ! Get microstate index for non-SCC and hybrid xc-functional energy contribution
       if (iL <= reks%Lpaired) then
         tmpL = iL
         rsL = iL
@@ -7827,7 +7827,7 @@ contains
         end if
       end if
       ! Set the long-range corrected energy contribution
-      if (reks%isRangeSep) then
+      if (reks%isHybridXc) then
         energy%Efock = tmpEn(iL) + tmpEn(rsL)
       end if
 
@@ -7857,7 +7857,7 @@ contains
           & reks%chargePerShellL(:,:,:,iL), multipole, species, isExtField, isXlbomd, dftbU,&
           & tDualSpinOrbit, rhoPrim, H0, orb, neighbourList, nNeighbourSk, img2CentCell,&
           & iSparseStart, cellVol, extPressure, TS, potential, energy, thirdOrd, solvation,&
-          & rangeSep, reks, qDepExtPot, qBlock, qiBlock, xi, iAtInCentralRegion, tFixEf, Ef,&
+          & hybridXc, reks, qDepExtPot, qBlock, qiBlock, xi, iAtInCentralRegion, tFixEf, Ef,&
           & onSiteElements)
 
       if (allocated(dispersion)) then
@@ -7883,7 +7883,7 @@ contains
       if (allocated(thirdOrd)) then
         reks%enL3rd(iL) = energy%e3rd
       end if
-      if (reks%isRangeSep) then
+      if (reks%isHybridXc) then
         reks%enLfock(iL) = energy%Efock
       end if
       if (reks%isDispersion) then
@@ -7995,7 +7995,7 @@ contains
   end subroutine getReksNextInputCharges
 
 
-  !> Update delta density matrix rather than merely q for rangeseparation
+  !> Update delta density matrix rather than merely q for hybrid xc-functionals.
   subroutine getReksNextInputDensity(sccErrorQ, sccTol, tConverged, &
       & iSccIter, minSccIter, maxSccIter, iGeoStep, tStopScc, &
       & eigvecs, deltaRhoOut, deltaRhoIn, deltaRhoDiff, reks)
@@ -8027,7 +8027,7 @@ contains
     !> Eigenvectors on eixt
     real(dp), intent(inout) :: eigvecs(:,:,:)
 
-    !> delta density matrix for rangeseparated calculations
+    !> delta density matrix for hybrid xc-functional calculations
     real(dp), intent(inout) :: deltaRhoOut(:)
 
     !> delta density matrix as inpurt for next SCC cycle

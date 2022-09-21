@@ -14,7 +14,7 @@ module dftbp_dftb_sccinit
   use dftbp_io_message, only : error
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_multipole, only : TMultipole
-  use dftbp_dftb_rangeseparated, only : checkSupercellFoldingMatrix
+  use dftbp_dftb_hybridxc, only : checkSupercellFoldingMatrix
   implicit none
 
   private

@@ -47,8 +47,8 @@ module dftbp_dftbplus_initprogram
       & getCellTranslations
   use dftbp_dftb_pmlocalisation, only : TPipekMezey, initialise
   use dftbp_dftb_potentials, only : TPotentials, TPotentials_init
-  use dftbp_dftb_rangeseparated, only : TRangeSepFunc, rangeSepTypes, rangeSepGammaTypes,&
-      & TRangeSepFunc_init, checkSupercellFoldingMatrix
+  use dftbp_dftb_hybridxc, only : THybridXcFunc, hybridXcAlgo, hybridXcFunc, hybridXcGammaTypes,&
+      & THybridXcFunc_init, checkSupercellFoldingMatrix
   use dftbp_dftb_repulsive_chimesrep, only : TChimesRepInp, TChimesRep, TChimesRep_init
   use dftbp_dftb_repulsive_pairrepulsive, only : TPairRepulsiveItem
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
@@ -65,7 +65,7 @@ module dftbp_dftbplus_initprogram
   use dftbp_dftb_uniquehubbard, only : TUniqueHubbard, TUniqueHubbard_init
   use dftbp_dftbplus_elstattypes, only : elstatTypes
   use dftbp_dftbplus_forcetypes, only : forceTypes
-  use dftbp_dftbplus_inputdata, only : TParallelOpts, TInputData, TRangeSepInp, TControl, TBlacsOpts
+  use dftbp_dftbplus_inputdata, only : TParallelOpts, TInputData, THybridXcInp, TControl, TBlacsOpts
   use dftbp_dftbplus_mainio, only : initOutputFile
   use dftbp_dftbplus_outputfiles, only : autotestTag, bandOut, derivEBandOut, hessianOut, mdOut,&
       & resultsTag, userOut, fCharges, fStopDriver, fStopSCC
@@ -162,10 +162,10 @@ module dftbp_dftbplus_initprogram
   !> Interaction cutoff distances
   type :: TCutoffs
 
-    !>
+    !> Cutoff for overlap and Hamiltonian according to SK-files
     real(dp) :: skCutOff
 
-    !>
+    !> Cutoff for overlap and Hamiltonian according to SK-files minus possible cutoff reduction
     real(dp) :: camCutOff
 
     !> Cutoff for real-space g-summation in CAM Hartree-Fock contributions
@@ -767,11 +767,11 @@ module dftbp_dftbplus_initprogram
     !> data type for linear response
     type(TLinResp), allocatable :: linearResponse
 
-    !> Whether to run a range separated calculation
-    logical :: isRangeSep
+    !> Whether to run a hybrid xc-functional calculation
+    logical :: isHybridXc
 
     !> Range Separation data
-    class(TRangeSepFunc), allocatable :: rangeSep
+    class(THybridXcFunc), allocatable :: hybridXc
 
     !> Holds real and complex delta density matrices and pointers
     type(TDensityMatrix) :: densityMatrix
@@ -1145,9 +1145,9 @@ module dftbp_dftbplus_initprogram
     procedure :: initDetArrays
     procedure :: allocateDenseMatrices
     procedure :: getDenseDescCommon
-    procedure :: ensureRangeSeparatedReqs
-    procedure :: reallocateRangeSeparated
-    procedure :: associateRangeSeparatedPointers
+    procedure :: ensureHybridXcReqs
+    procedure :: reallocateHybridXc
+    procedure :: associateHybridXcPointers
     procedure :: initPlumed
 
   end type TDftbPlusMain
@@ -1326,7 +1326,7 @@ contains
     this%tSpinOrbit = input%ctrl%tSpinOrbit
     this%tDualSpinOrbit = input%ctrl%tDualSpinOrbit
     this%t2Component = input%ctrl%t2Component
-    this%isRangeSep = allocated(input%ctrl%rangeSepInp)
+    this%isHybridXc = allocated(input%ctrl%hybridXcInp)
 
     if (this%t2Component) then
       this%nSpin = 4
@@ -1436,7 +1436,7 @@ contains
 
     call env%initMpi(input%ctrl%parallelOpts%nGroup)
 
-    if (this%isRangeSep .and. (.not. this%tRealHS)&
+    if (this%isHybridXc .and. (.not. this%tRealHS)&
         & .and. (input%ctrl%parallelOpts%nGroup /= env%mpi%globalComm%size)) then
       ! General k-point case (parallelized over k-points)
       write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations beyond the Gamma point, the&
@@ -1444,7 +1444,7 @@ contains
           & processes.' // NEW_LINE('A') // '   Obtained (', input%ctrl%parallelOpts%nGroup, ')&
           & groups for (', env%mpi%globalComm%size, ') total MPI processes!'
       call error(trim(tmpStr))
-    elseif (this%isRangeSep .and. this%tPeriodic .and. this%tRealHS&
+    elseif (this%isHybridXc .and. this%tPeriodic .and. this%tRealHS&
         & .and. (input%ctrl%parallelOpts%nGroup /= 1)) then
       ! Gamma-point case (HF Hamiltonian build-up parallelized)
       write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations at the Gamma point, the&
@@ -1454,7 +1454,7 @@ contains
       call error(trim(tmpStr))
     end if
 
-    if (this%isRangeSep .and. this%tPeriodic .and. this%tRealHS&
+    if (this%isHybridXc .and. this%tPeriodic .and. this%tRealHS&
         & .and. (env%mpi%globalComm%size > this%nAtom**2)) then
       write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations at the Gamma point, the&
           & number of MPI' // NEW_LINE('A') // '  ranks must not exceed nAtom**2.'&
@@ -1854,7 +1854,7 @@ contains
     end if
 
     this%tMulliken = input%ctrl%tMulliken .or. this%tPrintMulliken .or. this%isExtField .or.&
-        & this%tFixEf .or. this%tSpinSharedEf .or. this%isRangeSep .or.&
+        & this%tFixEf .or. this%tSpinSharedEf .or. this%isHybridXc .or.&
         & this%electronicSolver%iSolver == electronicSolverTypes%GF
     this%tAtomicEnergy = input%ctrl%tAtomicEnergy
     this%tPrintEigVecs = input%ctrl%tPrintEigVecs
@@ -1975,7 +1975,7 @@ contains
       if (this%t3rdFull .or. this%t3rd) then
         call error ("Third order DFTB is not currently available for transport calculations")
       end if
-      if (this%isRangeSep) then
+      if (this%isHybridXc) then
         call error("Range separated calculations do not yet work with transport calculations")
       end if
     end if
@@ -2336,7 +2336,7 @@ contains
       this%isEResp = allocated(input%ctrl%dynEFreq)
       if (this%isEResp) then
         call move_alloc(input%ctrl%dynEFreq, this%dynRespEFreq)
-        if (this%isRangeSep .and. any(this%dynRespEFreq /= 0.0_dp)) then
+        if (this%isHybridXc .and. any(this%dynRespEFreq /= 0.0_dp)) then
           call error("Finite frequency range separated calculation not currently supported")
         end if
       end if
@@ -2344,7 +2344,7 @@ contains
       this%isKernelResp = allocated(input%ctrl%dynKernelFreq)
       if (this%isKernelResp) then
         call move_alloc(input%ctrl%dynKernelFreq, this%dynKernelFreq)
-        if (this%isRangeSep .and. any(this%dynKernelFreq /= 0.0_dp)) then
+        if (this%isHybridXc .and. any(this%dynKernelFreq /= 0.0_dp)) then
           call error("Finite frequency range separated calculation not currently supported")
         end if
         this%isRespKernelRPA = input%ctrl%isRespKernelRPA
@@ -2402,7 +2402,7 @@ contains
     end if
 
     ! turn on if LinResp and RangSep turned on, no extra input required for now
-    this%isRS_LinResp = this%isLinResp .and. this%isRangeSep
+    this%isRS_LinResp = this%isLinResp .and. this%isHybridXc
 
     if (this%isLinResp) then
 
@@ -2654,47 +2654,46 @@ contains
     this%tWriteChrgAscii = input%ctrl%tWriteChrgAscii
     this%tSkipChrgChecksum = input%ctrl%tSkipChrgChecksum .or. this%tNegf
 
-    if (this%isRangeSep) then
-      ! if ((.not. this%tRealHS) .and. (.not. this%tReadChrg)) then
+    if (this%isHybridXc) then
       if ((.not. this%tReadChrg) .and. (this%tPeriodic) .and. this%tPeriodic) then
         this%supercellFoldingMatrix = input%ctrl%supercellFoldingMatrix
         this%supercellFoldingDiag = input%ctrl%supercellFoldingDiag
       end if
-      call this%ensureRangeSeparatedReqs(input%ctrl%tShellResolved, input%ctrl%rangeSepInp)
+      call this%ensureHybridXcReqs(input%ctrl%tShellResolved, input%ctrl%hybridXcInp)
       if (.not. this%tReadChrg) then
         if (this%tPeriodic .and. this%tRealHS) then
           ! Periodic system (Gamma-point only), dense Hamiltonian and overlap are real-valued
-          call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed,&
-              & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-              & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
-              & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
+          call getHybridXcCutOff_gamma(this%cutOff, input%geom%latVecs,&
+              & input%ctrl%hybridXcInp%cutoffRed,&
+              & gSummationCutoff=input%ctrl%hybridXcInp%gSummationCutoff,&
+              & gammaCutoff=input%ctrl%hybridXcInp%gammaCutoff,&
+              & auxiliaryScreening=input%ctrl%hybridXcInp%auxiliaryScreening)
         elseif (.not. this%tRealHS) then
           ! Dense Hamiltonian and overlap are complex-valued (general k-point case)
-          call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-              & input%ctrl%rangeSepInp%cutoffRed, this%supercellFoldingDiag,&
-              & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
-              & wignerSeitzReduction=input%ctrl%rangeSepInp%wignerSeitzReduction,&
-              & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-              & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
+          call getHybridXcCutOff_kpts(this%cutOff, input%geom%latVecs,&
+              & input%ctrl%hybridXcInp%cutoffRed, this%supercellFoldingDiag,&
+              & gammaCutoff=input%ctrl%hybridXcInp%gammaCutoff,&
+              & wignerSeitzReduction=input%ctrl%hybridXcInp%wignerSeitzReduction,&
+              & gSummationCutoff=input%ctrl%hybridXcInp%gSummationCutoff,&
+              & auxiliaryScreening=input%ctrl%hybridXcInp%auxiliaryScreening)
         end if
       end if
 
       ! Non-periodic system (cluster)
       if (.not. this%tPeriodic) then
-        call getRangeSeparatedCutOff_cluster(this%cutOff, input%ctrl%rangeSepInp%cutoffRed)
+        call getHybridXcCutOff_cluster(this%cutOff, input%ctrl%hybridXcInp%cutoffRed)
       end if
 
       ! allocation is nessecary to hint "initializeCharges" what information to extract
-      call this%reallocateRangeSeparated()
+      call this%reallocateHybridXc()
     end if
 
     call this%initializeCharges(input%ctrl%initialSpins, input%ctrl%initialCharges)
 
     ! When restarting and reading charges from charges.bin, the supercell folding matrix of the
     ! initial run is only known after invoking this%initializeCharges(). Inferring the Coulomb
-    ! truncation cutoff, therefore calling getRangeSeparatedCutoff(), needs this information.
-    if (this%isRangeSep .and. this%tReadChrg) then
+    ! truncation cutoff, therefore calling getHybridXcCutoff(), needs this information.
+    if (this%isHybridXc .and. this%tReadChrg) then
       ! First, check if supercell folding matrix is identical to previous run, if specified in input
       if (allocated(input%ctrl%supercellFoldingMatrix)) then
         if (any(abs(input%ctrl%supercellFoldingMatrix&
@@ -2715,36 +2714,37 @@ contains
       end if
       if (this%tPeriodic .and. this%tRealHS) then
         ! Periodic system (Gamma-point only), dense Hamiltonian and overlap are real-valued
-        call getRangeSeparatedCutOff_gamma(this%cutOff, input%geom%latVecs,&
-            & input%ctrl%rangeSepInp%cutoffRed,&
-            & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
-            & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
+        call getHybridXcCutOff_gamma(this%cutOff, input%geom%latVecs,&
+            & input%ctrl%hybridXcInp%cutoffRed,&
+            & gammaCutoff=input%ctrl%hybridXcInp%gammaCutoff,&
+            & auxiliaryScreening=input%ctrl%hybridXcInp%auxiliaryScreening)
       elseif (.not. this%tRealHS) then
         ! Dense Hamiltonian and overlap are complex-valued (general k-point case)
-        call getRangeSeparatedCutOff_kpts(this%cutOff, input%geom%latVecs,&
-            & input%ctrl%rangeSepInp%cutoffRed, this%supercellFoldingDiag,&
-            & gammaCutoff=input%ctrl%rangeSepInp%gammaCutoff,&
-            & wignerSeitzReduction=input%ctrl%rangeSepInp%wignerSeitzReduction,&
-            & gSummationCutoff=input%ctrl%rangeSepInp%gSummationCutoff,&
-            & auxiliaryScreening=input%ctrl%rangeSepInp%auxiliaryScreening)
+        call getHybridXcCutOff_kpts(this%cutOff, input%geom%latVecs,&
+            & input%ctrl%hybridXcInp%cutoffRed, this%supercellFoldingDiag,&
+            & gammaCutoff=input%ctrl%hybridXcInp%gammaCutoff,&
+            & wignerSeitzReduction=input%ctrl%hybridXcInp%wignerSeitzReduction,&
+            & gSummationCutoff=input%ctrl%hybridXcInp%gSummationCutoff,&
+            & auxiliaryScreening=input%ctrl%hybridXcInp%auxiliaryScreening)
       end if
     end if
 
-    if (this%isRangeSep) then
-      call TRangeSepFunc_init(this%rangeSep, this%nAtom, this%species0, hubbU(1, :),&
-          & input%ctrl%rangeSepInp%screeningThreshold, input%ctrl%rangeSepInp%omega,&
-          & input%ctrl%rangeSepInp%camAlpha, input%ctrl%rangeSepInp%camBeta,&
-          & this%tSpin, allocated(this%reks), input%ctrl%rangeSepInp%rangeSepAlg,&
-          & input%ctrl%rangeSepInp%gammaType, this%tPeriodic, this%tRealHS,&
-          & coeffsDiag=this%supercellFoldingDiag, gammaCutoff=this%cutOff%gammaCutoff,&
+    if (this%isHybridXc) then
+      call THybridXcFunc_init(this%hybridXc, this%nAtom, this%species0, hubbU(1, :),&
+          & input%ctrl%hybridXcInp%screeningThreshold, input%ctrl%hybridXcInp%omega,&
+          & input%ctrl%hybridXcInp%camAlpha, input%ctrl%hybridXcInp%camBeta,&
+          & this%tSpin, allocated(this%reks), input%ctrl%hybridXcInp%hybridXcAlg,&
+          & input%ctrl%hybridXcInp%hybridXcType, input%ctrl%hybridXcInp%gammaType, this%tPeriodic,&
+          & this%tRealHS, coeffsDiag=this%supercellFoldingDiag,&
+          & gammaCutoff=this%cutOff%gammaCutoff,&
           & gSummationCutoff=this%cutOff%gSummationCutoff,&
           & wignerSeitzReduction=this%cutOff%wignerSeitzReduction,&
           & auxiliaryScreening=this%cutOff%auxiliaryScreening, latVecs=input%geom%latVecs)
       ! now all information are present to properly allocate density matrices and associate pointers
-      call this%reallocateRangeSeparated()
+      call this%reallocateHybridXc()
       ! reset number of mixer elements, so that there is enough space for density matrices
       this%nMixElements = size(this%densityMatrix%deltaRhoIn)
-      call this%associateRangeSeparatedPointers()
+      call this%associateHybridXcPointers()
     end if
 
     ! Initialise images (translations)
@@ -2762,7 +2762,7 @@ contains
     allocate(this%neighbourList)
     call TNeighbourlist_init(this%neighbourList, this%nAtom, nInitNeighbour)
     allocate(this%nNeighbourSK(this%nAtom))
-    if (this%isRangeSep) then
+    if (this%isHybridXc) then
       allocate(this%symNeighbourList%neighbourList)
       call TNeighbourlist_init(this%symNeighbourList%neighbourList, this%nAtom, nInitNeighbour)
       allocate(this%nNeighbourCam(this%nAtom))
@@ -2816,7 +2816,7 @@ contains
     end if
 
   #:if WITH_SCALAPACK
-    ! if (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic)) then
+    ! if (.not. (this%isHybridXc .and. this%tRealHS .and. this%tPeriodic)) then
       associate (blacsOpts => input%ctrl%parallelOpts%blacsOpts)
         call getDenseDescBlacs(env, blacsOpts%blockSize, blacsOpts%blockSize, this%denseDesc,&
             & this%isSparseReorderRequired)
@@ -2833,7 +2833,7 @@ contains
       call TReksCalc_init(this%reks, input%ctrl%reksInp, this%electronicSolver, this%orb,&
           & this%spinW, this%nEl, input%ctrl%extChrg, input%ctrl%extChrgBlurWidth,&
           & this%hamiltonianType, this%nSpin, this%nExtChrg, this%t3rd.or.this%t3rdFull,&
-          & this%isRangeSep, allocated(this%dispersion), this%isQNetAllocated, this%tForces,&
+          & this%isHybridXc, allocated(this%dispersion), this%isQNetAllocated, this%tForces,&
           & this%tPeriodic, this%tStress, this%tDipole)
     end if
 
@@ -3043,7 +3043,7 @@ contains
   #:endif
 
   #:if WITH_SCALAPACK
-    if (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic)) then
+    if (.not. (this%isHybridXc .and. this%tRealHS .and. this%tPeriodic)) then
       write(stdOut, "('BLACS orbital grid size:', T30, I0, ' x ', I0)")env%blacs%orbitalGrid%nRow,&
           & env%blacs%orbitalGrid%nCol
       write(stdOut, "('BLACS atom grid size:', T30, I0, ' x ', I0)")env%blacs%atomGrid%nRow,&
@@ -3515,66 +3515,70 @@ contains
       end if
     end if
 
-    if (this%isRangeSep) then
-      if (input%ctrl%rangeSepInp%tHyb) then
+    if (this%isHybridXc) then
+      if (input%ctrl%hybridXcInp%hybridXcType == hybridXcFunc%hyb) then
         write(stdOut, "(A,':',T30,A)") "Global hybrid", "Yes"
         write(stdOut, "(2X,A,':',T30,E14.6)") "Fraction of HF",&
-            & input%ctrl%rangeSepInp%camAlpha
-      elseif (input%ctrl%rangeSepInp%tLc .or. input%ctrl%rangeSepInp%tCam) then
-        write(stdOut, "(A,':',T30,A)") "Range separated hybrid", "Yes"
+            & input%ctrl%hybridXcInp%camAlpha
+      elseif (input%ctrl%hybridXcInp%hybridXcType == hybridXcFunc%lc) then
+        write(stdOut, "(A,':',T30,A)") "Long-range corrected hybrid", "Yes"
         write(stdOut, "(2X,A,':',T30,E14.6)") "Screening parameter omega",&
-            & input%ctrl%rangeSepInp%omega
+            & input%ctrl%hybridXcInp%omega
+      elseif (input%ctrl%hybridXcInp%hybridXcType == hybridXcFunc%cam) then
+        write(stdOut, "(A,':',T30,A)") "CAM range-separated hybrid", "Yes"
+        write(stdOut, "(2X,A,':',T30,E14.6)") "Screening parameter omega",&
+            & input%ctrl%hybridXcInp%omega
         write(stdOut, "(2X,A,':',T30,E14.6,E14.6)") "CAM parameters alpha/beta",&
-            & input%ctrl%rangeSepInp%camAlpha, input%ctrl%rangeSepInp%camBeta
-        if (this%tPeriodic) then
-          if (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%full) then
-            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "full"
-          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%mic) then
-            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "minimal image convention"
-            write(stdOut, "(2X,A,':',T30,2X,I0,A)") "Wigner-Seitz cell reduction",&
-                & this%cutOff%wignerSeitzReduction, " primitive cell(s)"
-          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated) then
-            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated"
-          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
-            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated+poly5zero"
-          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screened) then
-            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened"
-          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screenedAndDamped) then
-            write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened+poly5zero"
-          end if
-          if (input%ctrl%rangeSepInp%gammaType /= rangeSepGammaTypes%mic) then
-            write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
-                & this%cutOff%gSummationCutoff, " Bohr"
-          end if
-          if (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncated&
-              & .or. input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%truncatedAndDamped&
-              & .or. input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screenedAndDamped) then
-            write(stdOut, "(2X,A,':',T30,E14.6,A)") "Coulomb Truncation",&
-                & this%cutOff%gammaCutoff, " Bohr"
-          elseif (input%ctrl%rangeSepInp%gammaType == rangeSepGammaTypes%screened) then
-            write(stdOut, "(2X,A,':',T30,E14.6,A)") "Auxiliary Screening",&
-                & this%cutOff%auxiliaryScreening, " Bohr^-1"
-          end if
+            & input%ctrl%hybridXcInp%camAlpha, input%ctrl%hybridXcInp%camBeta
+      end if
+      if (this%tPeriodic) then
+        if (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%full) then
+          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "full"
+        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%mic) then
+          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "minimal image convention"
+          write(stdOut, "(2X,A,':',T30,2X,I0,A)") "Wigner-Seitz cell reduction",&
+              & this%cutOff%wignerSeitzReduction, " primitive cell(s)"
+        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncated) then
+          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated"
+        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncatedAndDamped) then
+          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated+poly5zero"
+        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%screened) then
+          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened"
+        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%screenedAndDamped) then
+          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened+poly5zero"
+        end if
+        if (input%ctrl%hybridXcInp%gammaType /= hybridXcGammaTypes%mic) then
+          write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
+              & this%cutOff%gSummationCutoff, " Bohr"
+        end if
+        if (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncated&
+            & .or. input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncatedAndDamped&
+            & .or. input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%screenedAndDamped) then
+          write(stdOut, "(2X,A,':',T30,E14.6,A)") "Coulomb Truncation",&
+              & this%cutOff%gammaCutoff, " Bohr"
+        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%screened) then
+          write(stdOut, "(2X,A,':',T30,E14.6,A)") "Auxiliary Screening",&
+              & this%cutOff%auxiliaryScreening, " Bohr^-1"
         end if
       end if
 
-      select case(input%ctrl%rangeSepInp%rangeSepAlg)
-      case (rangeSepTypes%neighbour)
+      select case(input%ctrl%hybridXcInp%hybridXcAlg)
+      case (hybridXcAlgo%neighbour)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "NeighbourBased"
         write(stdOut, "(2X,A,':',T30,E14.6,A)") "Reduce neighlist cutoff by",&
-            & input%ctrl%rangeSepInp%cutoffRed * Bohr__AA, " A"
+            & input%ctrl%hybridXcInp%cutoffRed * Bohr__AA, " A"
         if (this%tPeriodic) then
           write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
-              & input%ctrl%rangeSepInp%screeningThreshold
+              & input%ctrl%hybridXcInp%screeningThreshold
         end if
-      case (rangeSepTypes%threshold)
+      case (hybridXcAlgo%threshold)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "Thresholded"
         write(stdOut, "(2X,A,':',T30,E14.6)") "Thresholded to",&
-            & input%ctrl%rangeSepInp%screeningThreshold
-      case (rangeSepTypes%matrixBased)
+            & input%ctrl%hybridXcInp%screeningThreshold
+      case (hybridXcAlgo%matrixBased)
         write(stdOut, "(2X,A,':',T30,2X,A)") "Screening algorithm", "MatrixBased"
       case default
-        call error("Unknown (range-separated) hybrid screening algorithm")
+        call error("Unknown hybrid xc-functional screening algorithm")
       end select
     end if
 
@@ -3805,7 +3809,7 @@ contains
         call error("Bond energies during electron dynamics currently requires a real hamiltonian.")
       end if
 
-      if (this%isRangeSep) then
+      if (this%isHybridXc) then
         if (input%ctrl%elecDynInp%spType == tdSpinTypes%triplet) then
           call error("Triplet perturbations currently disabled for electron dynamics with&
               & range-separated functionals")
@@ -3824,7 +3828,7 @@ contains
           & this%speciesName, this%tWriteAutotest, autotestTag, randomThermostat, this%mass,&
           & this%nAtom, this%cutOff%skCutoff, this%cutOff%mCutoff, this%atomEigVal,&
           & this%dispersion, this%nonSccDeriv, this%tPeriodic, this%parallelKS, this%tRealHS,&
-          & this%kPoint, this%kWeight, this%isRangeSep, this%scc, this%tblite, this%eFieldScaling,&
+          & this%kPoint, this%kWeight, this%isHybridXc, this%scc, this%tblite, this%eFieldScaling,&
           & this%hamiltonianType, errStatus)
       if (errStatus%hasError()) then
         call error(errStatus%message)
@@ -4128,10 +4132,10 @@ contains
 
     if (.not. this%tSccCalc) return
 
-    if (this%isRangeSep .and. this%tReadChrg) then
+    if (this%isHybridXc .and. this%tReadChrg) then
     ! if (this%isRangegSep .and. (.not. this%tRealHS) .and. this%tReadChrg) then
       allocate(this%supercellFoldingMatrix(3, 4))
-    ! elseif (this%isRangeSep .and. this%tRealHS) then
+    ! elseif (this%isHybridXc .and. this%tRealHS) then
       ! if (allocated(this%supercellFoldingMatrix)) deallocate(this%supercellFoldingMatrix)
     end if
 
@@ -4158,8 +4162,8 @@ contains
       end if
 
       ! Check if obtained supercell folding matrix meets current requirements
-      ! if (this%isRangeSep .and. (.not. this%tRealHS)) then
-      if (this%isRangeSep .and. this%tPeriodic) then
+      ! if (this%isHybridXc .and. (.not. this%tRealHS)) then
+      if (this%isHybridXc .and. this%tPeriodic) then
         allocate(this%supercellFoldingDiag(3))
         call checkSupercellFoldingMatrix(this%supercellFoldingMatrix,&
             & supercellFoldingDiagOut=this%supercellFoldingDiag)
@@ -4953,7 +4957,7 @@ contains
         allocate(this%qBlockDets(this%orb%mOrb, this%orb%mOrb, this%nAtom, this%nSpin, this%nDets))
         this%qBlockDets(:,:,:,:,:) = 0.0_dp
       end if
-      if (this%isRangeSep) then
+      if (this%isHybridXc) then
         allocate(this%deltaRhoDets(this%nOrb * this%nOrb * this%nSpin, this%nDets))
         this%deltaRhoDets(:,:) = 0.0_dp
       end if
@@ -5017,7 +5021,7 @@ contains
 
     nLocalKS = size(this%parallelKS%localKS, dim=2)
   #:if WITH_SCALAPACK
-    if (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic) then
+    if (this%isHybridXc .and. this%tRealHS .and. this%tPeriodic) then
       nLocalRows = this%denseDesc%fullSize
       nLocalCols = this%denseDesc%fullSize
     else
@@ -5042,7 +5046,7 @@ contains
   #:if WITH_SCALAPACK
 
     if (this%isSparseReorderRequired .and.&
-        & (.not. (this%isRangeSep .and. this%tRealHS .and. this%tPeriodic))) then
+        & (.not. (this%isHybridXc .and. this%tRealHS .and. this%tPeriodic))) then
       call scalafx_getlocalshape(env%blacs%rowOrbitalGrid, this%denseDesc%blacsColumnSqr,&
           & nLocalRows, nLocalCols)
       if (this%t2Component .or. .not. this%tRealHS) then
@@ -5384,7 +5388,7 @@ contains
 
 
   !> Stop if any range separated incompatible setting is found.
-  subroutine ensureRangeSeparatedReqs(this, tShellResolved, rangeSepInp)
+  subroutine ensureHybridXcReqs(this, tShellResolved, hybridXcInp)
 
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
@@ -5393,18 +5397,18 @@ contains
     logical, intent(in) :: tShellResolved
 
     !> Parameters for the range separated calculation
-    type(TRangeSepInp), intent(in) :: rangeSepInp
+    type(THybridXcInp), intent(in) :: hybridXcInp
 
     if (withMpi .and. (.not. this%tPeriodic)) then
       call error("Range separated calculations of non-periodic systems do not profit from MPI yet")
     end if
 
     if (this%tPeriodic) then
-      if ((.not. this%tRealHS) .and. (rangeSepInp%rangeSepAlg /= rangeSepTypes%neighbour)) then
+      if ((.not. this%tRealHS) .and. (hybridXcInp%hybridXcAlg /= hybridXcAlgo%neighbour)) then
         call error("Range separated functionality for periodic system currently only working for&
             & the neighbour list based algorithm")
       end if
-      if (this%tRealHS .and. rangeSepInp%rangeSepAlg == rangeSepTypes%threshold) then
+      if (this%tRealHS .and. hybridXcInp%hybridXcAlg == hybridXcAlgo%threshold) then
         call error("Range separated functionality at Gamma-point not implemented for threshold&
             & algorithm")
       end if
@@ -5415,7 +5419,7 @@ contains
           & moment")
     end if
 
-    if (this%tReadChrg .and. rangeSepInp%rangeSepAlg == rangeSepTypes%threshold) then
+    if (this%tReadChrg .and. hybridXcInp%hybridXcAlg == hybridXcAlgo%threshold) then
       call error("Restart on thresholded range separation not working correctly")
     end if
 
@@ -5444,15 +5448,15 @@ contains
       call error("Range separated calculations not currently implemented for 3rd order DFTB")
     end if
 
-    if (this%isRS_LinResp .and. rangeSepInp%tCam) then
+    if (this%isRS_LinResp .and. hybridXcInp%hybridXcType == hybridXcFunc%cam) then
       call error("General CAM functionals not currently implemented for linear response.")
     end if
 
-    if (this%isRS_LinResp .and. rangeSepInp%tHyb) then
+    if (this%isRS_LinResp .and. hybridXcInp%hybridXcType == hybridXcFunc%hyb) then
       call error("Global hybrid functionals not currently implemented for linear response.")
     end if
 
-  end subroutine ensureRangeSeparatedReqs
+  end subroutine ensureHybridXcReqs
 
 
   !> Stop if linear response module can not be invoked due to unimplemented combinations of
@@ -5595,7 +5599,7 @@ contains
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff_cluster(cutOff, cutoffRed)
+  subroutine getHybridXcCutOff_cluster(cutOff, cutoffRed)
 
     !> Resulting cutoff
     type(TCutoffs), intent(inout) :: cutOff
@@ -5623,11 +5627,11 @@ contains
     cutOff%gSummationCutoff = 1.0_dp
     cutOff%auxiliaryScreening = 1.0_dp
 
-  end subroutine getRangeSeparatedCutOff_cluster
+  end subroutine getHybridXcCutOff_cluster
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff_gamma(cutOff, latVecs, cutoffRed, gSummationCutoff,&
+  subroutine getHybridXcCutOff_gamma(cutOff, latVecs, cutoffRed, gSummationCutoff,&
       & gammaCutoff, auxiliaryScreening)
 
     !> Resulting cutoff
@@ -5685,11 +5689,11 @@ contains
       cutOff%gSummationCutoff = 2.0_dp * cutOff%gammaCutoff
     end if
 
-  end subroutine getRangeSeparatedCutOff_gamma
+  end subroutine getHybridXcCutOff_gamma
 
 
   !> Determine range separated cut-off and also update maximal cutoff
-  subroutine getRangeSeparatedCutOff_kpts(cutOff, latVecs, cutoffRed, supercellFoldingDiag,&
+  subroutine getHybridXcCutOff_kpts(cutOff, latVecs, cutoffRed, supercellFoldingDiag,&
       & gSummationCutoff, wignerSeitzReduction, gammaCutoff, auxiliaryScreening)
 
     !> Resulting cutoff
@@ -5774,11 +5778,11 @@ contains
       cutOff%wignerSeitzReduction = 1
     end if
 
-  end subroutine getRangeSeparatedCutOff_kpts
+  end subroutine getHybridXcCutOff_kpts
 
 
   !> Pre-allocate density matrix for range-separation.
-  subroutine reallocateRangeSeparated(this)
+  subroutine reallocateHybridXc(this)
 
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
@@ -5825,11 +5829,11 @@ contains
       this%densityMatrix%deltaRhoOutCplx(:) = 0.0_dp
     end if
 
-  end subroutine reallocateRangeSeparated
+  end subroutine reallocateHybridXc
 
 
   !> Associates density matrix pointers for range-separated extension.
-  subroutine associateRangeSeparatedPointers(this)
+  subroutine associateHybridXcPointers(this)
 
     !> Instance
     class(TDftbPlusMain), intent(inout), target :: this
@@ -5848,21 +5852,21 @@ contains
           & => this%densityMatrix%deltaRhoOut(1:nMixElements)
     else
       nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
-      nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%rangeSep%coeffsDiag)
+      nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%hybridXc%coeffsDiag)
       this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * nLocalK)&
           & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin * nLocalK)
 
       this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
-          & 1:this%rangeSep%coeffsDiag(1), 1:this%rangeSep%coeffsDiag(2),&
-          & 1:this%rangeSep%coeffsDiag(3), 1:this%nSpin)&
+          & 1:this%hybridXc%coeffsDiag(1), 1:this%hybridXc%coeffsDiag(2),&
+          & 1:this%hybridXc%coeffsDiag(3), 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoIn(1:nMixElements)
       this%densityMatrix%deltaRhoOutSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
-          & 1:this%rangeSep%coeffsDiag(1), 1:this%rangeSep%coeffsDiag(2),&
-          & 1:this%rangeSep%coeffsDiag(3), 1:this%nSpin)&
+          & 1:this%hybridXc%coeffsDiag(1), 1:this%hybridXc%coeffsDiag(2),&
+          & 1:this%hybridXc%coeffsDiag(3), 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoOut(1:nMixElements)
     end if
 
-  end subroutine associateRangeSeparatedPointers
+  end subroutine associateHybridXcPointers
 
 
   !> Initializes PLUMED calculator.
@@ -6035,7 +6039,7 @@ contains
 
 
   subroutine TReksCalc_init(reks, reksInp, electronicSolver, orb, spinW, nEl, extChrg, blurWidths,&
-      & hamiltonianType, nSpin, nExtChrg, is3rd, isRangeSep, isDispersion, isQNetAllocated,&
+      & hamiltonianType, nSpin, nExtChrg, is3rd, isHybridXc, isDispersion, isQNetAllocated,&
       & tForces, tPeriodic, tStress, tDipole)
 
     !> data type for REKS
@@ -6075,7 +6079,7 @@ contains
     logical, intent(in) :: is3rd
 
     !> Whether to run a range separated calculation
-    logical, intent(in) :: isRangeSep
+    logical, intent(in) :: isHybridXc
 
     !> Whether to run a dispersion calculation
     logical, intent(in) :: isDispersion
@@ -6110,7 +6114,7 @@ contains
       case(electronicSolverTypes%qr, electronicSolverTypes%divideandconquer,&
           & electronicSolverTypes%relativelyrobust)
         call REKS_init(reks, reksInp, orb, spinW, nSpin, nEl(1), nExtChrg, extChrg,&
-            & blurWidths, is3rd, isRangeSep, isDispersion, isQNetAllocated, tForces,&
+            & blurWidths, is3rd, isHybridXc, isDispersion, isQNetAllocated, tForces,&
             & tPeriodic, tStress, tDipole)
       case(electronicSolverTypes%magma_gvd)
         call error("REKS is not compatible with MAGMA GPU solver")

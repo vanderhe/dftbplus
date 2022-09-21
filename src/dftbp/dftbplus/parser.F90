@@ -28,7 +28,7 @@ module dftbp_dftbplus_parser
   use dftbp_dftb_halogenx, only : halogenXSpecies1, halogenXSpecies2
   use dftbp_dftb_periodic, only : TNeighbourList, TNeighbourlist_init, getSuperSampling, &
       & getCellTranslations, updateNeighbourList
-  use dftbp_dftb_rangeseparated, only : TRangeSepSKTag, rangeSepTypes, rangeSepGammaTypes,&
+  use dftbp_dftb_hybridxc, only : THybridXcSKTag, hybridXcAlgo, hybridXcGammaTypes,&
       & checkSupercellFoldingMatrix
   use dftbp_dftb_repulsive_chimesrep, only : TChimesRepInp
   use dftbp_dftb_repulsive_polyrep, only : TPolyRepInp, TPolyRep
@@ -37,7 +37,7 @@ module dftbp_dftbplus_parser
   use dftbp_dftb_slakoeqgrid, only : skEqGridNew, skEqGridOld, TSlakoEqGrid, init
   use dftbp_dftbplus_forcetypes, only : forceTypes
   use dftbp_dftbplus_inputconversion, only : transformpdosregioninfo
-  use dftbp_dftbplus_inputdata, only :TInputData, TControl, TSlater, TBlacsOpts, TRangeSepInp
+  use dftbp_dftbplus_inputdata, only :TInputData, TControl, TSlater, TBlacsOpts, THybridXcInp
   use dftbp_dftbplus_oldcompat, only : convertOldHSD
   use dftbp_dftbplus_specieslist, only : readSpeciesList
   use dftbp_elecsolvers_elecsolvers, only : electronicSolverTypes
@@ -69,7 +69,7 @@ module dftbp_dftbplus_parser
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_linkedlist, only : TListCharLc, TListInt, TListIntR1, TListReal, TListRealR1,&
       & TListRealR2, TListString, init, destruct, append, get, len, asArray, asVector, intoArray
-  use dftbp_type_oldskdata, only : TOldSKData, readFromFile
+  use dftbp_type_oldskdata, only : TOldSKData, readFromFile, inquireHybridXcTag
   use dftbp_type_orbitals, only : getShellnames
   use dftbp_type_typegeometry, only : TGeometry, reduce, setLattice
   use dftbp_type_typegeometryhsd, only : readTGeometryGen, readTGeometryHsd, readTGeometryXyz,&
@@ -120,7 +120,7 @@ module dftbp_dftbplus_parser
   end type TVersionMap
 
   !> Actual input version <-> parser version maps (must be updated at every public release)
-  type(TVersionMap), parameter :: versionMaps(*) = [TVersionMap("22.2", 12),&
+  type(TVersionMap), parameter :: versionMaps(*) = [TVersionMap("22.2", 13),&
       & TVersionMap("22.1", 11), TVersionMap("21.2", 10), TVersionMap("21.1", 9),&
       & TVersionMap("20.2", 9), TVersionMap("20.1", 8), TVersionMap("19.1", 7),&
       & TVersionMap("18.2", 6), TVersionMap("18.1", 5), TVersionMap("17.1", 5)]
@@ -1326,11 +1326,11 @@ contains
     character(len=:), allocatable :: strOut
 
     !> For range separation
-    type(TRangeSepSKTag) :: rangeSepSK
+    type(THybridXcSKTag) :: hybridXcSK
 
     ctrl%hamiltonian = hamiltonianTypes%dftb
 
-    call readMaxAngularMomentum(node, ctrl, geo, angShells)
+    call readMaxAngularMomentum(node, geo, angShells)
 
     ! Orbitals and angular momenta for the given shells (once the SK files contain the full
     ! information about the basis, this will be moved to the SK reading routine).
@@ -1451,10 +1451,9 @@ contains
       skInterMeth = skEqGridNew
     end if
 
-    call parseGlobalHybrids(node, ctrl%rangeSepInp, geo)
-    call parseRangeSeparated(node, ctrl%rangeSepInp, geo)
+    call parseHybridBlock(node, ctrl%hybridXcInp, geo, skFiles)
 
-    if (.not. allocated(ctrl%rangeSepInp)) then
+    if (.not. allocated(ctrl%hybridXcInp)) then
       call getChild(node, "TruncateSKRange", child, requested=.false.)
       if (associated(child)) then
         call warning("Artificially truncating the SK table, this is normally a bad idea!")
@@ -1468,11 +1467,10 @@ contains
       end if
     else
       call readSKFiles(skFiles, geo%nSpecies, slako, slako%orb, angShells, ctrl%tShellResolved,&
-          & skInterMeth, repPoly, rangeSepSK=rangeSepSK, tHyb=ctrl%rangeSepInp%tHyb,&
-          & tLc=ctrl%rangeSepInp%tLc, tCam=ctrl%rangeSepInp%tCam)
-      ctrl%rangeSepInp%omega = rangeSepSk%omega
-      ctrl%rangeSepInp%camAlpha = rangeSepSk%camAlpha
-      ctrl%rangeSepInp%camBeta = rangeSepSk%camBeta
+          & skInterMeth, repPoly, hybridXcSK=hybridXcSK)
+      ctrl%hybridXcInp%omega = hybridXcSK%omega
+      ctrl%hybridXcInp%camAlpha = hybridXcSK%camAlpha
+      ctrl%hybridXcInp%camBeta = hybridXcSK%camBeta
     end if
 
     do iSp1 = 1, geo%nSpecies
@@ -1989,13 +1987,10 @@ contains
 
 
   !> Read in maximal angular momenta or selected shells
-  subroutine readMaxAngularMomentum(node, ctrl, geo, angShells)
+  subroutine readMaxAngularMomentum(node, geo, angShells)
 
     !> Node to get the information from
     type(fnode), pointer :: node
-
-    !> Control structure to be filled
-    type(TControl), intent(inout) :: ctrl
 
     !> Geometry structure to be filled
     type(TGeometry), intent(in) :: geo
@@ -2797,12 +2792,12 @@ contains
     call getNodeName(value1, buffer)
 
     ! Check for range-separated requirement
-    if (allocated(ctrl%rangeSepInp) .and. geo%tPeriodic .and. (char(buffer) /= "supercellfolding")&
+    if (allocated(ctrl%hybridXcInp) .and. geo%tPeriodic .and. (char(buffer) /= "supercellfolding")&
         & .and. (.not. ctrl%tReadChrg)) then
       call detailedError(value1, "Error while parsing k-point sampling for range-separated run.&
           & Currently only" // NEW_LINE('A') // "   the supercell folding technique is supported&
           & (obtained: '" // trim(char(buffer)) // "').")
-      elseif (allocated(ctrl%rangeSepInp) .and. geo%tPeriodic .and. (char(buffer) == "klines")&
+      elseif (allocated(ctrl%hybridXcInp) .and. geo%tPeriodic .and. (char(buffer) == "klines")&
           & .and. ctrl%tReadChrg) then
         call detailedWarning(value1, "Restarting a range-separated run with bad k-point sampling&
             & that does probably" // NEW_LINE('A') // "   not match the original sampling (however&
@@ -2824,7 +2819,7 @@ contains
           & > 1e-06_dp)) then
         call detailedError(value1, "The components of the supercell matrix must be integers.")
       end if
-      if (allocated(ctrl%rangeSepInp)) then
+      if (allocated(ctrl%hybridXcInp)) then
         allocate(ctrl%supercellFoldingDiag(3))
         call checkSupercellFoldingMatrix(coeffsAndShifts,&
             & supercellFoldingDiagOut=ctrl%supercellFoldingDiag)
@@ -2835,7 +2830,7 @@ contains
         ! end if
       end if
       tReduceByInversion = (.not. ctrl%tSpinOrbit)
-      ! tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%rangeSepInp))
+      ! tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%hybridXcInp))
       call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
           & ctrl%kPoint, ctrl%kWeight, reduceByInversion=tReduceByInversion)
       ctrl%nKPoint = size(ctrl%kPoint, dim=2)
@@ -3079,10 +3074,6 @@ contains
     !> Geometry structure to be filled
     type(TGeometry), intent(in) :: geo
 
-    type(fnode), pointer :: value1, value2, child, child2
-    type(string) :: buffer, buffer2
-    type(TListRealR1) :: lr1
-
     ctrl%tMulliken = .true.
 
     call getChildValue(node, "ReadInitialCharges", ctrl%tReadChrg, .false.)
@@ -3092,8 +3083,8 @@ contains
 
     call getChildValue(node, "SCCTolerance", ctrl%sccTol, 1.0e-5_dp)
 
-    ! temporararily removed until debugged
-    !call getChildValue(node, "WriteShifts", ctrl%tWriteShifts, .false.)
+    ! temporarily removed until debugged
+    ! call getChildValue(node, "WriteShifts", ctrl%tWriteShifts, .false.)
     ctrl%tWriteShifts = .false.
 
     if (geo%tPeriodic) then
@@ -3397,7 +3388,7 @@ contains
   !> Should be replaced with a more sophisticated routine, once the new SK-format has been
   !> established.
   subroutine readSKFiles(skFiles, nSpecies, slako, orb, angShells, orbRes, skInterMeth, repPoly,&
-      & truncationCutOff, rangeSepSK, tHyb, tLc, tCam)
+      & truncationCutOff, hybridXcSK, tHyb, tLc, tCam)
 
     !> List of SK file names to read in for every interaction
     type(TListCharLc), intent(inout) :: skFiles(:,:)
@@ -3428,7 +3419,7 @@ contains
     real(dp), intent(in), optional :: truncationCutOff
 
     !> if calculation range separated then read omega from end of SK file
-    type(TRangeSepSKTag), intent(inout), optional :: rangeSepSK
+    type(THybridXcSKTag), intent(inout), optional :: hybridXcSK
 
     !> True, if global hybrid functional is requested
     logical, intent(in), optional :: tHyb
@@ -3485,7 +3476,7 @@ contains
             readAtomic = (iSp1 == iSp2 .and. iSK1 == iSK2)
             call get(skFiles(iSp2, iSp1), fileName, ind)
             write(stdOut, "(a)") trim(fileName)
-            if (.not. present(rangeSepSK)) then
+            if (.not. present(hybridXcSK)) then
               if (readRep .and. repPoly(iSp2, iSp1)) then
                 call readFromFile(skData12(iSK2,iSK1), fileName, readAtomic, polyRepIn=repPolyIn1)
               elseif (readRep) then
@@ -3497,14 +3488,12 @@ contains
             else
               if (readRep .and. repPoly(iSp2, iSp1)) then
                 call readFromFile(skData12(iSK2,iSK1), fileName, readAtomic, polyRepIn=repPolyIn1,&
-                    & rangeSepSK=rangeSepSK, tHyb=tHyb, tLc=tLc, tCam=tCam)
+                    & hybridXcSK=hybridXcSK)
               elseif (readRep) then
                 call readFromFile(skData12(iSK2,iSK1), fileName, readAtomic, iSp1, iSp2,&
-                    & splineRepIn=repSplineIn1, rangeSepSK=rangeSepSK, tHyb=tHyb, tLc=tLc,&
-                    & tCam=tCam)
+                    & splineRepIn=repSplineIn1, hybridXcSK=hybridXcSK)
               else
-                call readFromFile(skData12(iSK2,iSK1), fileName, readAtomic, rangeSepSK=rangeSepSK,&
-                    & tHyb=tHyb, tLc=tLc, tCam=tCam)
+                call readFromFile(skData12(iSK2,iSK1), fileName, readAtomic, hybridXcSK=hybridXcSK)
               end if
             end if
             ind = ind + 1
@@ -4842,7 +4831,7 @@ contains
       call getChildValue(child, "WriteSPTransitions", ctrl%lrespini%tSPTrans, default=.false.)
       call getChildValue(child, "WriteTransitions", ctrl%lrespini%tTrans, default=.false.)
       call getChildValue(child, "WriteTransitionDipole", ctrl%lrespini%tTradip, default=.false.)
-      if (allocated(ctrl%rangeSepInp)) then
+      if (allocated(ctrl%hybridXcInp)) then
         call getChildValue(child, "WriteTransitionCharges", ctrl%lrespini%tTransQ, default=.false.)
       end if
       ctrl%lrespini%tUseArpack = .true.
@@ -7654,109 +7643,29 @@ contains
   end function is_numeric
 
 
-  !> Parses hybrid functional input.
-  subroutine parseGlobalHybrids(node, input, geo)
-
-    !> Pointer to node
-    type(fnode), intent(in), pointer :: node
-
-    !> Parsed range-separated input, i.e. global hybrid information stored in rangesep type
-    type(TRangeSepInp), intent(inout), allocatable :: input
-
-    !> Geometry structure
-    type(TGeometry), intent(in) :: geo
-
-    !! auxiliary node pointers
-    type(fnode), pointer :: child1, value1, child2, value2, child3, child4
-
-    !! Temporary string buffers
-    type(string) :: buffer, modifier
-
-    call getChildValue(node, "Hybrid", value1, "None", child=child1)
-    call getNodeName(value1, buffer)
-
-    if (allocated(input) .and. (.not. char(buffer) == "none")) then
-      call error("Input for (range-separated) hybrids already present. Are two conflicting blocks&
-          & (RangeSeparated|Hybrid) used in input?")
-    end if
-
-    select case (char(buffer))
-
-    case ("none")
-      continue
-
-    case ("globalhybrid")
-      allocate(input)
-      ! Global hybrid functional requested
-      input%tHyb = .true.
-      input%tLc = .false.
-      input%tCam = .false.
-      call getChildValue(value1, "Screening", value2, "NeighbourBased", child=child2)
-      call getNodeName(value2, buffer)
-      select case(char(buffer))
-      case ("neighbourbased")
-        input%rangeSepAlg = rangeSepTypes%neighbour
-        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
-            & modifier=modifier, child=child3)
-        call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-        if (geo%tPeriodic) then
-          call getChild(value2, "GSummationCutoff", child=child3, modifier=modifier,&
-              & requested=.false.)
-          if (associated(child3)) then
-            allocate(input%gSummationCutoff)
-            call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
-            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
-          end if
-          call getChild(value2, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
-          if (associated(child3)) then
-            allocate(input%gammaCutoff)
-            call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
-            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
-          end if
-          call getChild(value2, "AuxiliaryScreening", child=child3, requested=.false.)
-          if (associated(child3)) then
-            allocate(input%auxiliaryScreening)
-            call getChildValue(child3, "", input%auxiliaryScreening)
-          end if
-          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
-        end if
-      case ("thresholded")
-        input%rangeSepAlg = rangeSepTypes%threshold
-        call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
-        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
-            & modifier=modifier, child=child3)
-        call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-      case ("matrixbased")
-        input%rangeSepAlg = rangeSepTypes%matrixBased
-        ! In this case, CutoffRedunction is not used so it should be set to zero.
-        input%cutoffRed = 0.0_dp
-      case default
-        call getNodeHSdName(value2, buffer)
-        call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
-      end select
-
-    case default
-      call getNodeHSDName(value1, buffer)
-      call detailedError(child1, "Invalid hybrid algorithm '" // char(buffer) // "'")
-    end select
-
-  end subroutine parseGlobalHybrids
-
-
-  !> Parses range-separation input.
-  subroutine parseRangeSeparated(node, input, geo)
+  !> Parses hybrid xc-functional input.
+  subroutine parseHybridBlock(node, input, geo, skFiles)
 
     !> Node to parse
     type(fnode), intent(in), pointer :: node
 
     !> Range separated data structure to fill
-    type(TRangeSepInp), intent(inout), allocatable :: input
+    type(THybridXcInp), intent(inout), allocatable :: input
 
     !> Geometry structure
     type(TGeometry), intent(in) :: geo
 
+    !> List of SK file names to read in for every interaction
+    type(TListCharLc), intent(inout) :: skFiles(:,:)
+
+    !! File name of representative SK-file to read
+    character(lc) :: fileName
+
+    !! Hybrid xc-functional extra tag, if allocated
+    integer, allocatable :: hybridXcTag
+
     !! auxiliary node pointers
-    type(fnode), pointer :: child1, value1, child2, value2, child3, child4
+    type(fnode), pointer :: hybridNode, child1, value1, child2, value2, child3, child4, dummy
 
     !! Temporary string buffers
     type(string) :: buffer, modifier
@@ -7765,54 +7674,58 @@ contains
     type(string) :: strBuffer
     character(lc) :: strTmp
 
-    call getChildValue(node, "RangeSeparated", value1, "None", child=child1)
-    call getNodeName(value1, buffer)
+    @:ASSERT(size(skFiles, dim=1) == size(skFiles, dim=2))
+    @:ASSERT((size(skFiles, dim=1) > 0))
 
-    if (allocated(input) .and. (.not. char(buffer) == "none")) then
-      call error("Input for (range-separated) hybrids already present. Are two conflicting blocks&
-          & (RangeSeparated|Hybrid) used in input?")
+    ! Extracting hybridXc tag from first SK-file only is a workaround and assumes that a set of
+    ! given SK-files uses the same parameters (which should always be the case)!
+    call get(skFiles(1, 1), fileName, 1)
+
+    ! Check if SK-files contain extra tag for hybrid xc-functionals
+    call inquireHybridXcTag(fileName, hybridXcTag)
+
+    call getChild(node, "Hybrid", hybridNode, requested=.false.)
+
+    if (.not. associated(hybridNode) .and. allocated(hybridXcTag)) then
+      call detailedError(node, "SK-files generated with hybrid xc-functional, but HSD input block&
+          & missing.")
+    elseif (associated(hybridNode) .and. (.not. allocated(hybridXcTag))) then
+      call detailedError(node, "SK-files not generated with hybrid xc-functional.")
     end if
 
-    select case (char(buffer))
-
-    case ("none")
-      continue
-
-    case ("lc")
+    if (associated(hybridNode)) then
       allocate(input)
-      input%tHyb = .false.
-      input%tLc = .true.
-      input%tCam = .false.
-      call getChildValue(value1, "Screening", value2, "Thresholded", child=child2)
+      input%hybridXcType = hybridXcTag
+      call getChildValue(hybridNode, "Screening", value2, "Thresholded", child=child2)
 
       ! Additional options for periodic sytems
       if (geo%tPeriodic) then
 
         ! parse gamma function type (full, truncated, screened, ...)
-        call getNodeName(value1, buffer)
-        call getChild(value1, "GammaType", child=child3, requested=.true.)
+        call getNodeName(hybridNode, buffer)
+        call getChild(hybridNode, "GammaType", child=child3, requested=.true.)
         call getChildValue(child3, "", strBuffer)
         select case(tolower(unquote(trim(char(strBuffer)))))
         case ("full")
-          input%gammaType = rangeSepGammaTypes%full
+          input%gammaType = hybridXcGammaTypes%full
         case ("mic")
-          input%gammaType = rangeSepGammaTypes%mic
+          input%gammaType = hybridXcGammaTypes%mic
         case ("truncated")
-          input%gammaType = rangeSepGammaTypes%truncated
+          input%gammaType = hybridXcGammaTypes%truncated
         case ("truncated+damping")
-          input%gammaType = rangeSepGammaTypes%truncatedAndDamped
+          input%gammaType = hybridXcGammaTypes%truncatedAndDamped
         case ("screened")
-          input%gammaType = rangeSepGammaTypes%screened
+          input%gammaType = hybridXcGammaTypes%screened
         case ("screened+damping")
-          input%gammaType = rangeSepGammaTypes%screenedAndDamped
+          input%gammaType = hybridXcGammaTypes%screenedAndDamped
         case default
           call detailedError(child3, "Invalid Gamma function type '"&
               & // tolower(unquote(trim(char(strBuffer)))) // "'")
         end select
 
         ! g-Summation cutoff not needed for MIC CAM Hamiltonian
-        if (input%gammaType /= rangeSepGammaTypes%mic) then
-          call getChild(value1, "GSummationCutoff", child=child3, modifier=modifier,&
+        if (input%gammaType /= hybridXcGammaTypes%mic) then
+          call getChild(hybridNode, "GSummationCutoff", child=child3, modifier=modifier,&
               & requested=.false.)
           if (associated(child3)) then
             allocate(input%gSummationCutoff)
@@ -7821,10 +7734,11 @@ contains
           end if
         end if
 
-        if (input%gammaType == rangeSepGammaTypes%truncated&
-            & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped&
-            & .or. input%gammaType == rangeSepGammaTypes%screenedAndDamped) then
-          call getChild(value1, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
+        if (input%gammaType == hybridXcGammaTypes%truncated&
+            & .or. input%gammaType == hybridXcGammaTypes%truncatedAndDamped&
+            & .or. input%gammaType == hybridXcGammaTypes%screenedAndDamped) then
+          call getChild(hybridNode, "GammaCutoff", child=child3, modifier=modifier,&
+              & requested=.false.)
           if (associated(child3)) then
             allocate(input%gammaCutoff)
             call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
@@ -7832,9 +7746,9 @@ contains
           end if
         end if
 
-        if (input%gammaType == rangeSepGammaTypes%screened&
-            & .or. input%gammaType == rangeSepGammaTypes%truncatedAndDamped) then
-          call getChild(value1, "AuxiliaryScreening", child=child3, requested=.false.)
+        if (input%gammaType == hybridXcGammaTypes%screened&
+            & .or. input%gammaType == hybridXcGammaTypes%truncatedAndDamped) then
+          call getChild(hybridNode, "AuxiliaryScreening", child=child3, requested=.false.)
           if (associated(child3)) then
             allocate(input%auxiliaryScreening)
             call getChildValue(child3, "", input%auxiliaryScreening)
@@ -7842,12 +7756,12 @@ contains
         end if
       else
         ! Always use unaltered gamma function for non-periodic systems
-        input%gammaType = rangeSepGammaTypes%full
+        input%gammaType = hybridXcGammaTypes%full
       end if
 
       ! Number of primitive cells regarded in MIC, along each supercell folding direction
-      if (input%gammaType == rangeSepGammaTypes%mic) then
-        call getChild(value1, "WignerSeitzReduction", child=child3, requested=.false.)
+      if (input%gammaType == hybridXcGammaTypes%mic) then
+        call getChild(hybridNode, "WignerSeitzReduction", child=child3, requested=.false.)
         if (associated(child3)) then
           allocate(input%wignerSeitzReduction)
           call getChildValue(child3, "", input%wignerSeitzReduction, child=child4)
@@ -7857,7 +7771,7 @@ contains
       call getNodeName(value2, buffer)
       select case(char(buffer))
       case ("neighbourbased")
-        input%rangeSepAlg = rangeSepTypes%neighbour
+        input%hybridXcAlg = hybridXcAlgo%neighbour
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
@@ -7865,13 +7779,13 @@ contains
           call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
         end if
       case ("thresholded")
-        input%rangeSepAlg = rangeSepTypes%threshold
+        input%hybridXcAlg = hybridXcAlgo%threshold
         call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
         call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
             & modifier=modifier, child=child3)
         call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
       case ("matrixbased")
-        input%rangeSepAlg = rangeSepTypes%matrixBased
+        input%hybridXcAlg = hybridXcAlgo%matrixBased
         ! In this case, CutoffRedunction is not used so it should be set to zero.
         input%cutoffRed = 0.0_dp
       case default
@@ -7879,61 +7793,9 @@ contains
         call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
       end select
 
-    case ("cam")
-      allocate(input)
-      input%tHyb = .false.
-      input%tLc = .false.
-      input%tCam = .true.
-      call getChildValue(value1, "Screening", value2, "MatrixBased", child=child2)
-      call getNodeName(value2, buffer)
-      select case(char(buffer))
-      case ("neighbourbased")
-        input%rangeSepAlg = rangeSepTypes%neighbour
-        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
-            & modifier=modifier, child=child3)
-        call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-        if (geo%tPeriodic) then
-          call getChild(value2, "GSummationCutoff", child=child3, modifier=modifier,&
-              & requested=.false.)
-          if (associated(child3)) then
-            allocate(input%gSummationCutoff)
-            call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
-            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
-          end if
-          call getChild(value2, "GammaCutoff", child=child3, modifier=modifier, requested=.false.)
-          if (associated(child3)) then
-            allocate(input%gammaCutoff)
-            call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
-            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
-          end if
-          call getChild(value2, "AuxiliaryScreening", child=child3, requested=.false.)
-          if (associated(child3)) then
-            allocate(input%auxiliaryScreening)
-            call getChildValue(child3, "", input%auxiliaryScreening)
-          end if
-          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
-        end if
-      case ("thresholded")
-        input%rangeSepAlg = rangeSepTypes%threshold
-        call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
-        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
-            & modifier=modifier, child=child3)
-        call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-      case ("matrixbased")
-        input%rangeSepAlg = rangeSepTypes%matrixBased
-        ! In this case, CutoffRedunction is not used so it should be set to zero.
-        input%cutoffRed = 0.0_dp
-      case default
-        call getNodeHSdName(value2, buffer)
-        call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
-      end select
+    end if
 
-    case default
-      call getNodeHSDName(value1, buffer)
-      call detailedError(child1, "Invalid Algorithm '" // char(buffer) // "'")
-    end select
-
-  end subroutine parseRangeSeparated
+  end subroutine parseHybridBlock
 
 
   !> Reads the REKS block

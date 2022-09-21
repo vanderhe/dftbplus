@@ -3171,7 +3171,7 @@ contains
   subroutine writeDetailedOut3(fd, qInput, qOutput, energy, species, tDFTBU, tPrintMulliken, Ef,&
       & pressure, cellVol, tAtomicEnergy, dispersion, isExtField, tPeriodic, nSpin, tSpin,&
       & tSpinOrbit, tScc, tOnSite, tNegf,  iAtInCentralRegion, electronicSolver, tHalogenX,&
-      & tRangeSep, t3rd, tSolv)
+      & tHybridXc, t3rd, tSolv)
 
     !> File ID
     integer, intent(in) :: fd
@@ -3243,7 +3243,7 @@ contains
     logical, intent(in) :: tHalogenX
 
     !> Is this a range separation calculation?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> Is this a 3rd order scc calculation?
     logical, intent(in) :: t3rd
@@ -3317,7 +3317,7 @@ contains
       if (t3rd) then
         write(fd, format2U) 'Energy 3rd', energy%e3rd, 'H', energy%e3rd * Hartree__eV, 'eV'
       end if
-      if (tRangeSep) then
+      if (tHybridXc) then
         write(fd, format2U) 'Energy Fock', energy%Efock, 'H', energy%Efock * Hartree__eV, 'eV'
       end if
       if (tDFTBU) then
@@ -5399,7 +5399,7 @@ contains
       & tCoordOpt, tLatOpt, iLatGeoStep, iSccIter, energy, diffElec, sccErrorQ, &
       & indMovedAtom, coord0Out, q0, qOutput, orb, species, tPrintMulliken, pressure, &
       & cellVol, TS, tAtomicEnergy, dispersion, tPeriodic, tScc, invLatVec, kPoints, &
-      & iAtInCentralRegion, electronicSolver, reks, t3rd, isRangeSep, qNetAtom)
+      & iAtInCentralRegion, electronicSolver, reks, t3rd, isHybridXc, qNetAtom)
 
     !> File ID
     integer, intent(in) :: fd
@@ -5495,7 +5495,7 @@ contains
     logical, intent(in) :: t3rd
 
     !> Whether to run a range separated calculation
-    logical, intent(in) :: isRangeSep
+    logical, intent(in) :: isHybridXc
 
     !> Onsite mulliken population per atom
     real(dp), intent(in), optional :: qNetAtom(:)
@@ -5676,7 +5676,7 @@ contains
       if (t3rd) then
         write (fd,format2U) 'Energy 3rd', energy%e3rd, 'H', energy%e3rd*Hartree__eV, 'eV'
       end if
-      if (isRangeSep) then
+      if (isHybridXc) then
         write(fd, format2U) 'Energy Fock', energy%Efock, 'H', energy%Efock * Hartree__eV, 'eV'
       end if
     end if

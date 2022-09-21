@@ -413,7 +413,7 @@ contains
   !> assembled individually and multiplied directly with the corresponding part of the supervector.
   subroutine actionAplusB(spin, wij, sym, win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, nxov_ud,&
       & nxov_rd, iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev, grndEigVecs, occNr, sqrOccIA,&
-      & gamma, species0, spinW, onsMEs, orb, tAplusB, transChrg, vin, vout, tRangeSep, lrGamma)
+      & gamma, species0, spinW, onsMEs, orb, tAplusB, transChrg, vin, vout, tHybridXc, lrGamma)
 
     !> logical spin polarization
     logical, intent(in) :: spin
@@ -500,7 +500,7 @@ contains
     real(dp), intent(out) :: vout(:)
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> long-range Gamma if in use
     real(dp), allocatable, optional, intent(in) :: lrGamma(:,:)
@@ -602,7 +602,7 @@ contains
 
     end if
 
-    if (tRangeSep) then
+    if (tHybridXc) then
       !! Number of vir-vir transitions a->b _and_ b->a, summed over spin channels
       nxvv_a = sum(nvir_ud**2)
       allocate(qv(natom, max(sum(nxov_ud), nxvv_a)))
@@ -695,7 +695,7 @@ contains
   !> See also Dominguez JCTC 9 4901 (2013), Kranz JCTC 13 1737 (2017) for DFTB specifics.
   subroutine actionAminusB(spin, wij, win, nocc_ud, nvir_ud, nxoo_ud, nxvv_ud, nxov_ud, nxov_rd,&
       & iaTrans, getIA, getIJ, getAB, iAtomStart, ovrXev, grndEigVecs, occNr, sqrOccIA, transChrg,&
-      & vin, vout, tRangeSep, lrGamma)
+      & vin, vout, tHybridXc, lrGamma)
 
     !> logical spin polarization
     logical, intent(in) :: spin
@@ -761,7 +761,7 @@ contains
     real(dp), intent(out) :: vout(:)
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> long-range Gamma if in use
     real(dp), allocatable, optional, intent(in) :: lrGamma(:,:)
@@ -775,7 +775,7 @@ contains
     norb = size(ovrXev, dim=1)
     vout(:) = 0.0_dp
 
-    if (tRangeSep) then
+    if (tHybridXc) then
       natom = size(lrGamma, dim=1)
       !! Number of vir-vir transitions a->b _and_ b->a, summed over spin channels
       nxvv_a = sum(nvir_ud**2)
@@ -867,7 +867,7 @@ contains
   !> Note: Not yet OpenMP parallelized
   subroutine intialSubSpaceMatrixApmB(transChrg, initDim, wIJ, sym, win, nmatup, iAtomStart,&
       & sTimesGrndEigVecs, grndEigVecs, occNr, sqrOccIA, getIA, getIJ, getAB, iaTrans, gamma,&
-      & lrGamma, species0, spinW, tSpin, tRangeSep, vP, vM, mP, mM)
+      & lrGamma, species0, spinW, tSpin, tHybridXc, vP, vM, mP, mM)
 
     !> machinery for transition charges between single particle levels
     type(TTransCharges), intent(in) :: transChrg
@@ -930,7 +930,7 @@ contains
     logical, intent(in) :: tSpin
 
     !> is calculation range-separated?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> output vector v+ (nMat, initDim)
     real(dp), intent(out) :: vP(:,:)
@@ -1029,7 +1029,7 @@ contains
 
     end if
 
-    if (tRangeSep) then
+    if (tHybridXc) then
 
       do jbs = 1, initDim
         jj = getIA(win(jbs), 1)
