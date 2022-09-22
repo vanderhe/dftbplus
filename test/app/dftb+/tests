@@ -107,7 +107,9 @@ rangesep/cluster/Benzene-TD-LC-Spinpol-Iter    #? WITH_ARPACK and (not WITH_MPI)
 
 rangesep/periodic/GaAs-gamma-matrix            #? MPI_PROCS <= 1
 rangesep/periodic/GaAs-gamma-neigh             #? MPI_PROCS <= 4
-rangesep/periodic/Acene-gamma-force            #? MPI_PROCS <= 4
+rangesep/periodic/Acene-gamma-force-cam        #? MPI_PROCS <= 4
+rangesep/periodic/Acene-gamma-force-hyb        #? MPI_PROCS <= 4
+rangesep/periodic/Acene-gamma-force-lc         #? MPI_PROCS <= 4
 rangesep/periodic/GaAs-gamma-restart           #? MPI_PROCS <= 4
 rangesep/periodic/GaAs-kpts-ct                 #? MPI_PROCS <= 1
 rangesep/periodic/GaAs-kpts-mic                #? MPI_PROCS <= 1

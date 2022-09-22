@@ -46,8 +46,12 @@ Analysis {
 }
 
 Options {
-  WriteResultsTag = Yes
+  WriteResultsTag = No
   WriteAutotestTag = Yes
+}
+
+ParserOptions {
+  ParserVersion = 13
 }
 
 Parallel {
