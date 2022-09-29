@@ -29,7 +29,7 @@ module dftbp_dftbplus_parser
   use dftbp_dftb_periodic, only : TNeighbourList, TNeighbourlist_init, getSuperSampling, &
       & getCellTranslations, updateNeighbourList
   use dftbp_dftb_hybridxc, only : THybridXcSKTag, hybridXcAlgo, hybridXcGammaTypes,&
-      & checkSupercellFoldingMatrix
+      & checkSupercellFoldingMatrix, hybridXcFunc
   use dftbp_dftb_repulsive_chimesrep, only : TChimesRepInp
   use dftbp_dftb_repulsive_polyrep, only : TPolyRepInp, TPolyRep
   use dftbp_dftb_repulsive_splinerep, only : TSplineRepInp, TSplineRep
@@ -7661,11 +7661,15 @@ contains
     !! File name of representative SK-file to read
     character(lc) :: fileName
 
-    !! Hybrid xc-functional extra tag, if allocated
-    integer, allocatable :: hybridXcTag
+    !! Hybrid xc-functional extra tag in SK-files, if allocated
+    integer, allocatable :: hybridXcSkTag
+
+    !! Hybrid functional type of user input
+    integer :: hybridXcInputTag
 
     !! auxiliary node pointers
-    type(fnode), pointer :: hybridNode, child1, value1, child2, value2, child3, child4, dummy
+    type(fnode), pointer :: hybridChild, hybridValue, screeningNode, screeningChild
+    type(fnode), pointer :: screeningValue, cmNode, cmChild, cmValue, child1, child2
 
     !! Temporary string buffers
     type(string) :: buffer, modifier
@@ -7682,30 +7686,76 @@ contains
     call get(skFiles(1, 1), fileName, 1)
 
     ! Check if SK-files contain extra tag for hybrid xc-functionals
-    call inquireHybridXcTag(fileName, hybridXcTag)
+    call inquireHybridXcTag(fileName, hybridXcSkTag)
 
-    call getChild(node, "Hybrid", hybridNode, requested=.false.)
+    call getChildValue(node, "Hybrid", hybridValue, "None", child=hybridChild)
+    call getNodeName(hybridValue, buffer)
 
-    if (.not. associated(hybridNode) .and. allocated(hybridXcTag)) then
+    ! Check if Hybrid block is actually expected for given SK-files
+    if (tolower(char(buffer)) == "none" .and. allocated(hybridXcSkTag)) then
       call detailedError(node, "SK-files generated with hybrid xc-functional, but HSD input block&
           & missing.")
-    elseif (associated(hybridNode) .and. (.not. allocated(hybridXcTag))) then
+    elseif (tolower(char(buffer)) /= "none" .and. (.not. allocated(hybridXcSkTag))) then
       call detailedError(node, "SK-files not generated with hybrid xc-functional.")
     end if
 
-    if (associated(hybridNode)) then
-      allocate(input)
-      input%hybridXcType = hybridXcTag
-      call getChildValue(hybridNode, "Screening", value2, "Thresholded", child=child2)
+    if (associated(hybridChild)) then
+      ! Convert hybrid functional type of user input to enumerator
+      select case(tolower(char(buffer)))
+      case ("global")
+        hybridXcInputTag = hybridXcFunc%hyb
+      case ("lc")
+        hybridXcInputTag = hybridXcFunc%lc
+      case ("cam")
+        hybridXcInputTag = hybridXcFunc%cam
+      case default
+        call detailedError(hybridChild, "Unknown hybrid xc-functional type '"&
+            & // tolower(char(buffer)) // "' in input.")
+      end select
 
-      ! Additional options for periodic sytems
-      if (geo%tPeriodic) then
+      ! Check if hybrid functional type is in line with SK-files
+      if (.not. hybridXcInputTag == hybridXcSkTag) then
+        call detailedError(hybridChild, "Hybrid functional type conflict with SK-files.")
+      end if
+
+      allocate(input)
+      input%hybridXcType = hybridXcInputTag
+      call getChildValue(hybridValue, "Screening", screeningValue, "Thresholded",&
+          & child=screeningChild)
+
+      call getNodeName(screeningValue, buffer)
+      select case(char(buffer))
+      case ("neighbourbased")
+        input%hybridXcAlg = hybridXcAlgo%neighbour
+        call getChildValue(screeningValue, "CutoffReduction", input%cutoffRed, 0.0_dp,&
+            & modifier=modifier, child=child1)
+        call convertUnitHsd(char(modifier), lengthUnits, child1, input%cutoffRed)
+        if (geo%tPeriodic) then
+          call getChildValue(screeningValue, "Threshold", input%screeningThreshold, 1e-06_dp)
+        end if
+      case ("thresholded")
+        input%hybridXcAlg = hybridXcAlgo%threshold
+        call getChildValue(screeningValue, "Threshold", input%screeningThreshold, 1e-6_dp)
+        call getChildValue(screeningValue, "CutoffReduction", input%cutoffRed, 0.0_dp,&
+            & modifier=modifier, child=child1)
+        call convertUnitHsd(char(modifier), lengthUnits, child1, input%cutoffRed)
+      case ("matrixbased")
+        input%hybridXcAlg = hybridXcAlgo%matrixBased
+        ! In this case, CutoffRedunction is not used so it should be set to zero.
+        input%cutoffRed = 0.0_dp
+      case default
+        call getNodeHSdName(screeningValue, buffer)
+        call detailedError(screeningChild, "Invalid screening method '" // char(buffer) // "'")
+      end select
+
+      ! Additional settings for periodic sytems
+      ifPeriodic: if (geo%tPeriodic) then
 
         ! parse gamma function type (full, truncated, screened, ...)
-        call getNodeName(hybridNode, buffer)
-        call getChild(hybridNode, "GammaType", child=child3, requested=.true.)
-        call getChildValue(child3, "", strBuffer)
-        select case(tolower(unquote(trim(char(strBuffer)))))
+        call getChildValue(hybridValue, "CoulombMatrix", cmValue, "Truncated", child=cmChild)
+
+        call getNodeName(cmValue, buffer)
+        select case(char(buffer))
         case ("full")
           input%gammaType = hybridXcGammaTypes%full
         case ("mic")
@@ -7719,79 +7769,54 @@ contains
         case ("screened+damping")
           input%gammaType = hybridXcGammaTypes%screenedAndDamped
         case default
-          call detailedError(child3, "Invalid Gamma function type '"&
-              & // tolower(unquote(trim(char(strBuffer)))) // "'")
+          call getNodeHSdName(cmValue, buffer)
+          call detailedError(cmChild, "Invalid Gamma function type '" // char(strBuffer) // "'")
         end select
 
         ! g-Summation cutoff not needed for MIC CAM Hamiltonian
         if (input%gammaType /= hybridXcGammaTypes%mic) then
-          call getChild(hybridNode, "GSummationCutoff", child=child3, modifier=modifier,&
+          call getChild(cmValue, "GSummationCutoff", child=child1, modifier=modifier,&
               & requested=.false.)
-          if (associated(child3)) then
+          if (associated(child1)) then
             allocate(input%gSummationCutoff)
-            call getChildValue(child3, "", input%gSummationCutoff, modifier=modifier, child=child4)
-            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gSummationCutoff)
+            call getChildValue(child1, "", input%gSummationCutoff, modifier=modifier, child=child2)
+            call convertUnitHsd(char(modifier), lengthUnits, child2, input%gSummationCutoff)
           end if
         end if
 
         if (input%gammaType == hybridXcGammaTypes%truncated&
             & .or. input%gammaType == hybridXcGammaTypes%truncatedAndDamped&
             & .or. input%gammaType == hybridXcGammaTypes%screenedAndDamped) then
-          call getChild(hybridNode, "GammaCutoff", child=child3, modifier=modifier,&
+          call getChild(cmValue, "CoulombCutoff", child=child1, modifier=modifier,&
               & requested=.false.)
-          if (associated(child3)) then
+          if (associated(child1)) then
             allocate(input%gammaCutoff)
-            call getChildValue(child3, "", input%gammaCutoff, modifier=modifier, child=child4)
-            call convertUnitHsd(char(modifier), lengthUnits, child4, input%gammaCutoff)
+            call getChildValue(child1, "", input%gammaCutoff, modifier=modifier, child=child2)
+            call convertUnitHsd(char(modifier), lengthUnits, child2, input%gammaCutoff)
           end if
         end if
 
         if (input%gammaType == hybridXcGammaTypes%screened&
             & .or. input%gammaType == hybridXcGammaTypes%truncatedAndDamped) then
-          call getChild(hybridNode, "AuxiliaryScreening", child=child3, requested=.false.)
-          if (associated(child3)) then
+          call getChild(cmValue, "AuxiliaryScreening", child=child1, requested=.false.)
+          if (associated(child1)) then
             allocate(input%auxiliaryScreening)
-            call getChildValue(child3, "", input%auxiliaryScreening)
+            call getChildValue(child1, "", input%auxiliaryScreening)
           end if
         end if
       else
         ! Always use unaltered gamma function for non-periodic systems
         input%gammaType = hybridXcGammaTypes%full
-      end if
+      end if ifPeriodic
 
       ! Number of primitive cells regarded in MIC, along each supercell folding direction
       if (input%gammaType == hybridXcGammaTypes%mic) then
-        call getChild(hybridNode, "WignerSeitzReduction", child=child3, requested=.false.)
-        if (associated(child3)) then
+        call getChild(cmValue, "WignerSeitzReduction", child=child1, requested=.false.)
+        if (associated(child1)) then
           allocate(input%wignerSeitzReduction)
-          call getChildValue(child3, "", input%wignerSeitzReduction, child=child4)
+          call getChildValue(child1, "", input%wignerSeitzReduction)
         end if
       end if
-
-      call getNodeName(value2, buffer)
-      select case(char(buffer))
-      case ("neighbourbased")
-        input%hybridXcAlg = hybridXcAlgo%neighbour
-        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
-            & modifier=modifier, child=child3)
-        call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-        if (geo%tPeriodic) then
-          call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-06_dp)
-        end if
-      case ("thresholded")
-        input%hybridXcAlg = hybridXcAlgo%threshold
-        call getChildValue(value2, "Threshold", input%screeningThreshold, 1e-6_dp)
-        call getChildValue(value2, "CutoffReduction", input%cutoffRed, 0.0_dp,&
-            & modifier=modifier, child=child3)
-        call convertUnitHsd(char(modifier), lengthUnits, child3, input%cutoffRed)
-      case ("matrixbased")
-        input%hybridXcAlg = hybridXcAlgo%matrixBased
-        ! In this case, CutoffRedunction is not used so it should be set to zero.
-        input%cutoffRed = 0.0_dp
-      case default
-        call getNodeHSdName(value2, buffer)
-        call detailedError(child2, "Invalid screening method '" // char(buffer) // "'")
-      end select
 
     end if
 

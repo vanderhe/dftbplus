@@ -23,9 +23,10 @@ Hamiltonian = DFTB {
     Suffix = ".skf"
   }
 
-  Hybrid {
-    GammaType = "mic"
-    WignerSeitzReduction = 1
+  Hybrid = LC {
+    CoulombMatrix = MIC {
+      WignerSeitzReduction = 1
+    }
     Screening = NeighbourBased {
       CutoffReduction = 17.0
       Threshold = 1e-100

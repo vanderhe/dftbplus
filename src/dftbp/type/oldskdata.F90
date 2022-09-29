@@ -392,7 +392,7 @@ contains
       case ("cam")
         hybridXcTag = hybridXcFunc%cam
       case default
-        write(strDummy, "(A,A,A)") "Unknown hybrid xc-functional method in SK file '",&
+        write(strDummy, "(A,A,A)") "Unknown hybrid xc-functional method in SK-file '",&
             & trim(fname), "'"
         call error(strDummy)
       end select

@@ -23,10 +23,11 @@ Hamiltonian = DFTB {
     Suffix = ".skf"
   }
 
-  Hybrid {
-    GammaType = "truncated+damping"
-    GSummationCutoff = 0.140693E+02
-    GammaCutoff = 0.703465E+01
+  Hybrid = LC {
+    CoulombMatrix = Truncated+Damping {
+      CoulombCutoff = 0.703465E+01
+      GSummationCutoff = 0.140693E+02
+    }
     Screening = NeighbourBased {
       CutoffReduction = 17.0
       Threshold = 1e-100
