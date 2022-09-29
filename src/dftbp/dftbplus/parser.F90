@@ -26,7 +26,7 @@ module dftbp_dftbplus_parser
   use dftbp_dftb_encharges, only : TEeqInput
   use dftbp_dftb_etemp, only : fillingTypes
   use dftbp_dftb_halogenx, only : halogenXSpecies1, halogenXSpecies2
-  use dftbp_dftb_periodic, only : TNeighbourList, TNeighbourlist_init, getSuperSampling, &
+  use dftbp_dftb_periodic, only : TNeighbourList, TNeighbourlist_init, getSuperSampling,&
       & getCellTranslations, updateNeighbourList
   use dftbp_dftb_hybridxc, only : THybridXcSKTag, hybridXcAlgo, hybridXcGammaTypes,&
       & checkSupercellFoldingMatrix, hybridXcFunc
@@ -7688,18 +7688,19 @@ contains
     ! Check if SK-files contain extra tag for hybrid xc-functionals
     call inquireHybridXcTag(fileName, hybridXcSkTag)
 
-    call getChildValue(node, "Hybrid", hybridValue, "None", child=hybridChild)
-    call getNodeName(hybridValue, buffer)
+    call getChild(node, "Hybrid", child=hybridChild, requested=.false.)
 
     ! Check if Hybrid block is actually expected for given SK-files
-    if (tolower(char(buffer)) == "none" .and. allocated(hybridXcSkTag)) then
+    if ((.not. associated(hybridChild)) .and. allocated(hybridXcSkTag)) then
       call detailedError(node, "SK-files generated with hybrid xc-functional, but HSD input block&
           & missing.")
-    elseif (tolower(char(buffer)) /= "none" .and. (.not. allocated(hybridXcSkTag))) then
+    elseif (associated(hybridChild) .and. (.not. allocated(hybridXcSkTag))) then
       call detailedError(node, "SK-files not generated with hybrid xc-functional.")
     end if
 
     if (associated(hybridChild)) then
+      call getChildValue(node, "Hybrid", hybridValue, "None", child=hybridChild)
+      call getNodeName(hybridValue, buffer)
       ! Convert hybrid functional type of user input to enumerator
       select case(tolower(char(buffer)))
       case ("global")
