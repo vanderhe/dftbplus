@@ -28,7 +28,7 @@ module dftbp_dftb_hybridxc
   use dftbp_dftb_densitymatrix, only : TDensityMatrix
   use dftbp_math_simplealgebra, only : determinant33
   use dftbp_common_parallel, only : getStartAndEndIndex
-  use dftbp_math_wigner, only : generateWignerSeitzGrid, isInWignerSeitzGrid
+  use dftbp_math_wigner, only : generateWignerSeitzGrid
 
 #:if WITH_OMP
   use omp_lib, only : OMP_GET_NUM_THREADS, OMP_GET_THREAD_NUM
@@ -293,6 +293,7 @@ module dftbp_dftb_hybridxc
 
     procedure :: addCamGradients_cluster
     procedure :: addCamGradients_gamma
+    procedure :: addCamGradients_kpts_ct
 
     procedure :: getCentralCellSpecies
     procedure :: getCamGammaCluster
@@ -1463,9 +1464,9 @@ contains
           & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
           & iSquare, orb, kPoints, kWeights, localKS, HSqr)
     else
-      call addCamHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
-          & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-          & iSquare, orb, kPoints, kWeights, localKS, HSqr)
+      call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
+          & symNeighbourList, nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, localKS,&
+          & HSqr)
       end if
     case (hybridXcAlgo%matrixBased)
       call error('Matrix based algorithm not implemented for periodic systems.')
@@ -2893,9 +2894,9 @@ contains
 
   !> Adds range-separated contributions to Hamiltonian, using neighbour-list based algorithm.
   !! (k-point version)
-  subroutine addCamHamiltonianNeighbour_kpts(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
-      & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVecs, latVecs, recVecs2p,&
-      & iSquare, orb, kPoints, kWeights, localKS, HSqr)
+  subroutine addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
+      & symNeighbourList, nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, localKS,&
+      & HSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
@@ -2915,20 +2916,8 @@ contains
     !> Nr. of neighbours for each atom.
     integer, intent(in) :: nNeighbourCamSym(:)
 
-    !> Shift vector index for every interacting atom, including periodic images
-    integer, intent(in) :: iCellVec(:)
-
-    !> Vectors to neighboring unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
     !> Vectors to neighboring unit cells in relative units
     real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2pi
-    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -3324,7 +3313,7 @@ contains
           & deltaRhoOutSqrCplx(:,:, iLocalKS))
     end do
 
-  end subroutine addCamHamiltonianNeighbour_kpts
+  end subroutine addCamHamiltonianNeighbour_kpts_ct
 
 
   !> Adds the CAM-energy contribution to the total energy.
@@ -5287,6 +5276,343 @@ contains
     end if
 
   end subroutine addCamGradients_gamma
+
+
+  !> Adds CAM gradients due to CAM range-separated contributions (k-point version).
+  subroutine addCamGradients_kpts_ct(this, deltaRhoSqr, symNeighbourList, nNeighbourCamSym,&
+      & cellVecs, iSquare, orb, kPoints, kWeights, localKS, skOverCont, derivator, gradients)
+
+    !> Class instance
+    class(THybridXcFunc), intent(inout), target :: this
+
+    ! !> Environment settings
+    ! type(TEnvironment), intent(inout) :: env
+
+    !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
+    real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
+
+    !> list of neighbours for each atom (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
+
+    !> Nr. of neighbours for each atom.
+    integer, intent(in) :: nNeighbourCamSym(:)
+
+    !> Vectors to neighboring unit cells in relative units
+    real(dp), intent(in) :: cellVecs(:,:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> Orbital information.
+    type(TOrbitals), intent(in) :: orb
+
+    !> K-points in relative coordinates to calculate delta H(k) for
+    real(dp), intent(in) :: kPoints(:,:)
+
+    !> K-point weights (for energy contribution)
+    real(dp), intent(in) :: kWeights(:)
+
+    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
+    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
+    integer, intent(in) :: localKS(:,:)
+
+    !> Sparse overlap container
+    type(TSlakoCont), intent(in) :: skOverCont
+
+    !> Differentiation object
+    class(TNonSccDiff), intent(in) :: derivator
+
+    !> Energy gradients
+    real(dp), intent(inout) :: gradients(:,:)
+
+    !! Dense matrix descriptor indices
+    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
+
+    !! Atom blocks from sparse, real-space overlap matrices
+    real(dp), pointer :: pSam(:,:)
+
+    !! Stores start/end index and number of orbitals of square matrices
+    integer :: descA(descLen), descB(descLen), descM(descLen), descK(descLen)
+
+    !! Temporary storages
+    real(dp), allocatable :: tmpGradients(:,:)
+
+    !! Overlap derivatives
+    real(dp), dimension(orb%mOrb, orb%mOrb, 3) :: SbnPrimeKequalsN
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    !! Real-space \vec{h} and \vec{l} vectors in relative coordinates
+    real(dp) :: vecH(3), vecL(3)
+
+    !! K-point index
+    integer :: iK
+
+    !! Spin index
+    integer :: iS
+
+    !! Atom indices (central cell)
+    integer :: iAtM, iAtK
+
+    !! Neighbour indices (+corresponding atom indices)
+    integer :: iNeighK, iNeighM, iAtA, iAtB
+
+    !! Folded (to central cell) atom indices
+    integer :: iAtAfold, iAtBfold
+
+    !! Auxiliary variables for setting up 2D pointer to sparse overlap
+    integer :: ind, nOrbAt, nOrbNeigh
+
+    !! Integer BvK index
+    integer :: bvKIndex(3)
+
+    !! Phase factor
+    complex(dp) :: phase
+
+    !! Iterates over all BvK real-space vectors
+    integer :: iG, iGMK, iGMB, iGAK, iGAB
+
+    !! Orbital indices
+    integer :: mu, nu, kk, alpha, beta
+
+    !! Number of k-points and spins
+    integer :: nK, nS
+
+    !! Overlap matrix elements
+    real(dp) :: Sam
+
+    !! Density matrix elements
+    real(dp) :: dPmk, dPab
+
+    !! Products phase * gammaMK, phase * gammaMB, phase * gammaAK, phase * gammaAB
+    real(dp) :: phaseGammaMK, phaseGammaMB, phaseGammaAK, phaseGammaAB
+
+    !! Product dPmk * phase * gammaMK
+    real(dp) :: dPmkPhaseGammaMK
+
+    !! Product dPmk * phase * gammaMB
+    real(dp) :: dPmkPhaseGammaMB
+
+    !! Product dPmk * phase * gammaAK
+    real(dp) :: dPmkPhaseGammaAK
+
+    !! Product dPmk * phase * gammaAB
+    real(dp) :: dPmkPhaseGammaAB
+
+    !! Product dPmk * phase * gammaMK * Sam
+    real(dp) :: dPmkPhaseGammaMKSam
+
+    !! Product dPmk * phase * gammaMB * Sam
+    real(dp) :: dPmkPhaseGammaMBSam
+
+    !! Product dPmk * phase * gammaAK * Sam
+    real(dp) :: dPmkPhaseGammaAKSam
+
+    !! Product dPmk * phase * gammaAB * Sam
+    real(dp) :: dPmkPhaseGammaABSam
+
+    nAtom0 = size(this%species0)
+    nS = size(deltaRhoSqr, dim=6)
+    nK = size(kPoints, dim=2)
+
+    ! allocate gradient contribution
+    allocate(tmpGradients(3, size(gradients, dim=2)))
+    tmpGradients(:,:) = 0.0_dp
+
+    ! First terms of (48)
+    loopK1: do iAtK = 1, nAtom0
+      descK = getDescriptor(iAtK, iSquare)
+      loopM1: do iAtM = 1, nAtom0
+        descM = getDescriptor(iAtM, iSquare)
+        loopB1: do iNeighK = 0, nNeighbourCamSym(iAtK)
+          iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighK, iAtK)
+          iAtBfold = symNeighbourList%img2CentCell(iAtB)
+          if (iAtBfold == iAtK) cycle
+          descB = getDescriptor(iAtBfold, iSquare)
+          vecL(:) = cellVecs(:, symNeighbourList%iCellVec(iAtB))
+          SbnPrimeKequalsN(:,:,:) = 0.0_dp
+          call derivator%getFirstDeriv(SbnPrimeKequalsN, skOverCont, this%rCoords,&
+              & symNeighbourList%species, iAtK, iAtB, orb)
+          loopA1: do iNeighM = 0, nNeighbourCamSym(iAtM)
+            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
+            iAtAfold = symNeighbourList%img2CentCell(iAtA)
+            descA = getDescriptor(iAtAfold, iSquare)
+            vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
+            ! get 2D pointer to Sam overlap block
+            ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
+            nOrbAt = descM(iNOrb)
+            nOrbNeigh = descA(iNOrb)
+            pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+
+            loopGMK: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtK)%array)
+              iGMK = this%nNonZeroGammaG(iAtM, iAtK)%array(iG)
+              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGMK) + vecH - vecL)
+
+              loopKptsMK: do iK = 1, nK
+                phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+                    & this%cellVecsG(:, iGMK)))
+                phaseGammaMK = phase * this%gammaEvalG(iAtM, iAtK)%array(iG)
+
+                ! term #1
+                do mu = 1, descM(iNOrb)
+                  do kk = 1, descK(iNOrb)
+                    do iS = 1, nS
+                      dPmk = deltaRhoSqr(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                          & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
+                      dPmkPhaseGammaMK = dPmk * phaseGammaMK
+                      do alpha = 1, descA(iNOrb)
+                        Sam = pSam(alpha, mu)
+                        dPmkPhaseGammaMKSam = dPmkPhaseGammaMK * Sam
+                        do beta = 1, descB(iNOrb)
+                          dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
+                              & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
+
+                          tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                              & + 2.0_dp * dPmkPhaseGammaMKSam * dPab&
+                              & * SbnPrimeKequalsN(beta, kk, :)
+                        end do
+                      end do
+                    end do
+                  end do
+                end do
+
+              end do loopKptsMK
+            end do loopGMK
+
+            loopGMB: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtBfold)%array)
+              iGMB = this%nNonZeroGammaG(iAtM, iAtBfold)%array(iG)
+              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGMB) + vecH)
+
+              loopKptsMB: do iK = 1, nK
+                phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+                    & this%cellVecsG(:, iGMB) + vecL))
+                phaseGammaMB = phase * this%gammaEvalG(iAtM, iAtBfold)%array(iG)
+
+                ! term #2
+                do mu = 1, descM(iNOrb)
+                  do kk = 1, descK(iNOrb)
+                    do iS = 1, nS
+                      dPmk = deltaRhoSqr(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                          & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
+                      dPmkPhaseGammaMB = dPmk * phaseGammaMB
+                      do alpha = 1, descA(iNOrb)
+                        Sam = pSam(alpha, mu)
+                        dPmkPhaseGammaMBSam = dPmkPhaseGammaMB * Sam
+                        do beta = 1, descB(iNOrb)
+                          dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
+                              & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
+
+                          tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                              & + 2.0_dp * dPmkPhaseGammaMBSam * dPab&
+                              & * SbnPrimeKequalsN(beta, kk, :)
+                        end do
+                      end do
+                    end do
+                  end do
+                end do
+
+              end do loopKptsMB
+            end do loopGMB
+
+            loopGAK: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtK)%array)
+              iGAK = this%nNonZeroGammaG(iAtAfold, iAtK)%array(iG)
+              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGAK) - vecL)
+
+              loopKptsAK: do iK = 1, nK
+                phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+                    & this%cellVecsG(:, iGAK) - vecH))
+                phaseGammaAK = phase * this%gammaEvalG(iAtAfold, iAtK)%array(iG)
+
+                ! term #3
+                do mu = 1, descM(iNOrb)
+                  do kk = 1, descK(iNOrb)
+                    do iS = 1, nS
+                      dPmk = deltaRhoSqr(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                          & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
+                      dPmkPhaseGammaAK = dPmk * phaseGammaAK
+                      do alpha = 1, descA(iNOrb)
+                        Sam = pSam(alpha, mu)
+                        dPmkPhaseGammaAKSam = dPmkPhaseGammaAK * Sam
+                        do beta = 1, descB(iNOrb)
+                          dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
+                              & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
+
+                          tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                              & + 2.0_dp * dPmkPhaseGammaAKSam * dPab&
+                              & * SbnPrimeKequalsN(beta, kk, :)
+                        end do
+                      end do
+                    end do
+                  end do
+                end do
+
+              end do loopKptsAK
+            end do loopGAK
+
+            loopGAB: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtBfold)%array)
+              iGAB = this%nNonZeroGammaG(iAtAfold, iAtBfold)%array(iG)
+              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGAB))
+
+              loopKptsAB: do iK = 1, nK
+                phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+                    & this%cellVecsG(:, iGAB) + vecL - vecH))
+                dPmkPhaseGammaAB = phase * this%gammaEvalG(iAtAfold, iAtBfold)%array(iG)
+
+                ! term #4
+                do mu = 1, descM(iNOrb)
+                  do kk = 1, descK(iNOrb)
+                    do iS = 1, nS
+                      dPmk = deltaRhoSqr(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                          & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
+                      dPmkPhaseGammaAB = dPmk * phaseGammaAB
+                      do alpha = 1, descA(iNOrb)
+                        Sam = pSam(alpha, mu)
+                        dPmkPhaseGammaABSam = dPmkPhaseGammaAB * Sam
+                        do beta = 1, descB(iNOrb)
+                          dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
+                              & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
+
+                          tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                              & + 2.0_dp * dPmkPhaseGammaABSam * dPab&
+                              & * SbnPrimeKequalsN(beta, kk, :)
+                        end do
+                      end do
+                    end do
+                  end do
+                end do
+
+              end do loopKptsAB
+            end do loopGAB
+
+          end do loopA1
+        end do loopB1
+      end do loopM1
+    end do loopK1
+
+    if (this%tREKS) then
+      tmpGradients(:,:) = -0.5_dp * tmpGradients
+    else
+      tmpGradients(:,:) = -0.25_dp * nS * tmpGradients
+    end if
+
+    gradients(:,:) = gradients + tmpGradients
+
+
+  ! #:if WITH_MPI
+  !   ! Sum up contributions of current MPI group
+  !   call mpifx_allreduceip(env%mpi%globalComm, tmpGradients, MPI_SUM)
+  ! #:endif
+
+  !   if (env%tGlobalLead) then
+  !     gradients(:,:) = gradients + tmpGradients
+  !   end if
+
+  ! #:if WITH_MPI
+  !   call mpifx_bcast(env%mpi%globalComm, gradients)
+  ! #:endif
+
+  end subroutine addCamGradients_kpts_ct
 
 
   !> Explicitly evaluates the LR-Energy contribution (very slow, use addLrEnergy instead).
