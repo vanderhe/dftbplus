@@ -5031,22 +5031,23 @@ contains
     integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
 
     !! Atom blocks from sparse, real-space overlap matrices
-    real(dp), pointer :: pSam(:,:), pSbn(:,:), pSbk(:,:)
+    real(dp), pointer :: pSam(:,:), pSak(:,:), pSbn(:,:), pSbm(:,:), pSbk(:,:)
 
     !! Stores start/end index and number of orbitals of square matrices
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen), descK(descLen)
 
     !! Temporary storages
     real(dp), allocatable :: tmpDeltaRhoSqr(:,:,:), tmpGradients(:,:)
+    real(dp), allocatable :: tmpGradients1(:,:), tmpGradients2(:,:), tmpGradients3(:,:)
 
     !! Number of atoms in central cell
     integer :: nAtom0
 
     !! Overlap matrix elements
-    real(dp) :: Sam, Sbn, Sbk
+    real(dp) :: Sam, Sak, Sbm, Sbn, Sbk
 
     !! Density matrix elements
-    real(dp) :: dPmn, dPab, dPmk
+    real(dp) :: dPmn, dPab, dPmk, dPkm
 
     !! Overlap derivatives
     real(dp), dimension(orb%mOrb, orb%mOrb, 3) :: SbnPrimeKequalsN
@@ -5084,6 +5085,9 @@ contains
     !! Product dPmn * Sam
     real(dp) :: dPmnSam
 
+    !! Product dPkm * Sak
+    real(dp) :: dPkmSak
+
     !! Product dPmn * gammaTot
     real(dp) :: dPmnGammaTot
 
@@ -5109,6 +5113,12 @@ contains
     ! allocate gradient contribution
     allocate(tmpGradients(3, size(gradients, dim=2)))
     tmpGradients(:,:) = 0.0_dp
+    allocate(tmpGradients1(3, size(gradients, dim=2)))
+    tmpGradients1(:,:) = 0.0_dp
+    allocate(tmpGradients2(3, size(gradients, dim=2)))
+    tmpGradients2(:,:) = 0.0_dp
+    allocate(tmpGradients3(3, size(gradients, dim=2)))
+    tmpGradients3(:,:) = 0.0_dp
 
     tmpDeltaRhoSqr = deltaRhoSqr
     do iSpin = 1, nSpin
@@ -5206,7 +5216,7 @@ contains
                       dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
                           & descB(iStart) + beta - 1, iSpin)
 
-                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                      tmpGradients1(:, iAtK) = tmpGradients1(:, iAtK)&
                           & + 2.0_dp * dPmkSam * dPab * Sbk * dGammaMK
                     end do
                   end do
@@ -5218,6 +5228,9 @@ contains
         end do loopB2
       end do loopM2
     end do loopK2
+
+    print "(3F22.16)", tmpGradients1
+    print *, '###'
 
     loopK3: do iAtK = 1, nAtom0
       descK = getDescriptor(iAtK, iSquare)
@@ -5256,8 +5269,8 @@ contains
                       dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
                           & descB(iStart) + beta - 1, iSpin)
 
-                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                          & + 2.0_dp * dPmkSam * dPab * Sbk * dGammaAK
+                      tmpGradients2(:, iAtK) = tmpGradients2(:, iAtK)&
+                          & + 4.0_dp * dPmkSam * dPab * Sbk * dGammaAK
                     end do
                   end do
                 end do
@@ -5269,55 +5282,8 @@ contains
       end do loopM3
     end do loopK3
 
-    loopK4: do iAtK = 1, nAtom0
-      descK = getDescriptor(iAtK, iSquare)
-      loopN1: do iAtN = 1, nAtom0
-        descN = getDescriptor(iAtN, iSquare)
-        loopB4: do iNeighN = 0, nNeighbourCamSym(iAtN)
-          iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
-          iAtBfold = symNeighbourList%img2CentCell(iAtB)
-          if (iAtK == iAtBfold) cycle
-          descB = getDescriptor(iAtBfold, iSquare)
-          ! get 2D pointer to Sbn overlap block
-          ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
-          nOrbAt = descN(iNOrb)
-          nOrbNeigh = descB(iNOrb)
-          pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-          dGammaKB(:) = this%camdGammaEval0(iAtK, iAtBfold, :)
-          loopA4: do iNeighK = 0, nNeighbourCamSym(iAtK)
-            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighK, iAtK)
-            iAtAfold = symNeighbourList%img2CentCell(iAtA)
-            descA = getDescriptor(iAtAfold, iSquare)
-            ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
-            ind = symNeighbourList%iPair(iNeighK, iAtK) + 1
-            nOrbAt = descK(iNOrb)
-            nOrbNeigh = descA(iNOrb)
-            pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-
-            do kk = 1, descK(iNOrb)
-              do nu = 1, descN(iNOrb)
-                do iSpin = 1, nSpin
-                  dPmn = tmpDeltaRhoSqr(descK(iStart) + kk - 1, descN(iStart) + nu - 1, iSpin)
-                  do alpha = 1, descA(iNOrb)
-                    Sam = pSam(alpha, kk)
-                    dPmnSam = dPmn * Sam
-                    do beta = 1, descB(iNOrb)
-                      Sbn = pSbn(beta, nu)
-                      dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
-                          & descB(iStart) + beta - 1, iSpin)
-
-                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                          & + 2.0_dp * dPmnSam * Sbn * dPab * dGammaKB
-                    end do
-                  end do
-                end do
-              end do
-            end do
-
-          end do loopA4
-        end do loopB4
-      end do loopN1
-    end do loopK4
+    print "(3F22.16)", tmpGradients2
+    print *, '###'
 
     loopK5: do iAtK = 1, nAtom0
       loopMN1: do ii = 1, nAtom0**2
@@ -5325,30 +5291,27 @@ contains
         iAtN = iAtMN(2, ii)
         descM = getDescriptor(iAtM, iSquare)
         descN = getDescriptor(iAtN, iSquare)
-        loopB5: do iNeighN = 0, nNeighbourCamSym(iAtN)
-          iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
-          iAtBfold = symNeighbourList%img2CentCell(iAtB)
-          descB = getDescriptor(iAtBfold, iSquare)
-          ! get 2D pointer to Sbn overlap block
-          ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
-          nOrbAt = descN(iNOrb)
-          nOrbNeigh = descB(iNOrb)
-          pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-          loopA5: do iNeighM = 0, nNeighbourCamSym(iAtM)
-            iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
-            iAtAfold = symNeighbourList%img2CentCell(iAtA)
-            if (.not. ((iAtK == iAtAfold .or. iAtK == iAtBfold) .and. iAtAfold /= iAtBfold)) cycle
-            descA = getDescriptor(iAtAfold, iSquare)
-            if (iAtK == iAtAfold) then
-              dGammaAB(:) = this%camdGammaEval0(iAtAfold, iAtBfold, :)
-            elseif (iAtK == iAtBfold) then
-              dGammaAB(:) = -this%camdGammaEval0(iAtAfold, iAtBfold, :)
-            end if
-            ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
-            ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
-            nOrbAt = descM(iNOrb)
-            nOrbNeigh = descA(iNOrb)
-            pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+        loopA5: do iNeighM = 0, nNeighbourCamSym(iAtM)
+          iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
+          iAtAfold = symNeighbourList%img2CentCell(iAtA)
+          if (iAtK /= iAtAfold) cycle
+          descA = getDescriptor(iAtAfold, iSquare)
+          ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
+          ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
+          nOrbAt = descM(iNOrb)
+          nOrbNeigh = descA(iNOrb)
+          pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+          loopB5: do iNeighN = 0, nNeighbourCamSym(iAtN)
+            iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
+            iAtBfold = symNeighbourList%img2CentCell(iAtB)
+            if (iAtK == iAtBfold) cycle
+            dGammaKB(:) = this%camdGammaEval0(iAtK, iAtBfold, :)
+            descB = getDescriptor(iAtBfold, iSquare)
+            ! get 2D pointer to Sbn overlap block
+            ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
+            nOrbAt = descN(iNOrb)
+            nOrbNeigh = descB(iNOrb)
+            pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
 
             do mu = 1, descM(iNOrb)
               do nu = 1, descN(iNOrb)
@@ -5363,18 +5326,24 @@ contains
                       dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
                           & descB(iStart) + beta - 1, iSpin)
 
-                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                          & + dPmnSam * Sbn * dPab * dGammaAB
+                      tmpGradients3(:, iAtK) = tmpGradients3(:, iAtK)&
+                          & + 2.0_dp * dPmnSam * Sbn * dPab * dGammaKB
                     end do
                   end do
                 end do
               end do
             end do
 
-          end do loopA5
-        end do loopB5
+          end do loopB5
+        end do loopA5
       end do loopMN1
     end do loopK5
+
+    print "(3F22.16)", tmpGradients3
+    print *, '####'
+
+
+    print "(3F22.16)", tmpGradients1 / tmpGradients3
 
     if (this%tREKS) then
       gradients(:,:) = gradients - 0.125_dp * tmpGradients
