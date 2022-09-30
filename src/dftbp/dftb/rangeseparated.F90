@@ -5038,7 +5038,6 @@ contains
 
     !! Temporary storages
     real(dp), allocatable :: tmpDeltaRhoSqr(:,:,:), tmpGradients(:,:)
-    real(dp), allocatable :: tmpGradients1(:,:), tmpGradients2(:,:), tmpGradients3(:,:)
 
     !! Number of atoms in central cell
     integer :: nAtom0
@@ -5047,7 +5046,7 @@ contains
     real(dp) :: Sam, Sak, Sbm, Sbn, Sbk
 
     !! Density matrix elements
-    real(dp) :: dPmn, dPab, dPmk, dPkm
+    real(dp) :: dPmn, dPab, dPba, dPmk, dPkm
 
     !! Overlap derivatives
     real(dp), dimension(orb%mOrb, orb%mOrb, 3) :: SbnPrimeKequalsN
@@ -5093,6 +5092,12 @@ contains
 
     !! Product dPmk * Sam
     real(dp) :: dPmkSam
+
+    !! Product dPmk * gammaTot
+    real(dp) :: dPmkGammaTot
+
+    !! Product dPmk * gammaTot * Sam
+    real(dp) :: dPmkGammaTotSam
 
     !! Composite index iAtM/iAtN
     integer :: ii, iAtMN(2, size(this%species0)**2)
@@ -5154,14 +5159,16 @@ contains
               do kk = 1, descK(iNOrb)
                 do iSpin = 1, nSpin
                   dPmk = tmpDeltaRhoSqr(descM(iStart) + mu - 1, descK(iStart) + kk - 1, iSpin)
+                  dPmkGammaTot = dPmk * gammaTot
                   do alpha = 1, descA(iNOrb)
                     Sam = pSam(alpha, mu)
+                    dPmkGammaTotSam = dPmkGammaTot * Sam
                     do beta = 1, descB(iNOrb)
                       dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
                           & descB(iStart) + beta - 1, iSpin)
 
                       tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                          & + dPab * dPmk * gammaTot * Sam * SbnPrimeKequalsN(beta, kk, :)
+                          & + dPmkGammaTotSam * dPab * SbnPrimeKequalsN(beta, kk, :)
                     end do
                   end do
                 end do
@@ -5230,17 +5237,17 @@ contains
         loopA3: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
           iAtAfold = symNeighbourList%img2CentCell(iAtA)
+          if (iAtK == iAtAfold) cycle
+          dGammaAK(:) = -this%camdGammaEval0(iAtAfold, iAtK, :)
           descA = getDescriptor(iAtAfold, iSquare)
           ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
-          ind = symNeighbourList%iPair(iNeighK, iAtK) + 1
-          nOrbAt = descK(iNOrb)
+          ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
+          nOrbAt = descM(iNOrb)
           nOrbNeigh = descA(iNOrb)
-          pSak(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+          pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
           loopB3: do iNeighK = 0, nNeighbourCamSym(iAtK)
             iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighK, iAtK)
             iAtBfold = symNeighbourList%img2CentCell(iAtB)
-            if (iAtK == iAtBfold) cycle
-            dGammaKB(:) = this%camdGammaEval0(iAtK, iAtBfold, :)
             descB = getDescriptor(iAtBfold, iSquare)
             ! get 2D pointer to Sbk overlap block
             ind = symNeighbourList%iPair(iNeighK, iAtK) + 1
