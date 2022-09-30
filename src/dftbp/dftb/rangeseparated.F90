@@ -5113,12 +5113,6 @@ contains
     ! allocate gradient contribution
     allocate(tmpGradients(3, size(gradients, dim=2)))
     tmpGradients(:,:) = 0.0_dp
-    allocate(tmpGradients1(3, size(gradients, dim=2)))
-    tmpGradients1(:,:) = 0.0_dp
-    allocate(tmpGradients2(3, size(gradients, dim=2)))
-    tmpGradients2(:,:) = 0.0_dp
-    allocate(tmpGradients3(3, size(gradients, dim=2)))
-    tmpGradients3(:,:) = 0.0_dp
 
     tmpDeltaRhoSqr = deltaRhoSqr
     do iSpin = 1, nSpin
@@ -5167,7 +5161,7 @@ contains
                           & descB(iStart) + beta - 1, iSpin)
 
                       tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                          & + 4.0_dp * dPab * dPmk * gammaTot * Sam * SbnPrimeKequalsN(beta, kk, :)
+                          & + dPab * dPmk * gammaTot * Sam * SbnPrimeKequalsN(beta, kk, :)
                     end do
                   end do
                 end do
@@ -5216,8 +5210,8 @@ contains
                       dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
                           & descB(iStart) + beta - 1, iSpin)
 
-                      tmpGradients1(:, iAtK) = tmpGradients1(:, iAtK)&
-                          & + 2.0_dp * dPmkSam * dPab * Sbk * dGammaMK
+                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                          & + dPmkSam * dPab * Sbk * dGammaMK
                     end do
                   end do
                 end do
@@ -5229,9 +5223,6 @@ contains
       end do loopM2
     end do loopK2
 
-    print "(3F22.16)", tmpGradients1
-    print *, '###'
-
     loopK3: do iAtK = 1, nAtom0
       descK = getDescriptor(iAtK, iSquare)
       loopM3: do iAtM = 1, nAtom0
@@ -5239,17 +5230,17 @@ contains
         loopA3: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
           iAtAfold = symNeighbourList%img2CentCell(iAtA)
-          if (iAtK == iAtAfold) cycle
-          dGammaAK(:) = -this%camdGammaEval0(iAtAfold, iAtK, :)
           descA = getDescriptor(iAtAfold, iSquare)
           ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
-          ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
-          nOrbAt = descM(iNOrb)
+          ind = symNeighbourList%iPair(iNeighK, iAtK) + 1
+          nOrbAt = descK(iNOrb)
           nOrbNeigh = descA(iNOrb)
-          pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+          pSak(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
           loopB3: do iNeighK = 0, nNeighbourCamSym(iAtK)
             iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighK, iAtK)
             iAtBfold = symNeighbourList%img2CentCell(iAtB)
+            if (iAtK == iAtBfold) cycle
+            dGammaKB(:) = this%camdGammaEval0(iAtK, iAtBfold, :)
             descB = getDescriptor(iAtBfold, iSquare)
             ! get 2D pointer to Sbk overlap block
             ind = symNeighbourList%iPair(iNeighK, iAtK) + 1
@@ -5269,8 +5260,8 @@ contains
                       dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
                           & descB(iStart) + beta - 1, iSpin)
 
-                      tmpGradients2(:, iAtK) = tmpGradients2(:, iAtK)&
-                          & + 4.0_dp * dPmkSam * dPab * Sbk * dGammaAK
+                      tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
+                          & + dPmkSam * dPab * Sbk * dGammaAK
                     end do
                   end do
                 end do
@@ -5282,73 +5273,10 @@ contains
       end do loopM3
     end do loopK3
 
-    print "(3F22.16)", tmpGradients2
-    print *, '###'
-
-    loopK5: do iAtK = 1, nAtom0
-      loopMN1: do ii = 1, nAtom0**2
-        iAtM = iAtMN(1, ii)
-        iAtN = iAtMN(2, ii)
-        descM = getDescriptor(iAtM, iSquare)
-        descN = getDescriptor(iAtN, iSquare)
-        loopA5: do iNeighM = 0, nNeighbourCamSym(iAtM)
-          iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
-          iAtAfold = symNeighbourList%img2CentCell(iAtA)
-          if (iAtK /= iAtAfold) cycle
-          descA = getDescriptor(iAtAfold, iSquare)
-          ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
-          ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
-          nOrbAt = descM(iNOrb)
-          nOrbNeigh = descA(iNOrb)
-          pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-          loopB5: do iNeighN = 0, nNeighbourCamSym(iAtN)
-            iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
-            iAtBfold = symNeighbourList%img2CentCell(iAtB)
-            if (iAtK == iAtBfold) cycle
-            dGammaKB(:) = this%camdGammaEval0(iAtK, iAtBfold, :)
-            descB = getDescriptor(iAtBfold, iSquare)
-            ! get 2D pointer to Sbn overlap block
-            ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
-            nOrbAt = descN(iNOrb)
-            nOrbNeigh = descB(iNOrb)
-            pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-
-            do mu = 1, descM(iNOrb)
-              do nu = 1, descN(iNOrb)
-                do iSpin = 1, nSpin
-                  dPmn = tmpDeltaRhoSqr(descM(iStart) + mu - 1, descN(iStart) + nu - 1, iSpin)
-                  dPmnGammaTot = dPmn * gammaTot
-                  do alpha = 1, descA(iNOrb)
-                    Sam = pSam(alpha, mu)
-                    dPmnSam = dPmn * Sam
-                    do beta = 1, descB(iNOrb)
-                      Sbn = pSbn(beta, nu)
-                      dPab = tmpDeltaRhoSqr(descA(iStart) + alpha - 1,&
-                          & descB(iStart) + beta - 1, iSpin)
-
-                      tmpGradients3(:, iAtK) = tmpGradients3(:, iAtK)&
-                          & + 2.0_dp * dPmnSam * Sbn * dPab * dGammaKB
-                    end do
-                  end do
-                end do
-              end do
-            end do
-
-          end do loopB5
-        end do loopA5
-      end do loopMN1
-    end do loopK5
-
-    print "(3F22.16)", tmpGradients3
-    print *, '####'
-
-
-    print "(3F22.16)", tmpGradients1 / tmpGradients3
-
     if (this%tREKS) then
-      gradients(:,:) = gradients - 0.125_dp * tmpGradients
+      gradients(:,:) = gradients - 0.5_dp * tmpGradients
     else
-      gradients(:,:) = gradients - 0.0625_dp * nSpin * tmpGradients
+      gradients(:,:) = gradients - 0.25_dp * nSpin * tmpGradients
     end if
 
   end subroutine addCamGradients_gamma
