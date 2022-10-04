@@ -1458,9 +1458,10 @@ contains
             & this%img2CentCell, this%iSparseStart, this%orb, this%potential, this%coord,&
             & this%derivs, this%groundDerivs, this%tripletderivs, this%mixedderivs, this%iRhoPrim,&
             & this%thirdOrd, this%solvation, this%qDepExtPot, this%chrgForces, this%dispersion,&
-            & this%hybridXc, this%SSqrReal, this%ints, this%denseDesc,&
-            & this%densityMatrix%deltaRhoOutSqr, this%halogenXCorrection, this%tHelical,&
-            & this%coord0, this%deltaDftb, this%tPeriodic)
+            & this%hybridXc, this%SSqrReal, this%ints, this%denseDesc, this%halogenXCorrection,&
+            & this%tHelical, this%coord0, this%deltaDftb, this%tPeriodic, this%tRealHS,&
+            & this%kPoint, this%kWeight, deltaRhoOutSqr=this%densityMatrix%deltaRhoOutSqr,&
+            & deltaRhoOutSqrCplxHS=this%densityMatrix%deltaRhoOutSqrCplxHS)
 
         if (this%tCasidaForces) then
           this%derivs(:,:) = this%derivs + this%excitedDerivs
@@ -3202,8 +3203,8 @@ contains
       ! Pre-calculate CAM-Hamiltonian and overlap
       ! Get CAM-Hamiltonian contribution for all spins/k-points
       call hybridXc%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx,&
-          & symNeighbourList, nNeighbourCamSym, iCellVec, rCellVecs, cellVec, latVecs, recVecs2p,&
-          & denseDesc%iAtomStart, orb, kPoint, kWeight, parallelKS%localKS, HSqrCplxCam)
+          & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb,&
+          & kPoint, kWeight, parallelKS%localKS, HSqrCplxCam)
 
       do iKS = 1, parallelKS%nLocalKS
         iK = parallelKS%localKS(1, iKS)
@@ -5988,8 +5989,9 @@ contains
       & symNeighbourList, nNeighbourSK, nNeighbourCamSym, cellVecs, rCellVecs, iCellVec, latVecs,&
       & recVecs2p, species, img2CentCell, iSparseStart, orb, potential, coord, derivs,&
       & groundDerivs, tripletderivs, mixedderivs, iRhoPrim, thirdOrd, solvation, qDepExtPot,&
-      & chrgForces, dispersion, hybridXc, SSqrReal, ints, denseDesc, deltaRhoOutSqr,&
-      & halogenXCorrection, tHelical, coord0, deltaDftb, tPeriodic)
+      & chrgForces, dispersion, hybridXc, SSqrReal, ints, denseDesc, halogenXCorrection, tHelical,&
+      & coord0, deltaDftb, tPeriodic, tRealHS, kPoint, kWeight, deltaRhoOutSqr,&
+      & deltaRhoOutSqrCplxHS)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -6120,11 +6122,8 @@ contains
     !> Dense matrix descriptor, required for hybridXc
     type(TDenseDescr), intent(in) :: denseDesc
 
-    !> Change in density matrix during this SCC step for hybridXc
-    real(dp), pointer, intent(in) :: deltaRhoOutSqr(:,:,:)
-
     !> Correction for halogen bonds
-    type(THalogenX), allocatable, intent(inout) :: halogenXCorrection
+    type(THalogenX), intent(inout), allocatable :: halogenXCorrection
 
     !> Is the geometry helical
     logical, intent(in) :: tHelical
@@ -6137,6 +6136,21 @@ contains
 
     !> Is the geometry periodic
     logical, intent(in) :: tPeriodic
+
+    !> Is the hamiltonian real (no k-points/molecule/gamma point)?
+    logical, intent(in) :: tRealHS
+
+    !> K-points
+    real(dp), intent(in) :: kPoint(:,:)
+
+    !> Weights for k-points
+    real(dp), intent(in) :: kWeight(:)
+
+    !> Change in density matrix during this SCC step for hybridXc
+    real(dp), intent(in), optional :: deltaRhoOutSqr(:,:,:)
+
+    !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
+    real(dp), intent(in), optional :: deltaRhoOutSqrCplxHS(:,:,:,:,:,:)
 
     real(dp), allocatable :: tmpDerivs(:,:)
     real(dp), allocatable :: dQ(:,:,:)
@@ -6253,23 +6267,37 @@ contains
     end if
 
     if (allocated(hybridXc)) then
-      if (tHelical) then
-        call unpackHelicalHS(SSqrReal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK,&
-            & denseDesc%iAtomStart, iSparseStart, img2CentCell, orb, species, coord)
-      else
-        call unpackHS(SSqrReal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK,&
-            & denseDesc%iAtomStart, iSparseStart, img2CentCell)
-      end if
-      if (size(deltaRhoOutSqr, dim=3) > 2) then
-        call error("Range separated forces do not support non-colinear spin")
-      else
-        if (tPeriodic) then
+      if (tPeriodic) then
+        if (tRealHS) then
+          if (size(deltaRhoOutSqr, dim=3) > 2) then
+            call error("Range-separated forces do not support non-colinear spin")
+          end if
+          if (.not. present(deltaRhoOutSqr)) then
+            call error("Range-separated forces requested, but deltaRhoOutSqr not present")
+          end if
           call hybridXc%addCamGradients_gamma(deltaRhoOutSqr, skOverCont, symNeighbourList,&
               & nNeighbourCamSym, denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
         else
-          call hybridXc%addCamGradients_cluster(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont,&
-              & orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour, nNeighbourSK)
+          if (.not. present(deltaRhoOutSqrCplxHS)) then
+            call error("Range-separated forces requested, but deltaRhoOutSqrCplxHS not present")
+          end if
+          call hybridXc%addCamGradients_kpts_ct(deltaRhoOutSqrCplxHS, symNeighbourList,&
+              & nNeighbourCamSym, cellVecs, denseDesc%iAtomStart, orb, kPoint, kWeight,&
+              & skOverCont, nonSccDeriv, derivs)
         end if
+      else
+        if (size(deltaRhoOutSqr, dim=3) > 2) then
+          call error("Range-separated forces do not support non-colinear spin")
+        end if
+        if (tHelical) then
+          call unpackHelicalHS(SSqrReal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK,&
+              & denseDesc%iAtomStart, iSparseStart, img2CentCell, orb, species, coord)
+        else
+          call unpackHS(SSqrReal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK,&
+              & denseDesc%iAtomStart, iSparseStart, img2CentCell)
+        end if
+        call hybridXc%addCamGradients_cluster(derivs, nonSccDeriv, deltaRhoOutSqr, skOverCont,&
+            & orb, denseDesc%iAtomStart, SSqrReal, neighbourList%iNeighbour, nNeighbourSK)
       end if
     end if
 
