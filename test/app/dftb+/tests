@@ -88,7 +88,9 @@ input/caffeine_xyz                     #? MPI_PROCS <= 1
 input/ammonia_poscar                   #? MPI_PROCS <= 1
 input/unsorted_contcar                 #? MPI_PROCS <= 1
 
-rangesep/cluster/C18H12-force                  #? not WITH_MPI
+rangesep/cluster/C18H12-force-hyb              #? not WITH_MPI
+rangesep/cluster/C18H12-force-lc               #? not WITH_MPI
+rangesep/cluster/C18H12-force-cam              #? not WITH_MPI
 rangesep/cluster/C18H12-nbscreening            #? not WITH_MPI
 rangesep/cluster/C18H12-matrix                 #? not WITH_MPI
 rangesep/cluster/CH3                           #? not WITH_MPI

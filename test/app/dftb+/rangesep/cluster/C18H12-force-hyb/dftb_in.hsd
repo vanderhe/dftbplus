@@ -1,0 +1,38 @@
+Geometry = GenFormat {
+  <<< "C18H12.gen"
+}
+
+Driver = {}
+
+Hamiltonian = DFTB {
+  SCC = Yes
+  SCCTolerance = 1.0E-008  # Extremely small
+  MaxSCCIterations = 1000
+  Mixer = Broyden {}
+  MaxAngularMomentum = {
+   H = "s"
+   C = "p"
+  }
+
+  SlaterKosterFiles = Type2FileNames {
+    Prefix = "./"
+    Separator = "-"
+    Suffix = ".skf"
+  }
+
+  RangeSeparated = Global {
+    Screening = MatrixBased {}
+  }
+}
+
+Options = {
+  WriteAutotestTag = Yes
+}
+
+Analysis {
+  CalculateForces = Yes
+}
+
+ParserOptions = {
+  ParserVersion = 5
+}
