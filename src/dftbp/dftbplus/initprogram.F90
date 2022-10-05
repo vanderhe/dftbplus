@@ -1426,7 +1426,8 @@ contains
     end if
 
   #:if WITH_MPI
-    if (input%ctrl%parallelOpts%nGroup > nIndepHam * this%nKPoint) then
+    if (input%ctrl%parallelOpts%nGroup > nIndepHam * this%nKPoint&
+        & .and. (.not. (this%isHybridXc .and. (.not. this%tRealHS)))) then
       write(stdOut, *)"Parallel groups only relevant for tasks split over sufficient spins and/or&
           & k-points"
       write(tmpStr,"('Nr. groups:',I4,', Nr. indepdendent spins times k-points:',I4)")&
@@ -6314,7 +6315,7 @@ contains
       recVec = 2.0_dp * pi * invLatVec
       cellVol = abs(determinant33(latVec))
       recCellVol = abs(determinant33(recVec))
-    else if (tHelical) then
+    elseif (tHelical) then
       origin = input%geom%origin
       latVec = input%geom%latVecs
       allocate(recVec(1, 1))
