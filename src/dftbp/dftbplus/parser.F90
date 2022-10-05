@@ -7732,7 +7732,7 @@ contains
             & modifier=modifier, child=child1)
         call convertUnitHsd(char(modifier), lengthUnits, child1, input%cutoffRed)
         if (geo%tPeriodic) then
-          call getChildValue(screeningValue, "Threshold", input%screeningThreshold, 1e-06_dp)
+          call getChildValue(screeningValue, "Threshold", input%screeningThreshold, 1e-6_dp)
         end if
       case ("thresholded")
         input%hybridXcAlg = hybridXcAlgo%threshold

@@ -4134,10 +4134,7 @@ contains
     if (.not. this%tSccCalc) return
 
     if (this%isHybridXc .and. this%tReadChrg) then
-    ! if (this%isRangegSep .and. (.not. this%tRealHS) .and. this%tReadChrg) then
       allocate(this%supercellFoldingMatrix(3, 4))
-    ! elseif (this%isHybridXc .and. this%tRealHS) then
-      ! if (allocated(this%supercellFoldingMatrix)) deallocate(this%supercellFoldingMatrix)
     end if
 
     ! Charges read from file
@@ -4163,7 +4160,6 @@ contains
       end if
 
       ! Check if obtained supercell folding matrix meets current requirements
-      ! if (this%isHybridXc .and. (.not. this%tRealHS)) then
       if (this%isHybridXc .and. this%tPeriodic) then
         allocate(this%supercellFoldingDiag(3))
         call checkSupercellFoldingMatrix(this%supercellFoldingMatrix,&
@@ -5388,7 +5384,7 @@ contains
   end function getMinSccIters
 
 
-  !> Stop if any range separated incompatible setting is found.
+  !> Stop if any hybrid xc-functional incompatible setting is found.
   subroutine ensureHybridXcReqs(this, tShellResolved, hybridXcInp)
 
     !> Instance
@@ -5401,22 +5397,34 @@ contains
     type(THybridXcInp), intent(in) :: hybridXcInp
 
     if (withMpi .and. (.not. this%tPeriodic)) then
-      call error("Range separated calculations of non-periodic systems do not profit from MPI yet")
+      call error("Hybrid calculations of non-periodic systems do not profit from MPI yet")
     end if
 
     if (this%tPeriodic) then
       if ((.not. this%tRealHS) .and. (hybridXcInp%hybridXcAlg /= hybridXcAlgo%neighbour)) then
-        call error("Range separated functionality for periodic system currently only working for&
+        call error("Hybrid functionality for periodic system currently only working for&
             & the neighbour list based algorithm")
       end if
       if (this%tRealHS .and. hybridXcInp%hybridXcAlg == hybridXcAlgo%threshold) then
-        call error("Range separated functionality at Gamma-point not implemented for threshold&
+        call error("Hybrid functionality at Gamma-point not implemented for threshold&
             & algorithm")
       end if
     end if
 
+    if ((.not. this%tRealHS) .and. this%tForces) then
+      call error("Hybrid functionals don't yet support gradient calculations for periodic systems&
+          & beyond the Gamma point.")
+    end if
+
+    if (this%tPeriodic .and. this%tRealHS&
+        & .and. hybridXcInp%gammaType /= hybridXcGammaTypes%truncated&
+        & .and. hybridXcInp%gammaType /= hybridXcGammaTypes%truncatedAndDamped) then
+      call error("Hybrid functionals don't yet support Gamma point calculations for CoulombMatrix&
+          & types other than 'Truncated' or 'Truncated+Damping'.")
+    end if
+
     if (this%tHelical) then
-      call error("Range separated functionality only works with non-helical structures at the&
+      call error("Hybrid functionality only works with non-helical structures at the&
           & moment")
     end if
 
@@ -5425,7 +5433,7 @@ contains
     end if
 
     if (tShellResolved) then
-      call error("Range separated functionality currently does not yet support shell-resolved scc")
+      call error("Hybrid functionality currently does not yet support shell-resolved scc")
     end if
 
     if (this%tAtomicEnergy) then
@@ -5434,19 +5442,19 @@ contains
     end if
 
     if (this%nSpin > 2) then
-      call error("Range separated calculations not implemented for non-colinear calculations")
+      call error("Hybrid calculations not implemented for non-colinear calculations")
     end if
 
     if (this%tSpinOrbit) then
-      call error("Range separated calculations not currently implemented for spin orbit")
+      call error("Hybrid calculations not currently implemented for spin orbit")
     end if
 
     if (this%isXlbomd) then
-      call error("Range separated calculations not currently implemented for XLBOMD")
+      call error("Hybrid calculations not currently implemented for XLBOMD")
     end if
 
     if (this%t3rd) then
-      call error("Range separated calculations not currently implemented for 3rd order DFTB")
+      call error("Hybrid calculations not currently implemented for 3rd order DFTB")
     end if
 
     if (this%isRS_LinResp .and. hybridXcInp%hybridXcType == hybridXcFunc%cam) then

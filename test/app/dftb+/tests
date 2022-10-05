@@ -105,14 +105,15 @@ rangesep/cluster/C4H6-TD-LC-Triplet            #? WITH_ARPACK and (not WITH_MPI)
 rangesep/cluster/Benzene-TD-LC-Spinpol         #? WITH_ARPACK and (not WITH_MPI)
 rangesep/cluster/Benzene-TD-LC-Spinpol-Iter    #? WITH_ARPACK and (not WITH_MPI)
 
-rangesep/periodic/GaAs-gamma-matrix            #? MPI_PROCS <= 1
-rangesep/periodic/GaAs-gamma-neigh             #? MPI_PROCS <= 4
-rangesep/periodic/Acene-gamma-force-cam        #? MPI_PROCS <= 4
-rangesep/periodic/Acene-gamma-force-hyb        #? MPI_PROCS <= 4
-rangesep/periodic/Acene-gamma-force-lc         #? MPI_PROCS <= 4
-rangesep/periodic/GaAs-gamma-restart           #? MPI_PROCS <= 4
-rangesep/periodic/GaAs-kpts-ct                 #? MPI_PROCS <= 1
-rangesep/periodic/GaAs-kpts-mic                #? MPI_PROCS <= 1
+rangesep/periodic/GaAs-gamma-matrix               #? MPI_PROCS <= 1
+rangesep/periodic/GaAs-gamma-neigh                #? MPI_PROCS <= 4
+rangesep/periodic/Acene-gamma-neigh-force-cam     #? MPI_PROCS <= 4
+rangesep/periodic/Acene-gamma-neigh-force-hyb     #? MPI_PROCS <= 4
+rangesep/periodic/Acene-gamma-neigh-force-lc      #? MPI_PROCS <= 4
+rangesep/periodic/Acene-gamma-matrix-force-cam    #? MPI_PROCS <= 4
+rangesep/periodic/GaAs-gamma-restart              #? MPI_PROCS <= 4
+rangesep/periodic/GaAs-kpts-ct                    #? MPI_PROCS <= 1
+rangesep/periodic/GaAs-kpts-mic                   #? MPI_PROCS <= 1
 
 reks/C2H4_3SSR_rangesep                #? not WITH_MPI
 reks/C2H4_direct                       #? not WITH_MPI
