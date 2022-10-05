@@ -807,12 +807,12 @@ contains
 
     type(fnode), pointer :: ch1
 
-    ! call getDescendant(root, "Hamiltonian/DFTB/RangeSeparated/LC", ch1)
-    ! if (associated(ch1)) then
-    !   call detailedWarning(ch1, "Hamiltonian/DFTB/RangeSeparated/LC now contained in&
-    !       & Hamiltonian/DFTB/Hybrid block.")
-    !   call setNodeName(ch1, "Hamiltonian/DFTB/Hybrid")
-    ! end if
+    call getDescendant(root, "Hamiltonian/DFTB/Rangeseparated", ch1)
+    if (associated(ch1)) then
+      call detailedWarning(ch1, "'Hamiltonian/DFTB/Rangeseparated' block renamed to&
+          & 'Hamiltonian/DFTB/Hybrid'.")
+      call setNodeName(ch1, "Hybrid")
+    end if
 
   end subroutine convert_12_13
 
