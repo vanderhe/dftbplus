@@ -5173,7 +5173,7 @@ contains
             gammaAK = this%camGammaEval0(iAtAfold, iAtK)
             ! \tilde{\gamma}_{\alpha\beta}
             gammaAB = this%camGammaEval0(iAtAfold, iAtBfold)
-            ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
+            ! get 2D pointer to Sam overlap block
             ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
             nOrbAt = descM(iNOrb)
             nOrbNeigh = descA(iNOrb)
@@ -5194,7 +5194,7 @@ contains
                           & descB(iStart) + beta - 1, iSpin)
 
                       tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                          & + 2.0_dp * dPmkGammaTotSam * dPab * SbnPrimeKequalsN(beta, kk, :)
+                          & + dPmkGammaTotSam * dPab * SbnPrimeKequalsN(beta, kk, :)
                     end do
                   end do
                 end do
@@ -5225,7 +5225,7 @@ contains
             iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
             iAtAfold = symNeighbourList%img2CentCell(iAtA)
             descA = getDescriptor(iAtAfold, iSquare)
-            ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
+            ! get 2D pointer to Sam overlap block
             ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
             nOrbAt = descM(iNOrb)
             nOrbNeigh = descA(iNOrb)
@@ -5266,7 +5266,7 @@ contains
           if (iAtK == iAtAfold) cycle
           dGammaAK(:) = -this%camdGammaEval0(iAtAfold, iAtK, :)
           descA = getDescriptor(iAtAfold, iSquare)
-          ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
+          ! get 2D pointer to Sam overlap block
           ind = symNeighbourList%iPair(iNeighM, iAtM) + 1
           nOrbAt = descM(iNOrb)
           nOrbNeigh = descA(iNOrb)
@@ -5307,9 +5307,9 @@ contains
     end do loopK3
 
     if (this%tREKS) then
-      gradients(:,:) = gradients - 0.25_dp * tmpGradients
+      gradients(:,:) = gradients - 0.5_dp * tmpGradients
     else
-      gradients(:,:) = gradients - 0.125_dp * nSpin * tmpGradients
+      gradients(:,:) = gradients - 0.25_dp * nSpin * tmpGradients
     end if
 
   end subroutine addCamGradients_gamma
