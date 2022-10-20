@@ -57,10 +57,10 @@ contains
     integer :: wsVectors_(3, 20 * nk(1) * nk(2) * nk(3))
 
     !! Work buffer of degeneracy of the i-th Wigner-Seitz vector
-    integer, dimension(20 * nk(1) * nk(2) * nk(3)) :: wsDegeneracy_
+    integer, allocatable :: wsDegeneracy_(:)
 
     !! Work buffer of real-space lengths in absolute units
-    real(dp), dimension(20 * nk(1) * nk(2) * nk(3)) :: wsDistances_
+    real(dp), allocatable :: wsDistances_(:)
 
     !> True, if surface should be excluded
     logical :: tExcludeSurface_
@@ -85,7 +85,9 @@ contains
       tExcludeSurface_ = .true.
     end if
 
-    nind = 20 * nk(1) * nk(3) * nk(3)
+    nind = 20 * product(nk)
+    allocate(wsDegeneracy_(nind))
+    allocate(wsDistances_(nind))
     if (nind < 125) then
       nind = 125
     end if
@@ -175,9 +177,9 @@ contains
     ! Hopefully this will never happen, i.e., I think 2 * nk(1) * nk(2) * nk(3) is
     ! an upper bound to the number of lattice points in (or on
     ! the surface of) the Wigner-Seitz supercell
-    if (nrr .gt. 20 * nk(1) * nk(2) * nk(3)) then
+    if (nrr > nind) then
       call error('Wigner-Seitz Module: Too many Wigner-Seitz points, try to increase the bound&
-          & 20 * nk(1) * nk(2) * nk(3)')
+          & 20 * product(nk)')
     end if
 
     ! Now sort the wigner-seitz vectors by increasing magnitude
