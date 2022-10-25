@@ -1398,7 +1398,7 @@ contains
       allocate(this%kPoint(size(input%ctrl%KPoint,dim=1), this%nKPoint))
       allocate(this%kWeight(this%nKPoint))
       this%kPoint(:,:) = input%ctrl%KPoint
-      if (sum(input%ctrl%kWeight(:)) < epsilon(1.0_dp)) then
+      if (sum(input%ctrl%kWeight) < epsilon(1.0_dp)) then
         call error("Sum of k-point weights should be greater than zero!")
       end if
       this%kWeight(:) = input%ctrl%kWeight / sum(input%ctrl%kWeight)
@@ -5688,7 +5688,8 @@ contains
     if (present(gammaCutoff)) then
       cutOff%gammaCutoff = gammaCutoff
     else
-      cutOff%gammaCutoff = minLatVecNorm2 * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      ! cutOff%gammaCutoff = 0.5_dp * minLatVecNorm2 * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      cutOff%gammaCutoff = 0.25_dp * minLatVecNorm2
     end if
 
     if (present(gSummationCutoff)) then
@@ -5770,7 +5771,8 @@ contains
       !     & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp&
       !     & * product(supercellFoldingDiag)**(1.0_dp / 3.0_dp)
-      cutOff%gammaCutoff = 0.5_dp * minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      ! cutOff%gammaCutoff = 0.5_dp * minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
+      cutOff%gammaCutoff = 0.25_dp * minNormTimesNKpt
       ! cutOff%gammaCutoff = 0.55_dp * minNormTimesNKpt
     end if
 

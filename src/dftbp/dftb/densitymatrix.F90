@@ -133,7 +133,7 @@ contains
         & size(rhoSqrBvK, dim=3), size(rhoSqrBvK, dim=4), size(rhoSqrBvK, dim=5),&
         & size(rhoSqrBvK, dim=6)))
 
-    rhoSqrBvKCplx(:,:,:,:,:,:) = cmplx(0, 0, dp)
+    rhoSqrBvKCplx(:,:,:,:,:,:) = (0.0_dp, 0.0_dp)
 
     do iG = 1, size(bvKShifts, dim=2)
       bvKIndex(:) = nint(bvKShifts(:, iG)) + 1

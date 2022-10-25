@@ -4472,7 +4472,7 @@ contains
     type(TMixer), intent(inout) :: pChrgMixer
 
     !> Output electrons
-    real(dp), intent(inout) :: qOutput(:,:,:)
+    real(dp), intent(in) :: qOutput(:,:,:)
 
     !> Atomic orbital data
     type(TOrbitals), intent(in) :: orb
@@ -6166,7 +6166,7 @@ contains
     if (allocated(tblite)) then
       dipoleAtom = potential%dipoleAtom
       if (allocated(potential%extDipoleAtom)) then
-        dipoleAtom(:, :) = dipoleAtom + potential%extDipoleAtom
+        dipoleAtom(:,:) = dipoleAtom + potential%extDipoleAtom
       end if
     end if
 
