@@ -51,32 +51,32 @@ module dftbp_dftb_densitymatrix
   !> Holds real and complex delta density matrices and pointers.
   type :: TDensityMatrix
 
-    !> DeltaRho input for calculation of range separated Hamiltonian
+    !> Delta density matrix input (enters Hamiltonian build up)
     real(dp), allocatable :: deltaRhoIn(:)
 
-    !> DeltaRho output from calculation of range separated Hamiltonian
-    real(dp), allocatable :: deltaRhoOut(:)
-
-    !> DeltaRho output from calculation of range separated Hamiltonian
-    complex(dp), allocatable :: deltaRhoOutCplx(:)
-
-    !> Holds change in deltaRho between SCC steps for range separation
+    !> Delta density matrix change between SCF cycles (between mixing iterations)
     real(dp), allocatable :: deltaRhoDiff(:)
 
-    !> DeltaRho input for range separation in matrix form
+    !> Delta density matrix output (from dense diagonalization)
+    real(dp), allocatable :: deltaRhoOut(:)
+
+    !> Pointer with matrix shape to delta density matrix input
     real(dp), pointer :: deltaRhoInSqr(:,:,:) => null()
 
-    !> DeltaRho output from range separation in matrix form
+    !> Pointer with matrix shape to delta density matrix output
     real(dp), pointer :: deltaRhoOutSqr(:,:,:) => null()
 
-    !> Complex, square dual-space deltaRho output from range separation
-    complex(dp), pointer :: deltaRhoOutSqrCplx(:,:,:) => null()
+    !> Pointer with matrix shape to delta density matrix input
+    real(dp), pointer :: deltaRhoInSqrKpts(:,:) => null()
 
-    !> Real-space, square deltaRho input for range separation
-    real(dp), pointer :: deltaRhoInSqrCplxHS(:,:,:,:,:,:) => null()
+    !> Pointer with matrix shape to delta density matrix output
+    real(dp), pointer :: deltaRhoOutSqrKpts(:,:) => null()
 
-    !> Real-space, square deltaRho output for range separation
-    real(dp), pointer :: deltaRhoOutSqrCplxHS(:,:,:,:,:,:) => null()
+    !> Complex delta density matrix input for CAM k-point implementation
+    complex(dp), allocatable :: deltaRhoInCplx(:,:,:)
+
+    !> Complex delta density matrix output for CAM k-point implementation
+    complex(dp), allocatable :: deltaRhoOutCplx(:,:,:)
 
   end type TDensityMatrix
 

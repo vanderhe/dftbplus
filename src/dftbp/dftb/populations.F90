@@ -749,8 +749,8 @@ contains
 
   !> Subtracts superposition of atomic densities from dense density matrix.
   !> Works only for closed shell!
-  subroutine denseSubtractDensityOfAtoms_nospin_cmplx_periodic(q0, iSquare, parallelKS, overSqr,&
-      & rho)
+  subroutine denseSubtractDensityOfAtoms_nospin_cmplx_periodic(q0, iSquare, parallelKS, iKiSToiKS,&
+      & overSqr, rho)
 
     !> Reference atom populations
     real(dp), intent(in) :: q0(:,:,:)
@@ -760,6 +760,9 @@ contains
 
     !> K-points and spins to be handled
     type(TParallelKS), intent(in) :: parallelKS
+
+    !> Composite index for mapping iK/iS --> iKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiKS(:,:)
 
     !> Square overlap matrix for all k-points
     complex(dp), intent(in) :: overSqr(:,:,:)
@@ -778,7 +781,8 @@ contains
         iStart = iSquare(iAtom)
         iEnd = iSquare(iAtom + 1) - 1
         do iOrb = 1, iEnd - iStart + 1
-          rho(iStart+iOrb-1, iStart+iOrb-1, iKS) = rho(iStart+iOrb-1, iStart+iOrb-1, iKS)&
+          rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iSpin))&
+              & = rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iSpin))&
               & - q0(iOrb, iAtom, iSpin) / overSqr(iStart+iOrb-1, iStart+iOrb-1, iK)
         end do
       end do
@@ -827,8 +831,8 @@ contains
   !> (spin unrestricted version)
   !> HybridXc: For spin-unrestricted calculation the initial guess should be equally distributed to
   !> alpha and beta density matrices
-  subroutine denseSubtractDensityOfAtoms_spin_cmplx_periodic(q0, iSquare, parallelKS, overSqr, rho,&
-      & iSpin)
+  subroutine denseSubtractDensityOfAtoms_spin_cmplx_periodic(q0, iSquare, parallelKS, iKiSToiKS,&
+      & overSqr, rho, iSpin)
 
     !> Reference atom populations
     real(dp), intent(in) :: q0(:,:,:)
@@ -838,6 +842,9 @@ contains
 
     !> K-points and spins to be handled
     type(TParallelKS), intent(in) :: parallelKS
+
+    !> Composite index for mapping iK/iS --> iKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiKS(:,:)
 
     !> Square overlap matrix for all k-points
     complex(dp), intent(in) :: overSqr(:,:,:)
@@ -860,9 +867,9 @@ contains
         iStart = iSquare(iAtom)
         iEnd = iSquare(iAtom + 1) - 1
         do iOrb = 1, iEnd - iStart + 1
-          rho(iStart+iOrb-1, iStart+iOrb-1, iKS) = &
-              & rho(iStart+iOrb-1, iStart+iOrb-1, iKS) - 0.5_dp * q0(iOrb, iAtom, 1)&
-              & / overSqr(iStart+iOrb-1, iStart+iOrb-1, iK)
+          rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iCurSpin))&
+              & = rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iCurSpin))&
+              & - 0.5_dp * q0(iOrb, iAtom, 1) / overSqr(iStart+iOrb-1, iStart+iOrb-1, iK)
         end do
       end do
     end do lpKS

@@ -175,8 +175,8 @@ contains
   !> charge matches that expected for the calculation.
   !> Should test of the input, if the number of orbital charges per atom match the number from the
   !> angular momentum.
-  subroutine initQFromFile(qq, fileName, tReadAscii, orb, qBlock, qiBlock, deltaRho,&
-      & nAtInCentralRegion, magnetisation, nEl, coeffsAndShifts, multipoles)
+  subroutine initQFromFile(qq, fileName, tReadAscii, tRealHS, tHybridXc, orb, qBlock, qiBlock,&
+      & deltaRhoIn, deltaRhoInCplx, magnetisation, nEl, coeffsAndShifts, multipoles)
 
     !> The charges per lm,atom,spin
     real(dp), intent(out) :: qq(:,:,:)
@@ -190,6 +190,12 @@ contains
     !> binary files
     logical, intent(in) :: tReadAscii
 
+    !> Is the hamiltonian real (no k-points/molecule/Gamma-point)?
+    logical, intent(in) :: tRealHS
+
+    !> Is this a hybid xc-functional run?
+    logical, intent(in) :: tHybridXc
+
     !> Information about the orbitals in the system.
     type(TOrbitals), intent(in) :: orb
 
@@ -199,12 +205,11 @@ contains
     !> block Mulliken imagninary population for LDA+U and L.S
     real(dp), intent(inout), allocatable :: qiBlock(:,:,:,:)
 
-    !> Full density matrix with on-diagonal adjustment
-    real(dp), intent(inout), allocatable :: deltaRho(:)
+    !> Full, square, k-space density matrix input
+    real(dp), intent(inout), allocatable :: deltaRhoIn(:)
 
-    !> Number of atoms in central region (atoms outside this will have charges suplied from
-    !> elsewhere)
-    integer, intent(in) :: nAtInCentralRegion
+    !> Full, square, k-space density matrix input
+    complex(dp), intent(inout), allocatable :: deltaRhoInCplx(:,:,:)
 
     !> magnetisation checksum for regular spin polarization total magnetic moment
     real(dp), intent(in), optional :: magnetisation
@@ -235,7 +240,7 @@ contains
     !! total charge is present at the top of the file
     real(dp) :: checkSum(size(qq, dim=3))
 
-    integer :: iOrb, iAtom, iSpin, ii, jj, nAtomInFile, nDipole, nQuadrupole
+    integer :: iOrb, iAtom, iSpin, ii, jj, kk, nAtomInFile, nDipole, nQuadrupole
     integer :: fileFormat
     real(dp) :: sumQ
 
@@ -252,8 +257,23 @@ contains
 
     tBlock = allocated(qBlock)
     tiBlock = allocated(qiBlock)
-    tRho = allocated(deltaRho)
     tKpointInfo = present(coeffsAndShifts)
+
+    if (tHybridXc) then
+      if (tRealHS .and. ((.not. allocated(deltaRhoIn)) .or. allocated(deltaRhoInCplx))) then
+        call error("Expected deltaRhoIn to be allocated to write density matrix.")
+      elseif (tRealHS .and. allocated(deltaRhoIn)) then
+        tRho = .true.
+      elseif ((.not. tRealHS) .and. (.not. allocated(deltaRhoInCplx))) then
+        call error("Expected deltaRhoInCplx to be allocated to write density matrix.")
+      elseif ((.not. tRealHS) .and. allocated(deltaRhoInCplx)) then
+        tRho = .true.
+      else
+        tRho = .false.
+      end if
+    else
+      tRho = .false.
+    end if
 
     if (tKpointInfo .and. (.not. tRho)) then
       call error('Extracting k-point information only makes sense in combination with delta density&
@@ -523,10 +543,14 @@ contains
 
     ! In this case the size of deltaRho couldn't be known in advance, therefore deallocating
     if (tRho) then
-      deltaRho(:) = 0.0_dp
+      if (tRealHS) then
+        deltaRhoIn(:) = 0.0_dp
+      else
+        deltaRhoInCplx(:,:,:) = (0.0_dp, 0.0_dp)
+      end if
     end if
-    if (tRho .and. tKpointInfo .and. tKpointInfoPresent) then
-      deallocate(deltaRho)
+    if (tRho .and. tKpointInfo .and. tKpointInfoPresent .and. tRealHS) then
+      deallocate(deltaRhoIn)
     end if
 
     if (tRho) then
@@ -544,21 +568,41 @@ contains
           end do
           call checkSupercellFoldingMatrix(coeffsAndShifts,&
               & supercellFoldingDiagOut=supercellFoldingDiag)
-          allocate(deltaRho(orb%nOrb * orb%nOrb * nSpin * product(supercellFoldingDiag)))
+          if (tRealHS) then
+            allocate(deltaRhoIn(orb%nOrb * orb%nOrb * nSpin * product(supercellFoldingDiag)))
+          end if
         end if
       end if
       if (tRhoPresent) then
-        do ii = 1, size(deltaRho)
-          if (tReadAscii) then
-            read (file, *, iostat=iErr) deltaRho(ii)
-          else
-            read (file, iostat=iErr) deltaRho(ii)
-          end if
-          if (iErr /= 0) then
-            write (error_string, *) 'Failure to read file for delta density matrix.'
-            call error(error_string)
-          end if
-        end do
+        if (tRealHS) then
+          do ii = 1, size(deltaRhoIn)
+            if (tReadAscii) then
+              read(file, *, iostat=iErr) deltaRhoIn(ii)
+            else
+              read(file, iostat=iErr) deltaRhoIn(ii)
+            end if
+            if (iErr /= 0) then
+              write (error_string, *) 'Failure to read file for delta density matrix.'
+              call error(error_string)
+            end if
+          end do
+        else
+          do kk = 1, size(deltaRhoInCplx, dim=3)
+            do jj = 1, size(deltaRhoInCplx, dim=2)
+              do ii = 1, size(deltaRhoInCplx, dim=1)
+                if (tReadAscii) then
+                  read(file, *, iostat=iErr) deltaRhoInCplx(ii, jj, kk)
+                else
+                  read(file, iostat=iErr) deltaRhoInCplx(ii, jj, kk)
+                end if
+                if (iErr /= 0) then
+                  write (error_string, *) 'Failure to read file for delta density matrix.'
+                  call error(error_string)
+                end if
+              end do
+            end do
+          end do
+        end if
       end if
     end if
 
@@ -568,8 +612,8 @@ contains
 
 
   !> Write the current charges to an external file
-  subroutine writeQToFile(qq, fileName, tWriteAscii, orb, qBlock, qiBlock, deltaRhoIn,&
-      & nAtInCentralRegion, coeffsAndShifts, multipoles)
+  subroutine writeQToFile(qq, fileName, tWriteAscii, tRealHS, tHybridXc, orb, qBlock, qiBlock,&
+      & deltaRhoIn, deltaRhoInCplx, nAtInCentralRegion, coeffsAndShifts, multipoles)
 
     !> Array containing the charges
     real(dp), intent(in) :: qq(:,:,:)
@@ -580,6 +624,12 @@ contains
     !> Write in a ascii format (T) or binary (F)
     logical, intent(in) :: tWriteAscii
 
+    !> Is the hamiltonian real (no k-points/molecule/Gamma-point)?
+    logical, intent(in) :: tRealHS
+
+    !> Is this a hybid xc-functional run?
+    logical, intent(in) :: tHybridXc
+
     !> Information about the orbitals in the system.
     type(TOrbitals), intent(in) :: orb
 
@@ -589,8 +639,13 @@ contains
     !> block Mulliken imagninary population for LDA+U and L.S
     real(dp), intent(in), allocatable :: qiBlock(:,:,:,:)
 
-    !> Full density matrix with on-diagonal adjustment
+    !> Full, square, k-space density matrix to write
+    !! (general k-point case)
     real(dp), intent(in), allocatable :: deltaRhoIn(:)
+
+    !> Full, square, k-space density matrix to write
+    !! (general k-point case)
+    complex(dp), intent(in), allocatable :: deltaRhoInCplx(:,:,:)
 
     !> Number of atoms in central region (atoms outside this will have charges suplied from
     !> elsewhere)
@@ -607,7 +662,7 @@ contains
     character(len=120) :: error_string
 
     integer :: nAtom, nOrb, nSpin, nDipole, nQuadrupole
-    integer :: iAtom, iOrb, iSpin, ii, jj
+    integer :: iAtom, iOrb, iSpin, ii, jj, kk
     integer :: iErr, fd
     logical :: tqBlock, tqiBlock, tRho
 
@@ -624,7 +679,22 @@ contains
 
     tqBlock = allocated(qBlock)
     tqiBlock = allocated(qiBlock)
-    tRho = allocated(deltaRhoIn)
+
+    if (tHybridXc) then
+      if (tRealHS .and. ((.not. allocated(deltaRhoIn)) .or. allocated(deltaRhoInCplx))) then
+        call error("Expected deltaRhoIn to be allocated to write density matrix.")
+      elseif (tRealHS .and. allocated(deltaRhoIn)) then
+        tRho = .true.
+      elseif ((.not. tRealHS) .and. (.not. allocated(deltaRhoInCplx))) then
+        call error("Expected deltaRhoInCplx to be allocated to write density matrix.")
+      elseif ((.not. tRealHS) .and. allocated(deltaRhoInCplx)) then
+        tRho = .true.
+      else
+        tRho = .false.
+      end if
+    else
+      tRho = .false.
+    end if
 
   #:block DEBUG_CODE
 
@@ -636,10 +706,6 @@ contains
       @:ASSERT(allocated(qBlock))
       @:ASSERT(all(shape(qiBlock) == shape(qBlock)))
     end if
-
-    ! if (tRho) then
-    !   @:ASSERT(size(deltaRhoIn) == orb%nOrb*orb%nOrb*nSpin)
-    ! end if
 
   #:endblock DEBUG_CODE
 
@@ -797,17 +863,36 @@ contains
           end do
         end do
       end if
-      do ii = 1, size(deltaRhoIn)
-        if (tWriteAscii) then
-          write(fd, *, iostat=iErr) deltaRhoIn(ii)
-        else
-          write(fd, iostat=iErr) deltaRhoIn(ii)
-        end if
-        if (iErr /= 0) then
-          write(error_string, *) "Failure to write file for external density matrix"
-          call error(error_string)
-        end if
-      end do
+      if (tRealHS) then
+        do ii = 1, size(deltaRhoIn, dim=1)
+          if (tWriteAscii) then
+            write(fd, *, iostat=iErr) deltaRhoIn(ii)
+          else
+            write(fd, iostat=iErr) deltaRhoIn(ii)
+          end if
+          if (iErr /= 0) then
+            write(error_string, *) "Failure to write file for external density matrix"
+            call error(error_string)
+          end if
+        end do
+      else
+        print *, 'writing...', shape(deltaRhoInCplx)
+        do kk = 1, size(deltaRhoInCplx, dim=3)
+          do jj = 1, size(deltaRhoInCplx, dim=2)
+            do ii = 1, size(deltaRhoInCplx, dim=1)
+              if (tWriteAscii) then
+                write(fd, *, iostat=iErr) deltaRhoInCplx(ii, jj, kk)
+              else
+                write(fd, iostat=iErr) deltaRhoInCplx(ii, jj, kk)
+              end if
+              if (iErr /= 0) then
+                write(error_string, *) "Failure to write file for external density matrix"
+                call error(error_string)
+              end if
+            end do
+          end do
+        end do
+      end if
     end if
 
     close(fd)

@@ -1425,6 +1425,8 @@ contains
       end if
     end if
 
+    ! this%tRealHS = .false.
+
   #:if WITH_MPI
     if (input%ctrl%parallelOpts%nGroup > nIndepHam * this%nKPoint&
         & .and. (.not. (this%isHybridXc .and. (.not. this%tRealHS)))) then
@@ -2657,7 +2659,7 @@ contains
     this%tSkipChrgChecksum = input%ctrl%tSkipChrgChecksum .or. this%tNegf
 
     if (this%isHybridXc) then
-      if ((.not. this%tReadChrg) .and. (this%tPeriodic) .and. this%tPeriodic) then
+      if ((.not. this%tReadChrg) .and. this%tPeriodic) then
         this%supercellFoldingMatrix = input%ctrl%supercellFoldingMatrix
         this%supercellFoldingDiag = input%ctrl%supercellFoldingDiag
       end if
@@ -2744,8 +2746,10 @@ contains
           & auxiliaryScreening=this%cutOff%auxiliaryScreening, latVecs=input%geom%latVecs)
       ! now all information are present to properly allocate density matrices and associate pointers
       call this%reallocateHybridXc()
-      ! reset number of mixer elements, so that there is enough space for density matrices
-      this%nMixElements = size(this%densityMatrix%deltaRhoIn)
+      if (this%tRealHS) then
+        ! reset number of mixer elements, so that there is enough space for density matrices
+        this%nMixElements = size(this%densityMatrix%deltaRhoIn)
+      end if
       call this%associateHybridXcPointers()
     end if
 
@@ -4142,21 +4146,25 @@ contains
     if (this%tReadChrg) then
       if (this%tFixEf .or. this%tSkipChrgChecksum) then
         ! do not check charge or magnetisation from file
-        call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-            & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom,&
+        call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%tRealHS,&
+            & this%isHybridXc, this%orb, this%qBlockIn, this%qiBlockIn,&
+            & this%densityMatrix%deltaRhoIn, this%densityMatrix%deltaRhoInCplx,&
             & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
       else
         ! check number of electrons in file
         if (this%nSpin /= 2) then
-          call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-              & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom, nEl = sum(this%nEl),&
-              & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
+          call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%tRealHS,&
+              & this%isHybridXc, this%orb, this%qBlockIn, this%qiBlockIn,&
+              & this%densityMatrix%deltaRhoIn, this%densityMatrix%deltaRhoInCplx,&
+              & nEl = sum(this%nEl), multipoles=this%multipoleInp,&
+              & coeffsAndShifts=this%supercellFoldingMatrix)
         else
           ! check magnetisation in addition
-          call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-              & this%qiBlockIn, this%densityMatrix%deltaRhoIn, this%nAtom, nEl=sum(this%nEl),&
-              & magnetisation=this%nEl(1)-this%nEl(2), multipoles=this%multipoleInp,&
-              & coeffsAndShifts=this%supercellFoldingMatrix)
+          call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%tRealHS,&
+              & this%isHybridXc, this%orb, this%qBlockIn, this%qiBlockIn,&
+              & this%densityMatrix%deltaRhoIn, this%densityMatrix%deltaRhoInCplx,&
+              & nEl=sum(this%nEl), magnetisation=this%nEl(1)-this%nEl(2),&
+              & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
         end if
       end if
 
@@ -4944,7 +4952,6 @@ contains
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
 
-
     this%nDets = this%deltaDftb%nDeterminant()
     if (this%nDets > 1) then
       ! must be SCC and also need storage for final charges
@@ -5412,10 +5419,10 @@ contains
       end if
     end if
 
-    if ((.not. this%tRealHS) .and. this%tForces) then
-      call error("Hybrid functionals don't yet support gradient calculations for periodic systems&
-          & beyond the Gamma point.")
-    end if
+    ! if ((.not. this%tRealHS) .and. this%tForces) then
+    !   call error("Hybrid functionals don't yet support gradient calculations for periodic systems&
+    !       & beyond the Gamma point.")
+    ! end if
 
     if (this%tPeriodic .and. this%tRealHS&
         & .and. hybridXcInp%gammaType /= hybridXcGammaTypes%truncated&
@@ -5802,9 +5809,6 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
-    !! Number of k-points in local MPI group
-    integer :: nLocalK
-
     if (this%tRealHS) then
       nMixElements = this%nOrb * this%nOrb * this%nSpin
     elseif (this%tReadChrg .and. (.not. allocated(this%supercellFoldingDiag))) then
@@ -5812,33 +5816,41 @@ contains
       nMixElements = 0
     else
       ! normal k-point case, without restart from file
-      nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%supercellFoldingDiag)
+      nMixElements = this%nOrb * this%nOrb * this%nSpin * this%nKpoint
     end if
 
-    ! deallocate arrays, if already allocated
-    if (allocated(this%densityMatrix%deltaRhoOut)) deallocate(this%densityMatrix%deltaRhoOut)
-    if (allocated(this%densityMatrix%deltaRhoDiff)) deallocate(this%densityMatrix%deltaRhoDiff)
-    if (allocated(this%SSqrCplxKpts)) deallocate(this%SSqrCplxKpts)
-    if (allocated(this%densityMatrix%deltaRhoOutCplx))&
-        & deallocate(this%densityMatrix%deltaRhoOutCplx)
+    if (this%tRealHS) then
+      ! deallocate arrays, if already allocated
+      if (allocated(this%densityMatrix%deltaRhoOut)) deallocate(this%densityMatrix%deltaRhoOut)
+      if (allocated(this%densityMatrix%deltaRhoDiff)) deallocate(this%densityMatrix%deltaRhoDiff)
 
-    ! Prevent for deleting charges read in from file
-    if (.not. allocated(this%densityMatrix%deltaRhoIn)) then
-      allocate(this%densityMatrix%deltaRhoIn(nMixElements))
-      this%densityMatrix%deltaRhoIn(:) = 0.0_dp
-    end if
-    allocate(this%densityMatrix%deltaRhoOut(nMixElements))
-    allocate(this%densityMatrix%deltaRhoDiff(nMixElements))
-    this%densityMatrix%deltaRhoOut(:) = 0.0_dp
-    this%densityMatrix%deltaRhoDiff(:) = 0.0_dp
-
-    if (.not. this%tRealHS) then
+      ! prevent for deleting charges read in from file
+      if (.not. allocated(this%densityMatrix%deltaRhoIn)) then
+        allocate(this%densityMatrix%deltaRhoIn(nMixElements))
+        this%densityMatrix%deltaRhoIn(:) = 0.0_dp
+      end if
+      allocate(this%densityMatrix%deltaRhoOut(nMixElements))
+      allocate(this%densityMatrix%deltaRhoDiff(nMixElements))
+      this%densityMatrix%deltaRhoOut(:) = 0.0_dp
+      this%densityMatrix%deltaRhoDiff(:) = 0.0_dp
+    else
+      ! deallocate arrays, if already allocated and reallocate
+      ! the sparse, real-space buffers for mixing are allocated in main module, since the neighbour
+      ! lists need to be established in order to know their size
+      if (allocated(this%SSqrCplxKpts)) deallocate(this%SSqrCplxKpts)
       allocate(this%SSqrCplxKpts(this%nOrb, this%nOrb, this%nKpoint))
       this%SSqrCplxKpts(:,:,:) = 0.0_dp
 
-      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
-      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin * nLocalK))
-      this%densityMatrix%deltaRhoOutCplx(:) = 0.0_dp
+      if (allocated(this%densityMatrix%deltaRhoOutCplx))&
+          & deallocate(this%densityMatrix%deltaRhoOutCplx)
+      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb, this%nOrb, this%nSpin * this%nKpoint))
+      this%densityMatrix%deltaRhoOutCplx(:,:,:) = 0.0_dp
+
+      ! prevent for deleting charges read in from file
+      if (.not. allocated(this%densityMatrix%deltaRhoInCplx)) then
+        allocate(this%densityMatrix%deltaRhoInCplx(this%nOrb, this%nOrb, this%nSpin * this%nKpoint))
+        this%densityMatrix%deltaRhoInCplx(:,:,:) = 0.0_dp
+      end if
     end if
 
   end subroutine reallocateHybridXc
@@ -5853,28 +5865,11 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
-    !! Number of k-points in local MPI group
-    integer :: nLocalK
-
     if (this%tRealHS) then
       nMixElements = this%nOrb * this%nOrb * this%nSpin
       this%densityMatrix%deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoIn(1:nMixElements)
       this%densityMatrix%deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
-          & => this%densityMatrix%deltaRhoOut(1:nMixElements)
-    else
-      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
-      nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%hybridXc%coeffsDiag)
-      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * nLocalK)&
-          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin * nLocalK)
-
-      this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
-          & 1:this%hybridXc%coeffsDiag(1), 1:this%hybridXc%coeffsDiag(2),&
-          & 1:this%hybridXc%coeffsDiag(3), 1:this%nSpin)&
-          & => this%densityMatrix%deltaRhoIn(1:nMixElements)
-      this%densityMatrix%deltaRhoOutSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
-          & 1:this%hybridXc%coeffsDiag(1), 1:this%hybridXc%coeffsDiag(2),&
-          & 1:this%hybridXc%coeffsDiag(3), 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoOut(1:nMixElements)
     end if
 

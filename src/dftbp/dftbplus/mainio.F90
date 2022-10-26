@@ -4023,14 +4023,20 @@ contains
 
 
   !> Write out charges.
-  subroutine writeCharges(fCharges, tWriteAscii, orb, qInput, qBlockIn, qiBlockIn, deltaRhoIn,&
-      & nAtInCentralRegion, coeffsAndShifts, multipoles)
+  subroutine writeCharges(fCharges, tWriteAscii, tRealHS, tHybridXc, orb, qInput, qBlockIn,&
+      & qiBlockIn, deltaRhoIn, deltaRhoInCplx, nAtInCentralRegion, coeffsAndShifts, multipoles)
 
     !> File name for charges to be written to
-    character(*), intent(in) :: fCharges
+    character(len=*), intent(in) :: fCharges
 
     !> Charges should be output in ascii (T) or binary (F)
     logical, intent(in) :: tWriteAscii
+
+    !> Is the hamiltonian real (no k-points/molecule/Gamma-point)?
+    logical, intent(in) :: tRealHS
+
+    !> Is this a hybid xc-functional run?
+    logical, intent(in) :: tHybridXc
 
     !> Atomic orbital information
     type(TOrbitals), intent(in) :: orb
@@ -4044,8 +4050,13 @@ contains
     !> Imaginary part of block populations if present
     real(dp), intent(in), allocatable :: qiBlockIn(:,:,:,:)
 
-    !> Full density matrix with on-diagonal adjustment
+    !> Dual-space, square, delta density matrix input for next hybridXc SCF step
+    !! (molecule, Gamma-point case)
     real(dp), intent(in), allocatable :: deltaRhoIn(:)
+
+    !> Dual-space, square, delta density matrix input for next hybridXc SCF step
+    !! (general k-point case)
+    complex(dp), intent(in), allocatable :: deltaRhoInCplx(:,:,:)
 
     !> Number of atoms in central region (atoms outside this will have charges suplied from
     !> elsewhere)
@@ -4059,10 +4070,9 @@ contains
     !> Atomic multipoles, if relevant
     type(TMultipole), intent(in), optional :: multipoles
 
-    ! print *, 'present(coeffsAndShifts)'
-    ! print *, present(coeffsAndShifts)
-    call writeQToFile(qInput, fCharges, tWriteAscii, orb, qBlockIn, qiBlockIn, deltaRhoIn,&
-        & nAtInCentralRegion, coeffsAndShifts=coeffsAndShifts, multipoles=multipoles)
+    call writeQToFile(qInput, fCharges, tWriteAscii, tRealHS, tHybridXc, orb, qBlockIn, qiBlockIn,&
+        & deltaRhoIn, deltaRhoInCplx, nAtInCentralRegion, coeffsAndShifts=coeffsAndShifts,&
+        & multipoles=multipoles)
     if (tWriteAscii) then
       write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges) // '.dat'
     else

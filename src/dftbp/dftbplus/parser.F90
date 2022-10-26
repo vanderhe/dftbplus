@@ -1325,7 +1325,7 @@ contains
     type(string), allocatable :: searchPath(:)
     character(len=:), allocatable :: strOut
 
-    !> For range separation
+    !> Hybrid xc-functional information
     type(THybridXcSKTag) :: hybridXcSK
 
     ctrl%hamiltonian = hamiltonianTypes%dftb
