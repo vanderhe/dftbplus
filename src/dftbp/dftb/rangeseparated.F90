@@ -205,6 +205,9 @@ module dftbp_dftb_hybridxc
     !> Previous delta density matrix in screening by tolerance
     real(dp), allocatable :: dRhoPrevCplxHS(:,:,:,:,:,:)
 
+    !> Previous delta density matrix in screening by tolerance
+    complex(dp), allocatable :: dRhoPrevCplxKspace(:,:,:)
+
     !> Is screening initialised
     logical :: tScreeningInited
 
@@ -1156,6 +1159,7 @@ contains
     if (this%tScreeningInited) then
       this%hPrevCplxHS(:,:,:) = 0.0_dp
       this%dRhoPrevCplxHS(:,:,:,:,:,:) = 0.0_dp
+      this%dRhoPrevCplxKspace(:,:,:) = (0.0_dp, 0.0_dp)
       this%camEnergy = 0.0_dp
     end if
 
@@ -1406,8 +1410,8 @@ contains
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (k-point version)
-  subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
-      & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, localKS, HSqr)
+  subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, symNeighbourList, nNeighbourCamSym,&
+      & rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, localKS, HSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
@@ -1415,11 +1419,8 @@ contains
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
 
-    !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
-    real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
-
-    !> Square (unpacked) delta spin-density matrix in k-space for all k-points/spins iKS
-    complex(dp), intent(in) :: deltaRhoSqrCplx(:,:,:)
+    !> Square (unpacked), k-space delta spin-density matrix for all k-points/spins iKS
+    complex(dp), intent(in) :: deltaRhoSqr(:,:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -1459,13 +1460,13 @@ contains
       call error('Thresholded algorithm not implemented for periodic systems.')
     case (hybridXcAlgo%neighbour)
       if (this%gammaType == hybridXcGammaTypes%mic) then
-      call addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
-          & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints,&
-          & kWeights, localKS, HSqr)
+        error stop
+      ! call addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
+      !     & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints,&
+      !     & kWeights, localKS, HSqr)
     else
-      call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
-          & symNeighbourList, nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, localKS,&
-          & HSqr)
+      call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
+          & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, localKS, HSqr)
       end if
     case (hybridXcAlgo%matrixBased)
       call error('Matrix based algorithm not implemented for periodic systems.')
@@ -2877,9 +2878,8 @@ contains
 
   !> Adds range-separated contributions to Hamiltonian, using neighbour-list based algorithm.
   !! (k-point version)
-  subroutine addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
-      & symNeighbourList, nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, localKS,&
-      & HSqr)
+  subroutine addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
+      & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, localKS, HSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
@@ -2887,11 +2887,8 @@ contains
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
 
-    !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
-    real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
-
-    !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
+    !> Square (unpacked), k-space delta spin-density matrix for all k-points/spins iKS
+    complex(dp), intent(in) :: deltaRhoSqr(:,:,:)
 
     !> list of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -2929,14 +2926,13 @@ contains
     real(dp), allocatable :: pSamT(:,:)
 
     !! Density matrix block \alpha\beta
-    real(dp), allocatable :: Pab(:,:,:,:,:)
+    complex(dp) :: Pab(orb%mOrb, orb%mOrb)
 
     !! Stores start/end index and number of orbitals of square matrices
     integer :: descA(descLen), descB(descLen), descM(descLen), descN(descLen)
 
     !! Temporary storages
-    real(dp), allocatable :: deltaDeltaRhoSqr(:,:,:,:,:,:)
-    complex(dp), allocatable :: tmpHSqr(:,:,:)
+    complex(dp), allocatable :: tmpHSqr(:,:,:), deltaDeltaRhoSqr(:,:,:)
 
     !! Number of atoms in central cell
     integer :: nAtom0
@@ -2945,16 +2941,16 @@ contains
     real(dp) :: vecH(3), vecL(3)
 
     !! Temporary arrays for gemm operations
-    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab, pSamT_Pab_pSbn, Pab_Sbn
-    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB, pSamT_Pab_gammaMB_pSbn
-    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_Sbn_gammaAN, pSamT_Pab_gammaAB_pSbn
-    complex(dp) :: tot(orb%mOrb, orb%mOrb, size(kPoints, dim=2) * size(deltaRhoSqr, dim=6))
+    complex(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab, pSamT_Pab_pSbn, Pab_Sbn
+    complex(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_gammaAB, pSamT_Pab_gammaMB_pSbn
+    complex(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab_Sbn_gammaAN, pSamT_Pab_gammaAB_pSbn
+    complex(dp) :: tot(orb%mOrb, orb%mOrb, size(deltaRhoSqr, dim=3))
 
     !! K-point-spin compound index
-    integer :: iGlobalKS, iLocalKS
+    integer :: iGlobalKS, iGlobalKSprime, iLocalKS
 
-    !! K-point index
-    integer :: iK
+    !! K-point indices
+    integer :: iK, iKprime
 
     !! Spin index
     integer :: iS
@@ -2984,8 +2980,8 @@ contains
     !! Integer BvK index
     integer :: bvKIndex(3)
 
-    !! Phase factor
-    complex(dp) :: phase
+    !! Phase factors
+    complex(dp) :: phase, phaseMN, phaseMB, phaseAN, phaseAB
 
     !! Iterates over all BvK real-space vectors
     integer :: iG, iGMN, iGMB, iGAN, iGAB
@@ -3016,7 +3012,7 @@ contains
 
     squareSize = size(HSqr, dim=1)
     nAtom0 = size(this%species0)
-    nS = size(deltaRhoSqr, dim=6)
+    nS = nint(real(size(deltaRhoSqr, dim=3), dp) / real(size(kPoints, dim=2), dp))
     nK = size(kPoints, dim=2)
     nKS = nK * nS
 
@@ -3024,18 +3020,18 @@ contains
     if (.not. this%tScreeningInited) then
       allocate(this%hprevCplxHS(squareSize, squareSize, nKS))
       this%hprevCplxHS(:,:,:) = (0.0_dp, 0.0_dp)
-      this%dRhoPrevCplxHS = deltaRhoSqr
+      this%dRhoPrevCplxKspace = deltaRhoSqr
       ! there is no previous delta density matrix, therefore just copy over
       deltaDeltaRhoSqr = deltaRhoSqr
       this%tScreeningInited = .true.
     else
       ! allocate and initialize difference of delta rho to previous SCC iteration
-      deltaDeltaRhoSqr = deltaRhoSqr - this%dRhoPrevCplxHS
+      deltaDeltaRhoSqr = deltaRhoSqr - this%dRhoPrevCplxKspace
     end if
 
     pMax = maxval(abs(deltaDeltaRhoSqr))
     ! store delta density matrix
-    this%dRhoPrevCplxHS = deltaRhoSqr
+    this%dRhoPrevCplxKspace = deltaRhoSqr
 
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
@@ -3157,167 +3153,106 @@ contains
 
       loopS: do iS = 1, nS
 
-        ! get continuous 2D copy of Pab density matrix block
-        Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iS)
+        loopKPrime: do iKprime = 1, nK
+          iGlobalKSprime = iKiSToiGlobalKS(iKprime, iS)
+          phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iKprime), vecL - vecH))
 
-        loopGMN: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtN)%array)
-          iGMN = this%nNonZeroGammaG(iAtM, iAtN)%array(iG)
-          bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGMN) + vecH - vecL)
+          ! get diatomic density matrix block
+          Pab(1:descA(iNOrb), 1:descB(iNOrb)) = kWeights(iKprime)&
+              & * deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd),&
+              & iGlobalKSprime)
 
-          ! pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
-          !     & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
-          ! pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
-          !     & 1:descB(iNOrb)), pSbn)
+          loopGMN: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtN)%array)
+            iGMN = this%nNonZeroGammaG(iAtM, iAtN)%array(iG)
 
-          loopKMN: do iK = 1, nK
-            iGlobalKS = iKiSToiGlobalKS(iK, iS)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                & this%cellVecsG(:, iGMN)))
-
-            ! term #1
-            do mu = 1, descM(iNOrb)
-              do nu = 1, descN(iNOrb)
-                do beta = 1, descB(iNOrb)
-                  Sbn = pSbn(beta, nu)
-                  do alpha = 1, descA(iNOrb)
-                    Sam = pSam(alpha, mu)
-                    dPab = Pab(alpha, beta, bvKIndex(1), bvKIndex(2), bvKIndex(3))
-                    SamdPabSbnGammaMN = Sam * dPab * Sbn * this%camGammaEvalG(iAtM, iAtN)%array(iG)
-
-                    tot(mu, nu, iGlobalKS) = tot(mu, nu, iGlobalKS)&
-                        & + cmplx(SamdPabSbnGammaMN, 0, dp) * phase
-                  end do
-                end do
-              end do
-            end do
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb))&
+                & = matmul(cmplx(pSamT, 0, dp), Pab(1:descA(iNOrb), 1:descB(iNOrb)))
+            pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) = matmul(pSamT_Pab(1:descM(iNOrb),&
+                & 1:descB(iNOrb)), cmplx(pSbn, 0, dp))&
+                & * cmplx(this%camGammaEvalG(iAtM, iAtN)%array(iG), 0, dp) * phase
 
             ! term #1
-            ! tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
-            !     & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
-            !     & + cmplx(pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-            !     & * this%camGammaEvalG(iAtM, iAtN)%array(iG), 0, dp) * phase
-          end do loopKMN
-        end do loopGMN
+            loopKMN: do iK = 1, nK
+              iGlobalKS = iKiSToiGlobalKS(iK, iS)
+              phaseMN = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * (kPoints(:, iK)&
+                  & - kPoints(:, iKprime)), this%cellVecsG(:, iGMN)))
 
-        loopGMB: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtBfold)%array)
-          iGMB = this%nNonZeroGammaG(iAtM, iAtBfold)%array(iG)
-          bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGMB) + vecH)
+              tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                  & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                  & + pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) * phaseMN
+            end do loopKMN
 
-          ! pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT,&
-          !     & Pab(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3)))
-          ! pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-          !     & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb))&
-          !     & * this%camGammaEvalG(iAtM, iAtBfold)%array(iG), pSbn)
+          end do loopGMN
 
-          loopKMB: do iK = 1, nK
-            iGlobalKS = iKiSToiGlobalKS(iK, iS)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                & this%cellVecsG(:, iGMB) + vecL))
+          loopGMB: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtBfold)%array)
+            iGMB = this%nNonZeroGammaG(iAtM, iAtBfold)%array(iG)
+
+            pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb))&
+                & = matmul(cmplx(pSamT, 0, dp), Pab(1:descA(iNOrb), 1:descB(iNOrb)))
+            pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+                & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb))&
+                & * cmplx(this%camGammaEvalG(iAtM, iAtBfold)%array(iG), 0, dp), cmplx(pSbn, 0, dp))&
+                & * phase
 
             ! term #2
-            do mu = 1, descM(iNOrb)
-              do nu = 1, descN(iNOrb)
-                do beta = 1, descB(iNOrb)
-                  Sbn = pSbn(beta, nu)
-                  do alpha = 1, descA(iNOrb)
-                    Sam = pSam(alpha, mu)
-                    dPab = Pab(alpha, beta, bvKIndex(1), bvKIndex(2), bvKIndex(3))
-                    SamdPabSbnGammaMN = Sam * dPab * Sbn&
-                        & * this%camGammaEvalG(iAtM, iAtBfold)%array(iG)
+            loopKMB: do iK = 1, nK
+              iGlobalKS = iKiSToiGlobalKS(iK, iS)
+              phaseMB = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * (kPoints(:, iK)&
+                  & - kPoints(:, iKprime)), this%cellVecsG(:, iGMN) + vecL))
 
-                    tot(mu, nu, iGlobalKS) = tot(mu, nu, iGlobalKS)&
-                        & + cmplx(SamdPabSbnGammaMN, 0, dp) * phase
-                  end do
-                end do
-              end do
-            end do
+              tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                  & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                  & + pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) * phaseMB
+            end do loopKMB
 
-            ! ! term #2
-            ! tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
-            !     & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
-            !     & + cmplx(pSamT_Pab_gammaMB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
-          end do loopKMB
-        end do loopGMB
+          end do loopGMB
 
-        loopGAN: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtN)%array)
-          iGAN = this%nNonZeroGammaG(iAtAfold, iAtN)%array(iG)
-          bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGAN) - vecL)
+          loopGAN: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtN)%array)
+            iGAN = this%nNonZeroGammaG(iAtAfold, iAtN)%array(iG)
 
-          ! Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab(:,:, bvKIndex(1), bvKIndex(2),&
-          !     & bvKIndex(3)), pSbn)
-          ! pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb))&
-          !     & = matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb))&
-          !     & * this%camGammaEvalG(iAtAfold, iAtN)%array(iG))
-
-          loopKAN: do iK = 1, nK
-            iGlobalKS = iKiSToiGlobalKS(iK, iS)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                & this%cellVecsG(:, iGAN) - vecH))
+            Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb))&
+                & = matmul(Pab(1:descA(iNOrb), 1:descB(iNOrb)), cmplx(pSbn, 0, dp))
+            pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb))&
+                & = matmul(cmplx(pSamT, 0, dp), Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb))&
+                & * cmplx(this%camGammaEvalG(iAtAfold, iAtN)%array(iG), 0, dp)) * phase
 
             ! term #3
-            do mu = 1, descM(iNOrb)
-              do nu = 1, descN(iNOrb)
-                do beta = 1, descB(iNOrb)
-                  Sbn = pSbn(beta, nu)
-                  do alpha = 1, descA(iNOrb)
-                    Sam = pSam(alpha, mu)
-                    dPab = Pab(alpha, beta, bvKIndex(1), bvKIndex(2), bvKIndex(3))
-                    SamdPabSbnGammaMN = Sam * dPab * Sbn&
-                        & * this%camGammaEvalG(iAtAfold, iAtN)%array(iG)
+            loopKAN: do iK = 1, nK
+              iGlobalKS = iKiSToiGlobalKS(iK, iS)
+              phaseAN = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * (kPoints(:, iK)&
+                  & - kPoints(:, iKprime)), this%cellVecsG(:, iGMN) - vecH))
 
-                    tot(mu, nu, iGlobalKS) = tot(mu, nu, iGlobalKS)&
-                        & + cmplx(SamdPabSbnGammaMN, 0, dp) * phase
-                  end do
-                end do
-              end do
-            end do
+              tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                  & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                  & + pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb)) * phaseAN
+            end do loopKAN
 
-            ! ! term #3
-            ! tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
-            !     & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
-            !     & + cmplx(pSamT_Pab_Sbn_gammaAN(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
-          end do loopKAN
-        end do loopGAN
+          end do loopGAN
 
-        loopGAB: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtBfold)%array)
-          iGAB = this%nNonZeroGammaG(iAtAfold, iAtBfold)%array(iG)
-          bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGAB))
+          loopGAB: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtBfold)%array)
+            iGAB = this%nNonZeroGammaG(iAtAfold, iAtBfold)%array(iG)
 
-          ! pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab(:,:,&
-          !     & bvKIndex(1), bvKIndex(2), bvKIndex(3))&
-          !     & * this%camGammaEvalG(iAtAfold, iAtBfold)%array(iG))
-          ! pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-          !     & = matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
-
-          loopKAB: do iK = 1, nK
-            iGlobalKS = iKiSToiGlobalKS(iK, iS)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                & this%cellVecsG(:, iGAB) + vecL - vecH))
+            pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb))&
+                & = matmul(cmplx(pSamT, 0, dp), Pab(1:descA(iNOrb), 1:descB(iNOrb))&
+                & * cmplx(this%camGammaEvalG(iAtAfold, iAtBfold)%array(iG), 0, dp))
+            pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+                & = matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), cmplx(pSbn, 0, dp))&
+                & * phase
 
             ! term #4
-            do mu = 1, descM(iNOrb)
-              do nu = 1, descN(iNOrb)
-                do beta = 1, descB(iNOrb)
-                  Sbn = pSbn(beta, nu)
-                  do alpha = 1, descA(iNOrb)
-                    Sam = pSam(alpha, mu)
-                    dPab = Pab(alpha, beta, bvKIndex(1), bvKIndex(2), bvKIndex(3))
-                    SamdPabSbnGammaMN = Sam * dPab * Sbn&
-                        & * this%camGammaEvalG(iAtAfold, iAtBfold)%array(iG)
+            loopKAB: do iK = 1, nK
+              iGlobalKS = iKiSToiGlobalKS(iK, iS)
+              phaseAB = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * (kPoints(:, iK)&
+                  & - kPoints(:, iKprime)), this%cellVecsG(:, iGMN) - vecH + vecL))
 
-                    tot(mu, nu, iGlobalKS) = tot(mu, nu, iGlobalKS)&
-                        & + cmplx(SamdPabSbnGammaMN, 0, dp) * phase
-                  end do
-                end do
-              end do
-            end do
+              tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                  & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
+                  & + pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)) * phaseAB
+            end do loopKAB
 
-            ! ! term #4
-            ! tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
-            !     & = tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
-            !     & + cmplx(pSamT_Pab_gammaAB_pSbn(1:descM(iNOrb), 1:descN(iNOrb)), 0, dp) * phase
-          end do loopKAB
-        end do loopGAB
+          end do loopGAB
+
+        end do loopKPrime
 
       end do loopS
 
@@ -3362,7 +3297,7 @@ contains
       iGlobalKS = iKiSToiGlobalKS(iK, iS)
       this%camEnergy = this%camEnergy&
           & + fac * evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
-          & deltaRhoOutSqrCplx(:,:, iLocalKS))
+          & deltaRhoSqr(:,:, iLocalKS))
     end do
 
   end subroutine addCamHamiltonianNeighbour_kpts_ct

@@ -18,7 +18,8 @@ module dftbp_dftb_populations
   implicit none
 
   private
-  public :: mulliken, skewMulliken, denseMulliken, denseSubtractDensityOfAtoms
+  public :: mulliken, skewMulliken, denseMulliken
+  public :: denseAddDensityOfAtoms, denseSubtractDensityOfAtoms
   public :: getChargePerShell, denseBlockMulliken
   public :: getOnsitePopulation, getAtomicMultipolePopulation
 
@@ -50,15 +51,23 @@ module dftbp_dftb_populations
   interface denseSubtractDensityOfAtoms
     module procedure denseSubtractDensityOfAtoms_nospin_real_nonperiodic
     module procedure denseSubtractDensityOfAtoms_nospin_real_periodic
-    ! module procedure denseSubtractDensityOfAtoms_nospin_bvKDensityMatrix
     module procedure denseSubtractDensityOfAtoms_spin_real_nonperiodic
     module procedure denseSubtractDensityOfAtoms_spin_real_periodic
-    ! module procedure denseSubtractDensityOfAtoms_spin_bvKDensityMatrix
     module procedure denseSubtractDensityOfAtoms_nospin_cmplx_nonperiodic
     module procedure denseSubtractDensityOfAtoms_nospin_cmplx_periodic
+    module procedure denseSubtractDensityOfAtoms_nospin_cmplx_periodic_nompi
     module procedure denseSubtractDensityOfAtoms_spin_cmplx_nonperiodic
     module procedure denseSubtractDensityOfAtoms_spin_cmplx_periodic
+    module procedure denseSubtractDensityOfAtoms_spin_cmplx_periodic_nompi
   end interface denseSubtractDensityOfAtoms
+
+
+  !> Interface to add superposition of atomic densities to dense density matrix.
+  !> Required for hybrid xc-functional calculations
+  interface denseAddDensityOfAtoms
+    module procedure denseAddDensityOfAtoms_nospin_cmplx_periodic_nompi
+    module procedure denseAddDensityOfAtoms_spin_cmplx_periodic_nompi
+  end interface denseAddDensityOfAtoms
 
 contains
 
@@ -792,6 +801,88 @@ contains
 
 
   !> Subtracts superposition of atomic densities from dense density matrix.
+  !> Works only for closed shell!
+  subroutine denseSubtractDensityOfAtoms_nospin_cmplx_periodic_nompi(q0, iSquare, iKiSToiKS,&
+      & overSqr, rho)
+
+    !> Reference atom populations
+    real(dp), intent(in) :: q0(:,:,:)
+
+    !> Atom positions in the row/column of square matrices
+    integer, intent(in) :: iSquare(:)
+
+    !> Composite index for mapping iK/iS --> iKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiKS(:,:)
+
+    !> Square overlap matrix for all k-points
+    complex(dp), intent(in) :: overSqr(:,:,:)
+
+    !> Spin polarized density matrix for all k-points/spins
+    complex(dp), intent(inout) :: rho(:,:,:)
+
+    integer :: nAtom, iAtom, iStart, iEnd, iOrb, iSpin, iK
+
+    nAtom = size(iSquare) - 1
+
+    do iK = 1, size(overSqr, dim=3)
+      do iSpin = 1, size(q0, dim=3)
+        do iAtom = 1, nAtom
+          iStart = iSquare(iAtom)
+          iEnd = iSquare(iAtom + 1) - 1
+          do iOrb = 1, iEnd - iStart + 1
+            rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iSpin))&
+                & = rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iSpin))&
+                & - q0(iOrb, iAtom, iSpin) / overSqr(iStart+iOrb-1, iStart+iOrb-1, iK)
+          end do
+        end do
+      end do
+    end do
+
+  end subroutine denseSubtractDensityOfAtoms_nospin_cmplx_periodic_nompi
+
+
+  !> Adds superposition of atomic densities to dense density matrix.
+  !> Works only for closed shell!
+  subroutine denseAddDensityOfAtoms_nospin_cmplx_periodic_nompi(q0, iSquare, iKiSToiKS,&
+      & overSqr, rho)
+
+    !> Reference atom populations
+    real(dp), intent(in) :: q0(:,:,:)
+
+    !> Atom positions in the row/column of square matrices
+    integer, intent(in) :: iSquare(:)
+
+    !> Composite index for mapping iK/iS --> iKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiKS(:,:)
+
+    !> Square overlap matrix for all k-points
+    complex(dp), intent(in) :: overSqr(:,:,:)
+
+    !> Spin polarized density matrix for all k-points/spins
+    complex(dp), intent(inout) :: rho(:,:,:)
+
+    integer :: nAtom, iAtom, iStart, iEnd, iOrb, iSpin, iK
+
+    nAtom = size(iSquare) - 1
+
+    do iK = 1, size(overSqr, dim=3)
+      do iSpin = 1, size(q0, dim=3)
+        do iAtom = 1, nAtom
+          iStart = iSquare(iAtom)
+          iEnd = iSquare(iAtom + 1) - 1
+          do iOrb = 1, iEnd - iStart + 1
+            rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iSpin))&
+                & = rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iSpin))&
+                & + q0(iOrb, iAtom, iSpin) / overSqr(iStart+iOrb-1, iStart+iOrb-1, iK)
+          end do
+        end do
+      end do
+    end do
+
+  end subroutine denseAddDensityOfAtoms_nospin_cmplx_periodic_nompi
+
+
+  !> Subtracts superposition of atomic densities from dense density matrix.
   !> (spin unrestricted version)
   !> HybridXc: for spin-unrestricted calculation the initial guess should be equally distributed to
   !> alpha and beta density matrices
@@ -876,6 +967,100 @@ contains
 
 
   end subroutine denseSubtractDensityOfAtoms_spin_cmplx_periodic
+
+
+  !> Subtracts superposition of atomic densities from dense density matrix.
+  !> (spin unrestricted version)
+  !> HybridXc: For spin-unrestricted calculation the initial guess should be equally distributed to
+  !> alpha and beta density matrices
+  subroutine denseSubtractDensityOfAtoms_spin_cmplx_periodic_nompi(q0, iSquare, iKiSToiKS,&
+      & overSqr, rho, iSpin)
+
+    !> Reference atom populations
+    real(dp), intent(in) :: q0(:,:,:)
+
+    !> Atom positions in the row/colum of square matrix
+    integer, intent(in) :: iSquare(:)
+
+    !> Composite index for mapping iK/iS --> iKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiKS(:,:)
+
+    !> Square overlap matrix for all k-points
+    complex(dp), intent(in) :: overSqr(:,:,:)
+
+    !> Spin polarized (lower triangular) matrix
+    complex(dp), intent(inout) :: rho(:,:,:)
+
+    !> Spin index
+    integer, intent(in) :: iSpin
+
+    integer :: nAtom, iAtom, iStart, iEnd, iOrb, iKS, iK, iCurSpin
+
+    nAtom = size(iSquare) - 1
+
+    lpKS: do iKS = 1, size(overSqr, dim=3)
+      do iCurSpin = 1, size(q0, dim=3)
+        if (iCurSpin /= iSpin) cycle lpKS
+        do iAtom = 1, nAtom
+          iStart = iSquare(iAtom)
+          iEnd = iSquare(iAtom + 1) - 1
+          do iOrb = 1, iEnd - iStart + 1
+            rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iCurSpin))&
+                & = rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iCurSpin))&
+                & - 0.5_dp * q0(iOrb, iAtom, 1) / overSqr(iStart+iOrb-1, iStart+iOrb-1, iK)
+          end do
+        end do
+      end do
+    end do lpKS
+
+  end subroutine denseSubtractDensityOfAtoms_spin_cmplx_periodic_nompi
+
+
+  !> Adds superposition of atomic densities to dense density matrix.
+  !> (spin unrestricted version)
+  !> HybridXc: For spin-unrestricted calculation the initial guess should be equally distributed to
+  !> alpha and beta density matrices
+  subroutine denseAddDensityOfAtoms_spin_cmplx_periodic_nompi(q0, iSquare, iKiSToiKS,&
+      & overSqr, rho, iSpin)
+
+    !> Reference atom populations
+    real(dp), intent(in) :: q0(:,:,:)
+
+    !> Atom positions in the row/colum of square matrix
+    integer, intent(in) :: iSquare(:)
+
+    !> Composite index for mapping iK/iS --> iKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiKS(:,:)
+
+    !> Square overlap matrix for all k-points
+    complex(dp), intent(in) :: overSqr(:,:,:)
+
+    !> Spin polarized (lower triangular) matrix
+    complex(dp), intent(inout) :: rho(:,:,:)
+
+    !> Spin index
+    integer, intent(in) :: iSpin
+
+    integer :: nAtom, iAtom, iStart, iEnd, iOrb, iKS, iK, iCurSpin
+
+    nAtom = size(iSquare) - 1
+
+    lpKS: do iKS = 1, size(overSqr, dim=3)
+      do iCurSpin = 1, size(q0, dim=3)
+        if (iCurSpin /= iSpin) cycle lpKS
+        do iAtom = 1, nAtom
+          iStart = iSquare(iAtom)
+          iEnd = iSquare(iAtom + 1) - 1
+          do iOrb = 1, iEnd - iStart + 1
+            rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iCurSpin))&
+                & = rho(iStart+iOrb-1, iStart+iOrb-1, iKiSToiKS(iK, iCurSpin))&
+                & + 0.5_dp * q0(iOrb, iAtom, 1) / overSqr(iStart+iOrb-1, iStart+iOrb-1, iK)
+          end do
+        end do
+      end do
+    end do lpKS
+
+  end subroutine denseAddDensityOfAtoms_spin_cmplx_periodic_nompi
 
 
   !> Calculate the number of charges per shell given the orbital charges.
