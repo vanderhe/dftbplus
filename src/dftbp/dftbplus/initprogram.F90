@@ -1906,7 +1906,7 @@ contains
      end if
      if (tRequireDerivator) then
       select case(input%ctrl%iDerivMethod)
-      case (1)
+      case (diffTypes%finiteDiff)
         ! set step size from input
         if (input%ctrl%deriv1stDelta < epsilon(1.0_dp)) then
           write(tmpStr, "(A,E12.4)") 'Too small value for finite difference step :',&
@@ -1914,7 +1914,7 @@ contains
           call error(tmpStr)
         end if
         call NonSccDiff_init(this%nonSccDeriv, diffTypes%finiteDiff, input%ctrl%deriv1stDelta)
-      case (2)
+      case (diffTypes%richardson)
         call NonSccDiff_init(this%nonSccDeriv, diffTypes%richardson)
       end select
     end if
