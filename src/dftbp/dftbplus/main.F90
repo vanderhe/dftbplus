@@ -3812,6 +3812,8 @@ contains
     !! Number of spin channels
     integer :: nSpin
 
+    real(dp), allocatable :: tmp(:)
+
     rhoPrim(:,:) = 0.0_dp
 
     if (allocated(densityMatrix%deltaRhoOutCplx)) then
@@ -3861,7 +3863,7 @@ contains
         call packHS(rhoPrim(:,iSpin), work, kPoint(:,iK), kWeight(iK), neighbourList%iNeighbour,&
             & nNeighbourSK, orb%mOrb, iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart,&
             & img2CentCell)
-      end if
+     end if
       call env%globalTimer%stopTimer(globalTimers%denseToSparse)
     #:endif
       if (allocated(hybridXc)) then
@@ -3880,6 +3882,51 @@ contains
     ! Add up and distribute density matrix contribution from each group
     call mpifx_allreduceip(env%mpi%interGroupComm, densityMatrix%deltaRhoOutCplx, MPI_SUM)
   #:endif
+
+    print *, '###########'
+    densityMatrix%deltaRhoInSqrKpts(:,:) = rhoPrim
+    tmp = reshape(rhoPrim, [size(rhoPrim)])
+
+    print *, 'Before transform densityMatrix%deltaRhoIn'
+    print *, densityMatrix%deltaRhoIn(847:857)
+
+    ! Sparse, real-space density matrix mix --> square, k-space density matrix
+    ! densityMatrix%deltaRhoOutCplx(:,:,:) = (0.0_dp, 0.0_dp)
+    do iKS = 1, parallelKS%nLocalKS
+      iK = parallelKS%localKS(1, iKS)
+      iSpin = parallelKS%localKS(2, iKS)
+      call unpackHS(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)),&
+          & densityMatrix%deltaRhoInSqrKpts(:, iSpin), kPoint(:, iK),&
+          & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart,&
+          & iSparseStart, img2CentCell)
+
+      print *, '##'
+      print *, densityMatrix%deltaRhoInCplx(1:2,1:2, iKiSToiKS(iK, iSpin))&
+          & / densityMatrix%deltaRhoOutCplx(1:2,1:2, iKiSToiKS(iK, iSpin))
+
+      ! call hermitianSquareMatrix(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)))
+      ! do ii = 1, size(densityMatrix%deltaRhoInCplx, dim=1) - 1
+      !   densityMatrix%deltaRhoInCplx(ii, ii + 1 : size(densityMatrix%deltaRhoInCplx, dim=1), iKiSToiKS(iK, iSpin))&
+      !       & = (0.0_dp, 0.0_dp)
+      ! end do
+      ! call blockHermitianHS(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)), iAtomStart)
+    end do
+
+    densityMatrix%deltaRhoIn(:) = 0.0_dp
+    do iKS = 1, parallelKS%nLocalKS
+      iK = parallelKS%localKS(1, iKS)
+      iSpin = parallelKS%localKS(2, iKS)
+      call packHS(densityMatrix%deltaRhoInSqrKpts(:, iSpin),&
+          & densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)), kPoint(:,iK),&
+          & kWeight(iK), neighbourList%iNeighbour,&
+          & nNeighbourSK, orb%mOrb, iCellVec, cellVec,&
+          & denseDesc%iAtomStart, iSparseStart, img2CentCell)
+    end do
+
+    print *, 'After back-transform densityMatrix%deltaRhoIn'
+    print *, densityMatrix%deltaRhoIn(847:857) / tmp(847:857)
+
+    stop
 
   end subroutine getDensityFromCplxEigvecs
 
@@ -4789,7 +4836,6 @@ contains
         print *, densityMatrix%deltaRhoIn(847:857)
 
         ! Sparse, real-space density matrix mix --> square, k-space density matrix
-        densityMatrix%deltaRhoInCplx(:,:,:) = (0.0_dp, 0.0_dp)
         do iKS = 1, parallelKS%nLocalKS
           iK = parallelKS%localKS(1, iKS)
           iSpin = parallelKS%localKS(2, iKS)

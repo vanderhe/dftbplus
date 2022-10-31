@@ -575,7 +575,6 @@ contains
       end if
       if (tRhoPresent) then
         if (tRealHS) then
-          print *, 'Reading with shape: ', shape(deltaRhoIn)
           do ii = 1, size(deltaRhoIn)
             if (tReadAscii) then
               read(file, *, iostat=iErr) deltaRhoIn(ii)
@@ -865,7 +864,6 @@ contains
         end do
       end if
       if (tRealHS) then
-        print *, 'Writing with shape: ', shape(deltaRhoIn)
         do ii = 1, size(deltaRhoIn, dim=1)
           if (tWriteAscii) then
             write(fd, *, iostat=iErr) deltaRhoIn(ii)
