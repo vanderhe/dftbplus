@@ -240,6 +240,9 @@ contains
     !! total charge is present at the top of the file
     real(dp) :: checkSum(size(qq, dim=3))
 
+    !! Number of entries in deltaRhoIn
+    integer :: sizeDeltaRhoIn
+
     integer :: iOrb, iAtom, iSpin, ii, jj, kk, nAtomInFile, nDipole, nQuadrupole
     integer :: fileFormat
     real(dp) :: sumQ
@@ -261,11 +264,12 @@ contains
 
     if (tHybridXc) then
       if (tRealHS .and. ((.not. allocated(deltaRhoIn)) .or. allocated(deltaRhoInCplx))) then
-        call error("Expected deltaRhoIn to be allocated to write density matrix.")
+        call error("Expected deltaRhoIn to be allocated to read density matrix.")
       elseif (tRealHS .and. allocated(deltaRhoIn)) then
         tRho = .true.
       elseif ((.not. tRealHS) .and. (.not. allocated(deltaRhoInCplx))) then
-        call error("Expected deltaRhoInCplx to be allocated to write density matrix.")
+        call error("Expected deltaRhoIn and deltaRhoInCplx to be allocated to read density&
+            & matrices.")
       elseif ((.not. tRealHS) .and. allocated(deltaRhoInCplx)) then
         tRho = .true.
       else
@@ -301,10 +305,6 @@ contains
     if (tKpointInfo) then
       @:ASSERT(all(shape(coeffsAndShifts) == [3, 4]))
     end if
-
-    ! if (tRho) then
-    !   @:ASSERT(size(deltaRho) == orb%nOrb*orb%nOrb*nSpin)
-    ! end if
 
   #:endblock DEBUG_CODE
 
@@ -543,9 +543,8 @@ contains
 
     ! In this case the size of deltaRho couldn't be known in advance, therefore deallocating
     if (tRho) then
-      if (tRealHS) then
-        deltaRhoIn(:) = 0.0_dp
-      else
+      deltaRhoIn(:) = 0.0_dp
+      if (.not. tRealHS) then
         deltaRhoInCplx(:,:,:) = (0.0_dp, 0.0_dp)
       end if
     end if
@@ -574,19 +573,27 @@ contains
         end if
       end if
       if (tRhoPresent) then
-        if (tRealHS) then
-          do ii = 1, size(deltaRhoIn)
-            if (tReadAscii) then
-              read(file, *, iostat=iErr) deltaRhoIn(ii)
-            else
-              read(file, iostat=iErr) deltaRhoIn(ii)
-            end if
-            if (iErr /= 0) then
-              write (error_string, *) 'Failure to read file for delta density matrix.'
-              call error(error_string)
-            end if
-          end do
-        else
+        if (.not. tRealHS) then
+          if (tReadAscii) then
+            read(file, *, iostat=iErr) sizeDeltaRhoIn
+          else
+            read(file, iostat=iErr) sizeDeltaRhoIn
+          end if
+          if (allocated(deltaRhoIn)) deallocate(deltaRhoIn)
+          allocate(deltaRhoIn(sizeDeltaRhoIn))
+        end if
+        do ii = 1, size(deltaRhoIn)
+          if (tReadAscii) then
+            read(file, *, iostat=iErr) deltaRhoIn(ii)
+          else
+            read(file, iostat=iErr) deltaRhoIn(ii)
+          end if
+          if (iErr /= 0) then
+            write (error_string, *) 'Failure to read file for delta density matrix.'
+            call error(error_string)
+          end if
+        end do
+        if (.not. tRealHS) then
           do kk = 1, size(deltaRhoInCplx, dim=3)
             do jj = 1, size(deltaRhoInCplx, dim=2)
               do ii = 1, size(deltaRhoInCplx, dim=1)
@@ -685,9 +692,11 @@ contains
         call error("Expected deltaRhoIn to be allocated to write density matrix.")
       elseif (tRealHS .and. allocated(deltaRhoIn)) then
         tRho = .true.
-      elseif ((.not. tRealHS) .and. (.not. allocated(deltaRhoInCplx))) then
-        call error("Expected deltaRhoInCplx to be allocated to write density matrix.")
-      elseif ((.not. tRealHS) .and. allocated(deltaRhoInCplx)) then
+      elseif ((.not. tRealHS) .and. (.not. allocated(deltaRhoIn)&
+          & .or. (.not. allocated(deltaRhoInCplx)))) then
+        call error("Expected deltaRhoIn and deltaRhoInCplx to be allocated to write density&
+            & matrices.")
+      elseif ((.not. tRealHS) .and. allocated(deltaRhoIn) .and. allocated(deltaRhoInCplx)) then
         tRho = .true.
       else
         tRho = .false.
@@ -699,7 +708,7 @@ contains
   #:block DEBUG_CODE
 
     if (tqBlock) then
-      @:ASSERT(all(shape(qBlock) >= [orb%mOrb,orb%mOrb,nAtom,nSpin]))
+      @:ASSERT(all(shape(qBlock) >= [orb%mOrb, orb%mOrb, nAtom, nSpin]))
     end if
 
     if (tqiBlock) then
@@ -863,19 +872,25 @@ contains
           end do
         end do
       end if
-      if (tRealHS) then
-        do ii = 1, size(deltaRhoIn, dim=1)
-          if (tWriteAscii) then
-            write(fd, *, iostat=iErr) deltaRhoIn(ii)
-          else
-            write(fd, iostat=iErr) deltaRhoIn(ii)
-          end if
-          if (iErr /= 0) then
-            write(error_string, *) "Failure to write file for external density matrix"
-            call error(error_string)
-          end if
-        end do
-      else
+      if (.not. tRealHS) then
+        if (tWriteAscii) then
+          write(fd, *, iostat=iErr) size(deltaRhoIn, dim=1)
+        else
+          write(fd, iostat=iErr) size(deltaRhoIn, dim=1)
+        end if
+      end if
+      do ii = 1, size(deltaRhoIn, dim=1)
+        if (tWriteAscii) then
+          write(fd, *, iostat=iErr) deltaRhoIn(ii)
+        else
+          write(fd, iostat=iErr) deltaRhoIn(ii)
+        end if
+        if (iErr /= 0) then
+          write(error_string, *) "Failure to write file for external density matrix"
+          call error(error_string)
+        end if
+      end do
+      if (.not. tRealHS) then
         do kk = 1, size(deltaRhoInCplx, dim=3)
           do jj = 1, size(deltaRhoInCplx, dim=2)
             do ii = 1, size(deltaRhoInCplx, dim=1)

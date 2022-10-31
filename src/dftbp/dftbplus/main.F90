@@ -292,7 +292,7 @@ contains
       end if
 
       if (this%tForces) then
-        if (this%tDipole.and.allocated(this%derivDriver)) then
+        if (this%tDipole .and. allocated(this%derivDriver)) then
           call dipoleAdd(this%derivDriver, this%dipoleMoment)
         end if
         call getNextGeometry(this, env, iGeoStep, tWriteRestart, constrLatDerivs, tCoordStep,&
@@ -737,13 +737,13 @@ contains
     if (this%tCoordsChanged) then
       call handleCoordinateChange(env, this%boundaryCond, this%coord0, this%latVec, this%invLatVec,&
           & this%species0, this%cutOff, this%orb, this%tPeriodic, this%tRealHS, this%tHelical,&
-          & this%scc, this%tblite, this%repulsive, this%dispersion,this%solvation, this%thirdOrd,&
-          & this%hybridXc, this%reks, this%img2CentCell, this%iCellVec, this%neighbourList,&
-          & this%symNeighbourList, this%nAllAtom, this%coord0Fold, this%coord,this%species,&
-          & this%cellVec, this%rCellVec, this%denseDesc, this%nNeighbourSk, this%nNeighbourCam,&
-          & this%nNeighbourCamSym, this%ints, this%densityMatrix, this%H0, this%rhoPrim,&
-          & this%iRhoPrim, this%ERhoPrim, this%nMixElements, this%iSparseStart, this%cm5Cont,&
-          & this%skOverCont, errStatus)
+          & this%tReadChrg, this%scc, this%tblite, this%repulsive, this%dispersion,this%solvation,&
+          & this%thirdOrd, this%hybridXc, this%reks, this%img2CentCell, this%iCellVec,&
+          & this%neighbourList, this%symNeighbourList, this%nAllAtom, this%coord0Fold, this%coord,&
+          & this%species, this%cellVec, this%rCellVec, this%denseDesc, this%nNeighbourSk,&
+          & this%nNeighbourCam, this%nNeighbourCamSym, this%ints, this%densityMatrix, this%H0,&
+          & this%rhoPrim, this%iRhoPrim, this%ERhoPrim, this%nMixElements, this%iSparseStart,&
+          & this%cm5Cont, this%skOverCont, errStatus)
         @:PROPAGATE_ERROR(errStatus)
     end if
 
@@ -781,72 +781,6 @@ contains
           & this%ints%quadrupoleBra, this%ints%quadrupoleKet)
     end select
     call env%globalTimer%stopTimer(globalTimers%sparseH0S)
-
-    if (this%tReadChrg .and. this%isHybridXc .and. (.not. this%tRealHS)) then
-      ! Build spin/k-point composite index for all spins and k-points (global)
-      iKS = 1
-      nSpin = size(this%densityMatrix%deltaRhoInSqrKpts, dim=2)
-      allocate(iKiSToiKS(size(this%kPoint, dim=2), nSpin))
-      do iSpin = 1, size(iKiSToiKS, dim=2)
-        do iK = 1, size(this%kPoint, dim=2)
-          iKiSToiKS(iK, iSpin) = iKS
-          iKS = iKS + 1
-        end do
-      end do
-
-      do iKS = 1, this%parallelKS%nLocalKS
-        iK = this%parallelKS%localKS(1, iKS)
-
-        ! Get full complex, square, k-space overlap and store for q0 addition/subtraction
-        call env%globalTimer%startTimer(globalTimers%sparseToDense)
-        call unpackHS(this%SSqrCplxKpts(:,:, iK), this%ints%overlap, this%kPoint(:,iK),&
-            & this%neighbourList%iNeighbour, this%nNeighbourSK, this%iCellVec, this%cellVec,&
-            & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell)
-        call env%globalTimer%stopTimer(globalTimers%sparseToDense)
-
-      end do
-
-    #:if WITH_MPI
-      ! Distribute all complex, square, k-space overlaps to all nodes via global summation
-      call mpifx_allreduceip(env%mpi%interGroupComm, this%SSqrCplxKpts, MPI_SUM)
-    #:endif
-
-      ! Get last input sparse, real-space "rhoPrim" from last input square, k-space density matrix
-      this%densityMatrix%deltaRhoInSqrKpts(:,:) = 0.0_dp
-      do iKS = 1, this%parallelKS%nLocalKS
-        iK = this%parallelKS%localKS(1, iKS)
-        iSpin = this%parallelKS%localKS(2, iKS)
-        call hermitianSquareMatrix(this%densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)))
-        call packHS(this%densityMatrix%deltaRhoInSqrKpts(:, iSpin),&
-            & this%densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)), this%kPoint(:,iK),&
-            & this%kWeight(iK), this%neighbourList%iNeighbour,&
-            & this%nNeighbourSK, this%orb%mOrb, this%iCellVec, this%cellVec,&
-            & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell)
-      end do
-
-      ! Subtract q0 from square, k-space density matrix: P(k) --> dP(k)
-      select case(nSpin)
-      case(2)
-        do iSpin = 1, 2
-          ! denseSubtractDensityOfAtoms_spin_cmplx_periodic_nompi()
-          call denseSubtractDensityOfAtoms(this%q0, this%denseDesc%iAtomStart, iKiSToiKS,&
-              & this%SSqrCplxKpts, this%densityMatrix%deltaRhoInCplx, iSpin)
-        end do
-      case(1)
-        ! denseSubtractDensityOfAtoms_nospin_cmplx_periodic_nompi()
-        call denseSubtractDensityOfAtoms(this%q0, this%denseDesc%iAtomStart, iKiSToiKS,&
-            & this%SSqrCplxKpts, this%densityMatrix%deltaRhoInCplx)
-      case default
-        call error("Range separation not implemented for non-colinear spin")
-      end select
-
-      print *, 'Restored this%densityMatrix%deltaRhoIn'
-      print *, this%densityMatrix%deltaRhoIn(847:857)
-      print *, 'dP(k)'
-      print *, this%densityMatrix%deltaRhoInCplx(1, 1, 3)
-      print *, this%densityMatrix%deltaRhoInCplx(2, 2, 3)
-      print *, this%densityMatrix%deltaRhoInCplx(3, 3, 3)
-    end if
 
     if (this%tSetFillingTemp) then
       call this%temperatureProfile%getTemperature(this%tempElec)
@@ -1241,10 +1175,10 @@ contains
               call getNextInputDensityCplx(this%ints, this%neighbourList, this%nNeighbourSK,&
                   & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell,&
                   & this%pChrgMixer, this%qOutput, this%orb, iGeoStep, iSccIter, this%minSccIter,&
-                  & this%maxSccIter, this%sccTol, tStopScc, this%tReadChrg, this%kPoint, this%kWeight, this%q0,&
-                  & this%iCellVec, this%cellVec, this%hybridXc, this%parallelKS, this%qInput,&
-                  & sccErrorQ, tConverged, this%densityMatrix, this%SSqrCplxKpts, this%rhoPrim,&
-                  & this%qBlockIn, this%qBlockOut)
+                  & this%maxSccIter, this%sccTol, tStopScc, this%tReadChrg, this%kPoint,&
+                  & this%kWeight, this%q0, this%iCellVec, this%cellVec, this%hybridXc,&
+                  & this%parallelKS, this%qInput, sccErrorQ, tConverged, this%densityMatrix,&
+                  & this%SSqrCplxKpts, this%rhoPrim, this%qBlockIn, this%qBlockOut)
             end if
           end if
 
@@ -1265,46 +1199,6 @@ contains
               & this%isGeoOpt .or. allocated(this%geoOpt),&
               & this%tDerivs, tConverged, this%tReadChrg, tStopScc)
           if (tWriteSccRestart) then
-
-              if (this%isHybridXc .and. (.not. this%tRealHS)) then
-              iKS = 1
-              nSpin = size(this%densityMatrix%deltaRhoInSqrKpts, dim=2)
-              allocate(iKiSToiKS(size(this%kPoint, dim=2), nSpin))
-              do iSpin = 1, size(iKiSToiKS, dim=2)
-                do iK = 1, size(this%kPoint, dim=2)
-                  iKiSToiKS(iK, iSpin) = iKS
-                  iKS = iKS + 1
-                end do
-              end do
-              ! Get last input sparse, real-space "rhoPrim" from last input square, k-space density matrix
-              print *, 'dP(k)'
-              print *, this%densityMatrix%deltaRhoInCplx(1, 1, 3)
-              print *, this%densityMatrix%deltaRhoInCplx(2, 2, 3)
-              print *, this%densityMatrix%deltaRhoInCplx(3, 3, 3)
-              do iKS = 1, this%parallelKS%nLocalKS
-                iK = this%parallelKS%localKS(1, iKS)
-                ! Get full complex, square, k-space overlap and store for q0 addition/subtraction
-                call env%globalTimer%startTimer(globalTimers%sparseToDense)
-                call unpackHS(this%SSqrCplxKpts(:,:, iK), this%ints%overlap, this%kPoint(:,iK),&
-                    & this%neighbourList%iNeighbour, this%nNeighbourSK, this%iCellVec, this%cellVec,&
-                    & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell)
-                call env%globalTimer%stopTimer(globalTimers%sparseToDense)
-              end do
-              call denseAddDensityOfAtoms(this%q0, this%denseDesc%iAtomStart, iKiSToiKS,&
-                  & this%SSqrCplxKpts, this%densityMatrix%deltaRhoInCplx)
-              this%densityMatrix%deltaRhoInSqrKpts(:,:) = 0.0_dp
-              do iKS = 1, this%parallelKS%nLocalKS
-                iK = this%parallelKS%localKS(1, iKS)
-                iSpin = this%parallelKS%localKS(2, iKS)
-                call packHS(this%densityMatrix%deltaRhoInSqrKpts(:, iSpin),&
-                    & this%densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)), this%kPoint(:,iK),&
-                    & this%kWeight(iK), this%neighbourList%iNeighbour,&
-                    & this%nNeighbourSK, this%orb%mOrb, this%iCellVec, this%cellVec,&
-                    & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell)
-              end do
-              print *, 'Reference this%densityMatrix%deltaRhoIn'
-              print *, this%densityMatrix%deltaRhoIn(847:857)
-            end if
             call writeCharges(fCharges, this%tWriteChrgAscii, this%tRealHS, this%isHybridXc,&
                 & this%orb, this%qInput, this%qBlockIn, this%qiBlockIn,&
                 & this%densityMatrix%deltaRhoIn, this%densityMatrix%deltaRhoInCplx,&
@@ -2008,11 +1902,11 @@ contains
 
   !> Does the operations that are necessary after atomic coordinates change
   subroutine handleCoordinateChange(env, boundaryCond, coord0, latVec, invLatVec, species0, cutOff,&
-      & orb, tPeriodic, tRealHS, tHelical, sccCalc, tblite, repulsive, dispersion, solvation,&
-      & thirdOrd, hybridXc, reks, img2CentCell, iCellVec, neighbourList, symNeighbourList,&
-      & nAllAtom, coord0Fold, coord, species, cellVec, rCellVec, denseDescr, nNeighbourSK,&
-      & nNeighbourCam, nNeighbourCamSym, ints, densityMatrix, H0, rhoPrim, iRhoPrim, ERhoPrim,&
-      & nMixElements, iSparseStart, cm5Cont, skOverCont, errStatus)
+      & orb, tPeriodic, tRealHS, tHelical, tReadChrg, sccCalc, tblite, repulsive, dispersion,&
+      & solvation, thirdOrd, hybridXc, reks, img2CentCell, iCellVec, neighbourList,&
+      & symNeighbourList, nAllAtom, coord0Fold, coord, species, cellVec, rCellVec, denseDescr,&
+      & nNeighbourSK, nNeighbourCam, nNeighbourCamSym, ints, densityMatrix, H0, rhoPrim, iRhoPrim,&
+      & ERhoPrim, nMixElements, iSparseStart, cm5Cont, skOverCont, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -2046,6 +1940,9 @@ contains
 
     !> Is the geometry helical
     logical, intent(in) :: tHelical
+
+    !> If initial charges/dens mtx. read from external file
+    logical, intent(in) :: tReadChrg
 
     !> SCC module internal variables
     type(TScc), allocatable, intent(inout) :: sccCalc
@@ -2174,7 +2071,7 @@ contains
     call getSparseDescriptor(neighbourList%iNeighbour, nNeighbourSK, img2CentCell, orb,&
         & iSparseStart, sparseSize)
     call reallocateSparseArrays(sparseSize, reks, ints, H0, rhoPrim, iRhoPrim, ERhoPrim)
-    call reallocateSparseArraysHybridXc(sparseSize, nSpin, tRealHS, allocated(hybridXc),&
+    call reallocateSparseArraysHybridXc(sparseSize, nSpin, tRealHS, tReadChrg, allocated(hybridXc),&
         & nMixElements, densityMatrix)
 
     if (allocated(nNeighbourCam)) then
@@ -2310,8 +2207,8 @@ contains
 
 
   !> Ensures that sparse array have enough storage to hold all necessary elements.
-  subroutine reallocateSparseArraysHybridXc(sparseSize, nSpin, tRealHS, tHybridXc, nMixElements,&
-      & densityMatrix)
+  subroutine reallocateSparseArraysHybridXc(sparseSize, nSpin, tRealHS, tReadChrg, tHybridXc,&
+      & nMixElements, densityMatrix)
 
     !> Size of the sparse, real-space density matrices
     integer, intent(in) :: sparseSize
@@ -2321,6 +2218,9 @@ contains
 
     !> Is hamiltonian/overlap real (no k-points/molecule/gamma-point)?
     logical, intent(in) :: tRealHS
+
+    !> If initial charges/dens mtx. read from external file
+    logical, intent(in) :: tReadChrg
 
     !> Is this a hybrid xc-functional run?
     logical, intent(in) :: tHybridXc
@@ -2333,13 +2233,15 @@ contains
 
     if (tHybridXc .and. (.not. tRealHS)) then
       ! reallocate sparse buffers for density matrix mixing in hybrid xc-functionals runs
-      if (allocated(densityMatrix%deltaRhoIn)) deallocate(densityMatrix%deltaRhoIn)
+      if (.not. tReadChrg) then
+        if (allocated(densityMatrix%deltaRhoIn)) deallocate(densityMatrix%deltaRhoIn)
+        allocate(densityMatrix%deltaRhoIn(sparseSize * nSpin))
+        densityMatrix%deltaRhoIn(:) = 0.0_dp
+      end if
       if (allocated(densityMatrix%deltaRhoDiff)) deallocate(densityMatrix%deltaRhoDiff)
       if (allocated(densityMatrix%deltaRhoOut)) deallocate(densityMatrix%deltaRhoOut)
-      allocate(densityMatrix%deltaRhoIn(sparseSize * nSpin))
       allocate(densityMatrix%deltaRhoDiff(sparseSize * nSpin))
       allocate(densityMatrix%deltaRhoOut(sparseSize * nSpin))
-      densityMatrix%deltaRhoIn(:) = 0.0_dp
       densityMatrix%deltaRhoDiff(:) = 0.0_dp
       densityMatrix%deltaRhoOut(:) = 0.0_dp
       densityMatrix%deltaRhoInSqrKpts(1:sparseSize, 1:nSpin) => densityMatrix%deltaRhoIn
@@ -3812,8 +3714,6 @@ contains
     !! Number of spin channels
     integer :: nSpin
 
-    real(dp), allocatable :: tmp(:)
-
     rhoPrim(:,:) = 0.0_dp
 
     if (allocated(densityMatrix%deltaRhoOutCplx)) then
@@ -3882,51 +3782,6 @@ contains
     ! Add up and distribute density matrix contribution from each group
     call mpifx_allreduceip(env%mpi%interGroupComm, densityMatrix%deltaRhoOutCplx, MPI_SUM)
   #:endif
-
-    print *, '###########'
-    densityMatrix%deltaRhoInSqrKpts(:,:) = rhoPrim
-    tmp = reshape(rhoPrim, [size(rhoPrim)])
-
-    print *, 'Before transform densityMatrix%deltaRhoIn'
-    print *, densityMatrix%deltaRhoIn(847:857)
-
-    ! Sparse, real-space density matrix mix --> square, k-space density matrix
-    ! densityMatrix%deltaRhoOutCplx(:,:,:) = (0.0_dp, 0.0_dp)
-    do iKS = 1, parallelKS%nLocalKS
-      iK = parallelKS%localKS(1, iKS)
-      iSpin = parallelKS%localKS(2, iKS)
-      call unpackHS(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)),&
-          & densityMatrix%deltaRhoInSqrKpts(:, iSpin), kPoint(:, iK),&
-          & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart,&
-          & iSparseStart, img2CentCell)
-
-      print *, '##'
-      print *, densityMatrix%deltaRhoInCplx(1:2,1:2, iKiSToiKS(iK, iSpin))&
-          & / densityMatrix%deltaRhoOutCplx(1:2,1:2, iKiSToiKS(iK, iSpin))
-
-      ! call hermitianSquareMatrix(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)))
-      ! do ii = 1, size(densityMatrix%deltaRhoInCplx, dim=1) - 1
-      !   densityMatrix%deltaRhoInCplx(ii, ii + 1 : size(densityMatrix%deltaRhoInCplx, dim=1), iKiSToiKS(iK, iSpin))&
-      !       & = (0.0_dp, 0.0_dp)
-      ! end do
-      ! call blockHermitianHS(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)), iAtomStart)
-    end do
-
-    densityMatrix%deltaRhoIn(:) = 0.0_dp
-    do iKS = 1, parallelKS%nLocalKS
-      iK = parallelKS%localKS(1, iKS)
-      iSpin = parallelKS%localKS(2, iKS)
-      call packHS(densityMatrix%deltaRhoInSqrKpts(:, iSpin),&
-          & densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)), kPoint(:,iK),&
-          & kWeight(iK), neighbourList%iNeighbour,&
-          & nNeighbourSK, orb%mOrb, iCellVec, cellVec,&
-          & denseDesc%iAtomStart, iSparseStart, img2CentCell)
-    end do
-
-    print *, 'After back-transform densityMatrix%deltaRhoIn'
-    print *, densityMatrix%deltaRhoIn(847:857) / tmp(847:857)
-
-    stop
 
   end subroutine getDensityFromCplxEigvecs
 
@@ -4785,14 +4640,7 @@ contains
     densityMatrix%deltaRhoDiff(:) = reshape(rhoPrim, [size(rhoPrim)])&
         & - densityMatrix%deltaRhoIn
 
-    ! print *, 'Mixer rhoPrim'
-    ! print *, rhoPrim(847:857, 1)
-
-    ! print *, 'Mixer densityMatrix%deltaRhoIn'
-    ! print *, densityMatrix%deltaRhoIn(847:857)
-
     sccErrorQ = maxval(abs(densityMatrix%deltaRhoDiff))
-    ! print *, sccErrorQ
     tConverged = (sccErrorQ < sccTol)&
         & .and. (iSCCiter >= minSCCIter .or. tReadChrg .or. iGeoStep > 0)
 
@@ -4818,7 +4666,6 @@ contains
               & densityMatrix%deltaRhoInSqrKpts(:, iSpin), orb, neighbourList%iNeighbour,&
               & nNeighbourSK, img2CentCell, iSparseStart)
         end do
-        print *, 'nElectrons: ', sum(qInput)
         call ud2qm(qInput)
 
         ! Build spin/k-point composite index for all spins and k-points (global)
@@ -4830,42 +4677,6 @@ contains
             iKS = iKS + 1
           end do
         end do
-
-        print *, 'Before transform densityMatrix%deltaRhoIn'
-        tmp = densityMatrix%deltaRhoIn
-        print *, densityMatrix%deltaRhoIn(847:857)
-
-        ! Sparse, real-space density matrix mix --> square, k-space density matrix
-        do iKS = 1, parallelKS%nLocalKS
-          iK = parallelKS%localKS(1, iKS)
-          iSpin = parallelKS%localKS(2, iKS)
-          call unpackHS(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)),&
-              & densityMatrix%deltaRhoInSqrKpts(:, iSpin), kPoint(:, iK),&
-              & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, iAtomStart,&
-              & iSparseStart, img2CentCell)
-
-          ! call hermitianSquareMatrix(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)))
-          ! do ii = 1, size(densityMatrix%deltaRhoInCplx, dim=1) - 1
-          !   densityMatrix%deltaRhoInCplx(ii, ii + 1 : size(densityMatrix%deltaRhoInCplx, dim=1), iKiSToiKS(iK, iSpin))&
-          !       & = (0.0_dp, 0.0_dp)
-          ! end do
-          ! call blockHermitianHS(densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)), iAtomStart)
-        end do
-
-        densityMatrix%deltaRhoIn(:) = 0.0_dp
-        do iKS = 1, parallelKS%nLocalKS
-          iK = parallelKS%localKS(1, iKS)
-          iSpin = parallelKS%localKS(2, iKS)
-          call packHS(densityMatrix%deltaRhoInSqrKpts(:, iSpin),&
-              & densityMatrix%deltaRhoInCplx(:,:, iKiSToiKS(iK, iSpin)), kPoint(:,iK),&
-              & kWeight(iK), neighbourList%iNeighbour,&
-              & nNeighbourSK, orb%mOrb, iCellVec, cellVec,&
-              & iAtomStart, iSparseStart, img2CentCell)
-        end do
-
-        print *, 'After back-transform densityMatrix%deltaRhoIn'
-        print *, densityMatrix%deltaRhoIn / tmp
-        stop
 
         ! Substract q0 from square, k-space density matrix: P(k) --> dP(k)
         select case(nSpin)
