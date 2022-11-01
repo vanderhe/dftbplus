@@ -78,6 +78,9 @@ module dftbp_dftb_densitymatrix
     !> Real-space, square deltaRho output for range separation
     real(dp), pointer :: deltaRhoOutSqrCplxHS(:,:,:,:,:,:) => null()
 
+    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
+    integer, allocatable :: iKiSToiGlobalKS(:,:)
+
   end type TDensityMatrix
 
 
@@ -87,14 +90,17 @@ contains
 
 
   !> Transforms dense, square density matrix for all spins/k-points to real-space (BvK cell).
-  subroutine transformDualSpaceToBvKRealSpace(rhoSqrDual, parallelKS, kPoint, kWeight, bvKShifts,&
-      & coeffsDiag, rhoSqrBvK)
+  subroutine transformDualSpaceToBvKRealSpace(rhoSqrDual, parallelKS, iKiSToiGlobalKS, kPoint,&
+      & kWeight, bvKShifts, coeffsDiag, rhoSqrBvK)
 
     !> Complex, dense, square dual-space rho of all spins/k-points
     complex(dp), intent(in), pointer :: rhoSqrDual(:,:,:)
 
     !> K-points and spins to process
     type(TParallelKS), intent(in) :: parallelKS
+
+    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
     !> k-points in relative units
     real(dp), intent(in) :: kPoint(:,:)
@@ -111,12 +117,6 @@ contains
     !> Real-space, dense, square rho for BvK cell
     real(dp), intent(in), pointer :: rhoSqrBvK(:,:,:,:,:,:)
 
-    !> Real-space, dense, square rho for BvK cell (complex version)
-    ! complex(dp) :: rhoSqrBvKCplx(size(rhoSqrBvK, dim=1), size(rhoSqrBvK, dim=2),&
-    !     & size(rhoSqrBvK, dim=3), size(rhoSqrBvK, dim=4), size(rhoSqrBvK, dim=5),&
-    !     & size(rhoSqrBvK, dim=6))
-    complex(dp), allocatable :: rhoSqrBvKCplx(:,:,:,:,:,:)
-
     !! K-point-spin composite index and k-point/spin index
     integer :: iKS, iK, iSpin
 
@@ -129,25 +129,17 @@ contains
     !! Integer BvK real-space shift translated to density matrix indices
     integer :: bvKIndex(3)
 
-    allocate(rhoSqrBvKCplx(size(rhoSqrBvK, dim=1), size(rhoSqrBvK, dim=2),&
-        & size(rhoSqrBvK, dim=3), size(rhoSqrBvK, dim=4), size(rhoSqrBvK, dim=5),&
-        & size(rhoSqrBvK, dim=6)))
-
-    rhoSqrBvKCplx(:,:,:,:,:,:) = (0.0_dp, 0.0_dp)
-
     do iG = 1, size(bvKShifts, dim=2)
       bvKIndex(:) = nint(bvKShifts(:, iG)) + 1
       do iKS = 1, parallelKS%nLocalKS
         iK = parallelKS%localKS(1, iKS)
         iSpin = parallelKS%localKS(2, iKS)
         phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoint(:, iK), bvKShifts(:, iG)))
-        rhoSqrBvKCplx(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
-            & = rhoSqrBvKCplx(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
-            & + kWeight(iK) * rhoSqrDual(:,:, iKS) * phase
+        rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
+            & = rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
+            & + kWeight(iK) * real(rhoSqrDual(:,:, iKiSToiGlobalKS(iK, iSpin)) * phase, dp)
       end do
     end do
-
-    rhoSqrBvK(:,:,:,:,:,:) = rhoSqrBvK + real(rhoSqrBvKCplx, dp)
 
   end subroutine transformDualSpaceToBvKRealSpace
 

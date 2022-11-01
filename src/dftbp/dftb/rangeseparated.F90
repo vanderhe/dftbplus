@@ -293,6 +293,7 @@ module dftbp_dftb_hybridxc
     procedure :: addCamHamiltonianMatrix_cluster_cmplx
 
     procedure :: addCamEnergy
+    procedure :: addCamEnergy_kpts
 
     procedure :: addCamGradients_cluster
     procedure :: addCamGradients_gamma
@@ -727,7 +728,7 @@ contains
       !! Auxiliary variables
       integer :: ii, jj, kk, ind
 
-      nBvKShifts = coeffsDiag(1) * coeffsDiag(2) * coeffsDiag(3)
+      nBvKShifts = product(coeffsDiag)
       allocate(bvKShifts(3, nBvKShifts))
 
       ind = 1
@@ -1406,8 +1407,8 @@ contains
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (k-point version)
-  subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, deltaRhoSqrCplx, symNeighbourList,&
-      & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, localKS, HSqr)
+  subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, symNeighbourList, nNeighbourCamSym,&
+      & rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
@@ -1417,9 +1418,6 @@ contains
 
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
     real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
-
-    !> Square (unpacked) delta spin-density matrix in k-space for all k-points/spins iKS
-    complex(dp), intent(in) :: deltaRhoSqrCplx(:,:,:)
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -1445,9 +1443,8 @@ contains
     !> K-point weights (for energy contribution)
     real(dp), intent(in) :: kWeights(:)
 
-    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
-    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
-    integer, intent(in) :: localKS(:,:)
+    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(inout) :: HSqr(:,:,:)
@@ -1459,13 +1456,12 @@ contains
       call error('Thresholded algorithm not implemented for periodic systems.')
     case (hybridXcAlgo%neighbour)
       if (this%gammaType == hybridXcGammaTypes%mic) then
-      call addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
-          & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints,&
-          & kWeights, localKS, HSqr)
+        call addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, symNeighbourList,&
+            & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights,&
+            & iKiSToiGlobalKS, HSqr)
     else
-      call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, deltaRhoSqrCplx,&
-          & symNeighbourList, nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, localKS,&
-          & HSqr)
+      call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
+          & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
       end if
     case (hybridXcAlgo%matrixBased)
       call error('Matrix based algorithm not implemented for periodic systems.')
@@ -2448,9 +2444,9 @@ contains
 
   !> Adds CAM range-separated contributions to Hamiltonian, using neighbour-list based algorithm.
   !! (k-point version)
-  subroutine addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
-      & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights,&
-      & localKS, HSqr)
+  subroutine addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, symNeighbourList,&
+      & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS,&
+      & HSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
@@ -2460,9 +2456,6 @@ contains
 
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
     real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
-
-    !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
 
     !> list of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -2488,9 +2481,8 @@ contains
     !> K-point weights (for energy contribution)
     real(dp), intent(in) :: kWeights(:)
 
-    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
-    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
-    integer, intent(in) :: localKS(:,:)
+    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(inout) :: HSqr(:,:,:)
@@ -2582,9 +2574,6 @@ contains
     integer, allocatable :: compositeIndex(:,:)
     integer :: ii, indGlobal, indLocal
 
-    !! Composite index for mapping iK/iS --> iGlobalKS
-    integer, allocatable :: iKiSToiGlobalKS(:,:)
-
     !! Dummy array with zeros
     real(dp) :: zeros(3)
 
@@ -2626,16 +2615,6 @@ contains
 
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
-
-    ! Build spin/k-point composite index for all spins and k-points (global)
-    iGlobalKS = 1
-    allocate(iKiSToiGlobalKS(nK, nS))
-    do iS = 1, nS
-      do iK = 1, nK
-        iKiSToiGlobalKS(iK, iS) = iGlobalKS
-        iGlobalKS = iGlobalKS + 1
-      end do
-    end do
 
     ! Lead process builds up composite index for MPI parallelization (includes thresholding)
     if (env%tGlobalLead) then
@@ -2855,31 +2834,13 @@ contains
     call mpifx_bcast(env%mpi%globalComm, HSqr)
   #:endif
 
-    ! Add energy contribution but divide by the number of processes
-    ! (when querying this%camEnergy, an in-place allreduce is performed)
-  #:if WITH_MPI
-    fac = 1.0_dp / real(env%mpi%groupComm%size, dp)
-  #:else
-    fac = 1.0_dp
-  #:endif
-
-    do iLocalKS = 1, size(localKS, dim=2)
-      iK = localKS(1, iLocalKS)
-      iS = localKS(2, iLocalKS)
-      iGlobalKS = iKiSToiGlobalKS(iK, iS)
-      this%camEnergy = this%camEnergy&
-          & + fac * evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
-          & deltaRhoOutSqrCplx(:,:, iLocalKS))
-    end do
-
   end subroutine addCamHamiltonianNeighbour_kpts_mic
 
 
   !> Adds range-separated contributions to Hamiltonian, using neighbour-list based algorithm.
   !! (k-point version)
-  subroutine addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, deltaRhoOutSqrCplx,&
-      & symNeighbourList, nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, localKS,&
-      & HSqr)
+  subroutine addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
+      & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
@@ -2889,9 +2850,6 @@ contains
 
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
     real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
-
-    !> Square (unpacked) delta spin-density matrix in k-space
-    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
 
     !> list of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -2914,9 +2872,8 @@ contains
     !> K-point weights (for energy contribution)
     real(dp), intent(in) :: kWeights(:)
 
-    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
-    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
-    integer, intent(in) :: localKS(:,:)
+    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(inout) :: HSqr(:,:,:)
@@ -2951,7 +2908,7 @@ contains
     complex(dp) :: tot(orb%mOrb, orb%mOrb, size(kPoints, dim=2) * size(deltaRhoSqr, dim=6))
 
     !! K-point-spin compound index
-    integer :: iGlobalKS, iLocalKS
+    integer :: iGlobalKS
 
     !! K-point index
     integer :: iK
@@ -2997,9 +2954,6 @@ contains
     integer, allocatable :: compositeIndex(:,:)
     integer :: ii, indGlobal, indLocal
 
-    !! Composite index for mapping iK/iS --> iGlobalKS
-    integer, allocatable :: iKiSToiGlobalKS(:,:)
-
     !! Number of k-points and spins
     integer :: nK, nS
 
@@ -3039,16 +2993,6 @@ contains
 
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
-
-    ! Build spin/k-point composite index for all spins and k-points (global)
-    iGlobalKS = 1
-    allocate(iKiSToiGlobalKS(nK, nS))
-    do iS = 1, nS
-      do iK = 1, nK
-        iKiSToiGlobalKS(iK, iS) = iGlobalKS
-        iGlobalKS = iGlobalKS + 1
-      end do
-    end do
 
     ! Lead process builds up composite index for MPI parallelization (includes thresholding)
     if (env%tGlobalLead) then
@@ -3348,23 +3292,6 @@ contains
     call mpifx_bcast(env%mpi%globalComm, HSqr)
   #:endif
 
-    ! Add energy contribution but divide by the number of processes
-    ! (when querying this%camEnergy, an in-place allreduce is performed)
-  #:if WITH_MPI
-    fac = 1.0_dp / real(env%mpi%groupComm%size, dp)
-  #:else
-    fac = 1.0_dp
-  #:endif
-
-    do iLocalKS = 1, size(localKS, dim=2)
-      iK = localKS(1, iLocalKS)
-      iS = localKS(2, iLocalKS)
-      iGlobalKS = iKiSToiGlobalKS(iK, iS)
-      this%camEnergy = this%camEnergy&
-          & + fac * evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
-          & deltaRhoOutSqrCplx(:,:, iLocalKS))
-    end do
-
   end subroutine addCamHamiltonianNeighbour_kpts_ct
 
 
@@ -3390,6 +3317,56 @@ contains
     this%camEnergy = 0.0_dp
 
   end subroutine addCamEnergy
+
+
+  !> Adds the CAM-energy contribution to the total energy.
+  subroutine addCamEnergy_kpts(this, env, iKiSToiGlobalKS, kWeights, deltaRhoOutSqrCplx, energy)
+
+    !> Class instance
+    class(THybridXcFunc), intent(inout) :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
+
+    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiGlobalKS(:,:)
+
+    !> K-point weights
+    real(dp), intent(in) :: kWeights(:)
+
+    !> Complex, dense, square k-space delta density matrix of all spins/k-points
+    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
+
+    !> Total energy
+    real(dp), intent(inout) :: energy
+
+    !! Spin and k-point indices
+    integer :: iS, iK
+
+    !! Global iKS for arrays present at every MPI rank
+    integer :: iGlobalKS
+
+    if (env%tGlobalLead) then
+      do iK = 1, size(kWeights)
+        do iS = 1, nint(real(size(deltaRhoOutSqrCplx, dim=3), dp) / real(size(kWeights), dp))
+          iGlobalKS = iKiSToiGlobalKS(iK, iS)
+          this%camEnergy = this%camEnergy&
+              & + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
+              & deltaRhoOutSqrCplx(:,:, iGlobalKS))
+        end do
+      end do
+    end if
+
+  #:if WITH_MPI
+    call mpifx_bcast(env%mpi%globalComm, this%camEnergy)
+  #:endif
+
+    energy = energy + this%camEnergy
+
+    ! hack for spin unrestricted calculation
+    this%camEnergy = 0.0_dp
+
+  end subroutine addCamEnergy_kpts
 
 
   !> Finds location of relevant atomic block indices in a dense matrix.
@@ -5387,9 +5364,6 @@ contains
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
 
-    ! !> Environment settings
-    ! type(TEnvironment), intent(inout) :: env
-
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
     real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
 
@@ -5416,10 +5390,6 @@ contains
 
     !> K-point weights (for energy contribution)
     real(dp), intent(in) :: kWeights(:)
-
-    ! !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
-    ! !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
-    ! integer, intent(in) :: localKS(:,:)
 
     !> Sparse overlap container
     type(TSlakoCont), intent(in) :: skOverCont

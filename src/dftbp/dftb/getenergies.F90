@@ -11,6 +11,7 @@
 module dftbp_dftb_getenergies
   use dftbp_common_accuracy, only : dp, lc
   use dftbp_common_environment, only : TEnvironment
+  use dftbp_dftb_densitymatrix, only : TDensityMatrix
   use dftbp_dftb_determinants, only : TDftbDeterminants, determinants
   use dftbp_dftb_dftbplusu, only : TDftbU
   use dftbp_dftb_dispiface, only : TDispersionIface
@@ -45,10 +46,10 @@ contains
   !> Calculates various energy contribution that can potentially update for the same geometry
   subroutine calcEnergies(env, sccCalc, tblite, qOrb, q0, chargePerShell, multipole, species,&
       & isExtField, isXlbomd, dftbU, tDualSpinOrbit, rhoPrim, H0, orb, neighbourList,&
-      & nNeighbourSK, img2CentCell, iSparseStart, cellVol, extPressure, TS, potential, &
+      & nNeighbourSK, img2CentCell, iSparseStart, cellVol, extPressure, TS, potential,&
       & energy, thirdOrd, solvation, hybridXc, reks, qDepExtPot, qBlock, qiBlock, xi,&
-      & iAtInCentralRegion, tFixEf, Ef, onSiteElements, qNetAtom, vOnSiteAtomInt,&
-      & vOnSiteAtomExt)
+      & iAtInCentralRegion, tFixEf, Ef, tRealHS, onSiteElements, qNetAtom, vOnSiteAtomInt,&
+      & vOnSiteAtomExt, densityMatrix, kWeights)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -156,6 +157,9 @@ contains
     !> from the given number of electrons
     real(dp), intent(inout) :: Ef(:)
 
+    !> True, if overlap and Hamiltonian are real-valued
+    logical, intent(in) :: tRealHS
+
     !> Corrections terms for on-site elements
     real(dp), intent(in), allocatable :: onSiteElements(:,:,:,:)
 
@@ -167,6 +171,12 @@ contains
 
     !> On-site only (external) potential
     real(dp), intent(in), optional :: vOnSiteAtomExt(:,:)
+
+    !> Holds real and complex delta density matrices and pointers
+    type(TDensityMatrix), intent(inout), optional :: densityMatrix
+
+    !> K-point weights
+    real(dp), intent(in), optional :: kWeights(:)
 
     integer :: nSpin
     real(dp) :: nEl(2)
@@ -263,7 +273,15 @@ contains
     ! Add exchange contribution for range separated calculations
     if (allocated(hybridXc) .and. .not. allocated(reks)) then
       energy%Efock = 0.0_dp
-      call hybridXc%addCamEnergy(env, energy%Efock)
+      if (tRealHS) then
+        call hybridXc%addCamEnergy(env, energy%Efock)
+      else
+        if ((.not. present(densityMatrix)) .or. (.not. present(kWeights))) then
+          call error("Missing expected array(s) for hybrid xc-functional calculation.")
+        end if
+        call hybridXc%addCamEnergy_kpts(env, densityMatrix%iKiSToiGlobalKS,&
+            & kWeights, densityMatrix%deltaRhoOutSqrCplx, energy%Efock)
+      end if
     end if
 
     ! Free energy contribution if attached to an electron reservoir

@@ -1682,7 +1682,7 @@ contains
         & this%speciesAll, this%tLaser, .false., dftbU, tDualSpinOrbit, rhoPrim, ham0, orb,&
         & neighbourList, nNeighbourSK, img2CentCell, iSparseStart, 0.0_dp, 0.0_dp, TS,&
         & potential, energy, thirdOrd, solvation, hybridXc, reks, qDepExtPot, qBlock,&
-        & qiBlock, xi, iAtInCentralRegion, tFixEf, Ef, onSiteElements)
+        & qiBlock, xi, iAtInCentralRegion, tFixEf, Ef, .true., onSiteElements)
     call sumEnergies(energy)
     ! calcEnergies then sumEnergies returns the total energy Etotal including repulsive and
     ! dispersions energies

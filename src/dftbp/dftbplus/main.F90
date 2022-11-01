@@ -1051,10 +1051,10 @@ contains
                 end if
               else
                 ! Substract q0 from k-space density matrix rho(iKS)
-                ! denseSubtractDensityOfAtoms_spin_cmplx_periodic()
+                ! denseSubtractDensityOfAtoms_spin_cmplx_periodic_nompi()
                 call denseSubtractDensityOfAtoms(this%q0, this%denseDesc%iAtomStart,&
-                    & this%parallelKS, this%SSqrCplxKpts, this%densityMatrix%deltaRhoOutSqrCplx,&
-                    & iSpin)
+                    & this%densityMatrix%iKiSToiGlobalKS, this%SSqrCplxKpts,&
+                    & this%densityMatrix%deltaRhoOutSqrCplx, iSpin)
               end if
             end do
           case(1)
@@ -1069,9 +1069,10 @@ contains
                     & this%densityMatrix%deltaRhoOutSqr)
               end if
             else
-              ! denseSubtractDensityOfAtoms_nospin_cmplx_periodic()
+              ! denseSubtractDensityOfAtoms_nospin_cmplx_periodic_nompi()
               call denseSubtractDensityOfAtoms(this%q0, this%denseDesc%iAtomStart,&
-                  & this%parallelKS, this%SSqrCplxKpts, this%densityMatrix%deltaRhoOutSqrCplx)
+                  & this%densityMatrix%iKiSToiGlobalKS, this%SSqrCplxKpts,&
+                  & this%densityMatrix%deltaRhoOutSqrCplx)
             end if
           case default
             call error("Range separation not implemented for non-colinear spin")
@@ -1083,8 +1084,9 @@ contains
             ! Reset deltaRhoOutSqrCplxHS, because of internal summation
             this%densityMatrix%deltaRhoOutSqrCplxHS(:,:,:,:,:,:) = 0.0_dp
             call transformDualSpaceToBvKRealSpace(this%densityMatrix%deltaRhoOutSqrCplx,&
-                & this%parallelKS, this%kPoint, this%kWeight, this%hybridXc%bvKShifts,&
-                & this%hybridXc%coeffsDiag, this%densityMatrix%deltaRhoOutSqrCplxHS)
+                & this%parallelKS, this%densityMatrix%iKiSToiGlobalKS, this%kPoint, this%kWeight,&
+                & this%hybridXc%bvKShifts, this%hybridXc%coeffsDiag,&
+                & this%densityMatrix%deltaRhoOutSqrCplxHS)
           #:if WITH_MPI
             ! Distribute all square, real-space density matrices to all nodes via global summation
             call mpifx_allreduceip(env%mpi%interGroupComm, this%densityMatrix%deltaRhoOutSqrCplxHS,&
@@ -1166,9 +1168,10 @@ contains
             & this%nNeighbourSk, this%img2CentCell, this%iSparseStart, this%cellVol,&
             & this%extPressure, this%dftbEnergy(this%deltaDftb%iDeterminant)%TS, this%potential,&
             & this%dftbEnergy(this%deltaDftb%iDeterminant), this%thirdOrd, this%solvation,&
-            & this%hybridXc, this%reks, this%qDepExtPot, this%qBlockOut, this%qiBlockOut,&
-            & this%xi, this%iAtInCentralRegion, this%tFixEf, this%Ef, this%onSiteElements,&
-            & this%qNetAtom, this%potential%intOnSiteAtom, this%potential%extOnSiteAtom)
+            & this%hybridXc, this%reks, this%qDepExtPot, this%qBlockOut, this%qiBlockOut, this%xi,&
+            & this%iAtInCentralRegion, this%tFixEf, this%Ef, this%tRealHS, this%onSiteElements,&
+            & this%qNetAtom, this%potential%intOnSiteAtom, this%potential%extOnSiteAtom,&
+            & this%densityMatrix, this%kWeight)
 
         tStopScc = hasStopFile(fStopScc)
 
@@ -2827,9 +2830,8 @@ contains
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
             & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species,&
-            & coord, hybridXc, densityMatrix%deltaRhoOutSqrCplx, densityMatrix%deltaRhoInSqrCplxHS,&
-            & nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts, eigVecsCplx,&
-            & eigen, errStatus)
+            & coord, hybridXc, densityMatrix, nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx,&
+            & SSqrCplxKpts, eigVecsCplx, eigen, errStatus)
         @:PROPAGATE_ERROR(errStatus)
       end if
     else
@@ -2854,7 +2856,7 @@ contains
         call getDensityFromCplxEigvecs(env, denseDesc, filling, kPoint, kWeight, neighbourList,&
             & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, orb,&
             & parallelKS, tHelical, species, coord, eigvecsCplx, rhoPrim, SSqrCplx,&
-            & densityMatrix%deltaRhoOutSqrCplx, hybridXc)
+            & densityMatrix, hybridXc)
       end if
       call ud2qm(rhoPrim)
     else
@@ -3074,8 +3076,8 @@ contains
   subroutine buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
       & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
       & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord,&
-      & hybridXc, deltaRhoOutSqrCplx, deltaRhoInSqrCplxHS, nNeighbourCam, nNeighbourCamSym,&
-      & HSqrCplx, SSqrCplx, SSqrCplxKpts, eigvecsCplx, eigen, errStatus)
+      & hybridXc, densityMatrix, nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts,&
+      & eigvecsCplx, eigen, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3143,11 +3145,8 @@ contains
     !> Data for hybrid xc-functional calculation
     class(THybridXcFunc), intent(inout), allocatable :: hybridXc
 
-    !> Change in complex density matrix during last hybridXc SCC cycle
-    complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
-
-    !> Change in complex density matrix during last hybridXc SCC cycle
-    real(dp), intent(in), pointer :: deltaRhoInSqrCplxHS(:,:,:,:,:,:)
+    !> Holds real and complex delta density matrices and pointers
+    type(TDensityMatrix), intent(inout) :: densityMatrix
 
     !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
     integer, intent(in), allocatable :: nNeighbourCam(:)
@@ -3176,36 +3175,26 @@ contains
     !! Temporary storage for square, k-space CAM-Hamiltonian contribution
     complex(dp), allocatable :: HSqrCplxCam(:,:,:)
 
-    !! Composite index for mapping iK/iS --> iKS
-    integer, allocatable :: iKiSToiKS(:,:)
-
-    integer :: iKS, iK, iSpin
+    !! Indices for k-points and spins + composite
+    integer :: iK, iSpin, iKS
 
     eigen(:,:,:) = 0.0_dp
-    if (allocated(SSqrCplxKpts)) then
+
+    if (allocated(hybridXc)) then
+      if (.not. allocated(SSqrCplxKpts)) then
+        call error("Hybrid xc-functional calculation expected SSqrCplxKpts to be allocated.")
+      end if
       SSqrCplxKpts(:,:,:) = (0.0_dp, 0.0_dp)
       ! HSqrCplxCam is allocated for all existing spins and k-points (no distribution)
       allocate(HSqrCplxCam(size(SSqrCplxKpts, dim=1), size(SSqrCplxKpts, dim=1),&
-          & size(kPoint, dim=2) * size(deltaRhoInSqrCplxHS, dim=6)))
+          & size(kPoint, dim=2) * size(densityMatrix%deltaRhoInSqrCplxHS, dim=6)))
       HSqrCplxCam(:,:,:) = (0.0_dp, 0.0_dp)
-    end if
-
-    if (allocated(hybridXc)) then
-      ! Build spin/k-point composite index for all spins and k-points (global)
-      iKS = 1
-      allocate(iKiSToiKS(size(kPoint, dim=2), size(deltaRhoInSqrCplxHS, dim=6)))
-      do iSpin = 1, size(deltaRhoInSqrCplxHS, dim=6)
-        do iK = 1, size(kPoint, dim=2)
-          iKiSToiKS(iK, iSpin) = iKS
-          iKS = iKS + 1
-        end do
-      end do
 
       ! Pre-calculate CAM-Hamiltonian and overlap
       ! Get CAM-Hamiltonian contribution for all spins/k-points
-      call hybridXc%addCamHamiltonian_kpts(env, deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx,&
+      call hybridXc%addCamHamiltonian_kpts(env, densityMatrix%deltaRhoInSqrCplxHS,&
           & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb,&
-          & kPoint, kWeight, parallelKS%localKS, HSqrCplxCam)
+          & kPoint, kWeight, densityMatrix%iKiSToiGlobalKS, HSqrCplxCam)
 
       do iKS = 1, parallelKS%nLocalKS
         iK = parallelKS%localKS(1, iKS)
@@ -3276,7 +3265,7 @@ contains
       ! (Works only if total number of MPI processes matches number of MPI groups.)
       if (allocated(hybridXc)) then
         ! Index iK at this point is only working for spin-restricted calculations
-        HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, iKiSToiKS(iK, iSpin))
+        HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin))
       end if
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
@@ -3590,7 +3579,7 @@ contains
   !> Creates sparse density matrix from complex eigenvectors.
   subroutine getDensityFromCplxEigvecs(env, denseDesc, filling, kPoint, kWeight, neighbourList,&
       & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, orb, parallelKS, tHelical,&
-      & species, coord, eigvecs, rhoPrim, work, deltaRhoOutSqrCplx, hybridXc)
+      & species, coord, eigvecs, rhoPrim, work, densityMatrix, hybridXc)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3649,8 +3638,8 @@ contains
     !> workspace array
     complex(dp), intent(out) :: work(:,:)
 
-    !> Complex, square dual-space deltaRho output from range separation
-    complex(dp), intent(in), pointer :: deltaRhoOutSqrCplx(:,:,:)
+    !> Holds real and complex delta density matrices and pointers
+    type(TDensityMatrix), intent(inout) :: densityMatrix
 
     !> Data for hybrid xc-functional calculation
     class(THybridXcFunc), intent(in), allocatable :: hybridXc
@@ -3660,8 +3649,8 @@ contains
 
     rhoPrim(:,:) = 0.0_dp
 
-    if (associated(deltaRhoOutSqrCplx)) then
-      deltaRhoOutSqrCplx(:,:,:) = 0.0_dp
+    if (associated(densityMatrix%deltaRhoOutSqrCplx)) then
+      densityMatrix%deltaRhoOutSqrCplx(:,:,:) = (0.0_dp, 0.0_dp)
     end if
 
     do iKS = 1, parallelKS%nLocalKS
@@ -3699,9 +3688,16 @@ contains
       if (allocated(hybridXc)) then
         ! Store square density matrix P(iKS), since currently needed for q0 substraction
         call hermitianSquareMatrix(work)
-        deltaRhoOutSqrCplx(:,:, iKS) = work
+        densityMatrix%deltaRhoOutSqrCplx(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)) = work
       end if
     end do
+
+  #:if WITH_MPI
+    if (allocated(hybridXc)) then
+      ! Distribute all complex, square, k-space density matrices to all nodes via global summation
+      call mpifx_allreduceip(env%mpi%interGroupComm, densityMatrix%deltaRhoOutSqrCplx, MPI_SUM)
+    end if
+  #:endif
 
   #:if WITH_SCALAPACK
     ! Add up and distribute density matrix contribution from each group
@@ -7890,7 +7886,7 @@ contains
           & tDualSpinOrbit, rhoPrim, H0, orb, neighbourList, nNeighbourSk, img2CentCell,&
           & iSparseStart, cellVol, extPressure, TS, potential, energy, thirdOrd, solvation,&
           & hybridXc, reks, qDepExtPot, qBlock, qiBlock, xi, iAtInCentralRegion, tFixEf, Ef,&
-          & onSiteElements)
+          & .true., onSiteElements)
 
       if (allocated(dispersion)) then
         ! For dftd4 dispersion, update charges

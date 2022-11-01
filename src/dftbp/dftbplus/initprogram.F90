@@ -1425,8 +1425,6 @@ contains
       end if
     end if
 
-    this%tRealHS = .false.
-
   #:if WITH_MPI
     if (input%ctrl%parallelOpts%nGroup > nIndepHam * this%nKPoint&
         & .and. (.not. (this%isHybridXc .and. (.not. this%tRealHS)))) then
@@ -5804,8 +5802,11 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
-    !! Number of k-points in local MPI group
-    integer :: nLocalK
+    !! Global iKS composite index
+    integer :: iGlobalKS
+
+    !! Spin and k-point indices
+    integer :: iSpin, iK
 
     if (this%tRealHS) then
       nMixElements = this%nOrb * this%nOrb * this%nSpin
@@ -5814,6 +5815,7 @@ contains
       nMixElements = 0
     else
       ! normal k-point case, without restart from file
+      ! nMixElements = this%nOrb * this%nOrb * this%nSpin * this%nKPoint
       nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%supercellFoldingDiag)
     end if
 
@@ -5823,6 +5825,8 @@ contains
     if (allocated(this%SSqrCplxKpts)) deallocate(this%SSqrCplxKpts)
     if (allocated(this%densityMatrix%deltaRhoOutCplx))&
         & deallocate(this%densityMatrix%deltaRhoOutCplx)
+    if (allocated(this%densityMatrix%iKiSToiGlobalKS))&
+        & deallocate(this%densityMatrix%iKiSToiGlobalKS)
 
     ! Prevent for deleting charges read in from file
     if (.not. allocated(this%densityMatrix%deltaRhoIn)) then
@@ -5838,9 +5842,18 @@ contains
       allocate(this%SSqrCplxKpts(this%nOrb, this%nOrb, this%nKpoint))
       this%SSqrCplxKpts(:,:,:) = 0.0_dp
 
-      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
-      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin * nLocalK))
+      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb*this%nOrb*this%nSpin*this%nKPoint))
       this%densityMatrix%deltaRhoOutCplx(:) = 0.0_dp
+
+      ! Build spin/k-point composite index for all spins and k-points (global)
+      iGlobalKS = 1
+      allocate(this%densityMatrix%iKiSToiGlobalKS(this%nKPoint, this%nSpin))
+      do iSpin = 1, this%nSpin
+        do iK = 1, this%nKPoint
+          this%densityMatrix%iKiSToiGlobalKS(iK, iSpin) = iGlobalKS
+          iGlobalKS = iGlobalKS + 1
+        end do
+      end do
     end if
 
   end subroutine reallocateHybridXc
@@ -5855,9 +5868,6 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
-    !! Number of k-points in local MPI group
-    integer :: nLocalK
-
     if (this%tRealHS) then
       nMixElements = this%nOrb * this%nOrb * this%nSpin
       this%densityMatrix%deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
@@ -5865,10 +5875,9 @@ contains
       this%densityMatrix%deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoOut(1:nMixElements)
     else
-      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
       nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%hybridXc%coeffsDiag)
-      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * nLocalK)&
-          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin * nLocalK)
+      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * this%nKPoint)&
+          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb*this%nOrb*this%nSpin*this%nKPoint)
 
       this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
           & 1:this%hybridXc%coeffsDiag(1), 1:this%hybridXc%coeffsDiag(2),&
