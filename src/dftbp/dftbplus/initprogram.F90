@@ -1425,6 +1425,8 @@ contains
       end if
     end if
 
+    this%tRealHS = .false.
+
   #:if WITH_MPI
     if (input%ctrl%parallelOpts%nGroup > nIndepHam * this%nKPoint&
         & .and. (.not. (this%isHybridXc .and. (.not. this%tRealHS)))) then
@@ -5412,10 +5414,10 @@ contains
       end if
     end if
 
-    if ((.not. this%tRealHS) .and. this%tForces) then
-      call error("Hybrid functionals don't yet support gradient calculations for periodic systems&
-          & beyond the Gamma point.")
-    end if
+    ! if ((.not. this%tRealHS) .and. this%tForces) then
+    !   call error("Hybrid functionals don't yet support gradient calculations for periodic systems&
+    !       & beyond the Gamma point.")
+    ! end if
 
     if (this%tPeriodic .and. this%tRealHS&
         & .and. hybridXcInp%gammaType /= hybridXcGammaTypes%truncated&

@@ -7691,12 +7691,12 @@ contains
     call getChild(node, "Hybrid", child=hybridChild, requested=.false.)
 
     ! Check if Hybrid block is actually expected for given SK-files
-    if ((.not. associated(hybridChild)) .and. allocated(hybridXcSkTag)) then
-      call detailedError(node, "SK-files generated with hybrid xc-functional, but HSD input block&
-          & missing.")
-    elseif (associated(hybridChild) .and. (.not. allocated(hybridXcSkTag))) then
-      call detailedError(node, "SK-files not generated with hybrid xc-functional.")
-    end if
+    ! if ((.not. associated(hybridChild)) .and. allocated(hybridXcSkTag)) then
+    !   call detailedError(node, "SK-files generated with hybrid xc-functional, but HSD input block&
+    !       & missing.")
+    ! elseif (associated(hybridChild) .and. (.not. allocated(hybridXcSkTag))) then
+    !   call detailedError(node, "SK-files not generated with hybrid xc-functional.")
+    ! end if
 
     if (associated(hybridChild)) then
       call getChildValue(node, "Hybrid", hybridValue, "None", child=hybridChild)

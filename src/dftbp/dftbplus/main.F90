@@ -1461,7 +1461,8 @@ contains
             & this%hybridXc, this%SSqrReal, this%ints, this%denseDesc, this%halogenXCorrection,&
             & this%tHelical, this%coord0, this%deltaDftb, this%tPeriodic, this%tRealHS,&
             & this%kPoint, this%kWeight, deltaRhoOutSqr=this%densityMatrix%deltaRhoOutSqr,&
-            & deltaRhoOutSqrCplxHS=this%densityMatrix%deltaRhoOutSqrCplxHS)
+            & deltaRhoInSqrCplxHS=this%densityMatrix%deltaRhoInSqrCplxHS,&
+            & deltaRhoOutSqrCplx=this%densityMatrix%deltaRhoOutSqrCplx)
 
         if (this%tCasidaForces) then
           this%derivs(:,:) = this%derivs + this%excitedDerivs
@@ -5991,7 +5992,7 @@ contains
       & groundDerivs, tripletderivs, mixedderivs, iRhoPrim, thirdOrd, solvation, qDepExtPot,&
       & chrgForces, dispersion, hybridXc, SSqrReal, ints, denseDesc, halogenXCorrection, tHelical,&
       & coord0, deltaDftb, tPeriodic, tRealHS, kPoint, kWeight, deltaRhoOutSqr,&
-      & deltaRhoOutSqrCplxHS)
+      & deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -6150,7 +6151,10 @@ contains
     real(dp), intent(in), optional :: deltaRhoOutSqr(:,:,:)
 
     !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
-    real(dp), intent(in), optional :: deltaRhoOutSqrCplxHS(:,:,:,:,:,:)
+    real(dp), intent(in), optional :: deltaRhoInSqrCplxHS(:,:,:,:,:,:)
+
+    !> Square (unpacked) delta spin-density matrix of last SCF cycle in k-space
+    complex(dp), intent(in), optional :: deltaRhoOutSqrCplx(:,:,:)
 
     real(dp), allocatable :: tmpDerivs(:,:)
     real(dp), allocatable :: dQ(:,:,:)
@@ -6278,12 +6282,12 @@ contains
           call hybridXc%addCamGradients_gamma(deltaRhoOutSqr, skOverCont, symNeighbourList,&
               & nNeighbourCamSym, denseDesc%iAtomStart, orb, nonSccDeriv, derivs)
         else
-          if (.not. present(deltaRhoOutSqrCplxHS)) then
-            call error("Range-separated forces requested, but deltaRhoOutSqrCplxHS not present")
+          if ((.not. present(deltaRhoInSqrCplxHS)) .or. (.not. present(deltaRhoOutSqrCplx))) then
+            call error("Range-separated forces requested, but array(s) not present")
           end if
-          call hybridXc%addCamGradients_kpts_ct(deltaRhoOutSqrCplxHS, symNeighbourList,&
-              & nNeighbourCamSym, cellVecs, denseDesc%iAtomStart, orb, kPoint, kWeight,&
-              & skOverCont, nonSccDeriv, derivs)
+          call hybridXc%addCamGradients_kpts_ct(deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx,&
+              & symNeighbourList, nNeighbourCamSym, cellVecs, denseDesc%iAtomStart, orb, kPoint,&
+              & kWeight, skOverCont, nonSccDeriv, derivs)
         end if
       else
         if (size(deltaRhoOutSqr, dim=3) > 2) then
