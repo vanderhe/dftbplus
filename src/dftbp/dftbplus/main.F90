@@ -3194,7 +3194,8 @@ contains
       ! Get CAM-Hamiltonian contribution for all spins/k-points
       call hybridXc%addCamHamiltonian_kpts(env, densityMatrix%deltaRhoInSqrCplxHS,&
           & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb,&
-          & kPoint, kWeight, densityMatrix%iKiSToiGlobalKS, HSqrCplxCam)
+          & kPoint, kWeight, densityMatrix%iKiSToiGlobalKS, HSqrCplxCam,&
+          & densityMatrix%deltaRhoOutSqrCplx)
 
       do iKS = 1, parallelKS%nLocalKS
         iK = parallelKS%localKS(1, iKS)
@@ -4559,6 +4560,9 @@ contains
 
         call mulliken(qInput, ints%overlap, deltaRhoInSqrCplxHS, orb, neighbourList%iNeighbour,&
             & nNeighbourSK, img2CentCell, iSparseStart, iAtomStart, iCellVec, cellVec, hybridXc)
+
+        print *, 'Charges (after mixing):'
+        print *, qInput
 
         ! HybridXc: for spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices.

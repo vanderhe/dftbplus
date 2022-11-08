@@ -1425,6 +1425,11 @@ contains
       end if
     end if
 
+    this%tRealHS = .false.
+    ! this%kWeight(1) = 0.0_dp
+    ! this%kWeight(2) = 1.0_dp
+    ! this%kWeight(3) = 0.0_dp
+
   #:if WITH_MPI
     if (input%ctrl%parallelOpts%nGroup > nIndepHam * this%nKPoint&
         & .and. (.not. (this%isHybridXc .and. (.not. this%tRealHS)))) then

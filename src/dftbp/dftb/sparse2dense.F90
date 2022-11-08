@@ -817,7 +817,7 @@ contains
     @:ASSERT(size(square, dim=1) == iAtomStart(nAtom+1) - 1)
     @:ASSERT(all(shape(kPoint) == [3]))
     @:ASSERT(all(shape(nNeighbourSK) == [nAtom]))
-    @:ASSERT(kWeight > 0.0_dp)
+    ! @:ASSERT(kWeight > 0.0_dp)
     @:ASSERT(size(iAtomStart) == nAtom + 1)
 
     kPoint2p(:) = 2.0_dp * pi * kPoint
