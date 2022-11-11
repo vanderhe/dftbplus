@@ -1201,8 +1201,7 @@ contains
                   & this%pChrgMixer, this%qOutput, this%orb, iGeoStep, iSccIter, this%minSccIter,&
                   & this%maxSccIter, this%sccTol, tStopScc, this%tReadChrg, this%q0, this%iCellVec,&
                   & this%cellVec, this%hybridXc, this%qInput, sccErrorQ, tConverged,&
-                  & this%densityMatrix%deltaRhoOut, this%densityMatrix%deltaRhoIn,&
-                  & this%densityMatrix%deltaRhoDiff, this%qBlockIn, this%qBlockOut)
+                  & this%densityMatrix, this%qBlockIn, this%qBlockOut)
             end if
           end if
 
@@ -3262,12 +3261,21 @@ contains
       end if
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
+      ! print *, 'DFTB-Hamiltonian (pre-diag):'
+      ! print "(2F20.16)", transpose(HSqrCplx(:,:))
+
       ! Add CAM contribution to local Hamiltonian
       ! (Works only if total number of MPI processes matches number of MPI groups.)
       if (allocated(hybridXc)) then
         ! Index iK at this point is only working for spin-restricted calculations
         HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin))
       end if
+
+      ! print *, 'HFX-Hamiltonian (pre-diag):'
+      ! print "(2F20.16)", transpose(HSqrCplxCam(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)))
+
+      ! print *, 'Total-Hamiltonian (pre-diag):'
+      ! print "(2F20.16)", transpose(HSqrCplx)
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
           & errStatus)
@@ -3704,6 +3712,11 @@ contains
     ! Add up and distribute density matrix contribution from each group
     call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
   #:endif
+
+    ! print *, 'Gamma-Point (dP(k)):'
+    ! print *, transpose(densityMatrix%deltaRhoOutSqrCplx(:,:, 1))
+    ! print *, 'k-Point #1 (dP(k)):'
+    ! print *, transpose(densityMatrix%deltaRhoOutSqrCplx(:,:, 2))
 
   end subroutine getDensityFromCplxEigvecs
 
@@ -4446,7 +4459,7 @@ contains
   subroutine getNextInputDensityCplx(ints, neighbourList, nNeighbourSK, iAtomStart, iSparseStart,&
       & img2CentCell, pChrgMixer, qOutput, orb, iGeoStep, iSccIter, minSccIter, maxSccIter, sccTol,&
       & tStopScc, tReadChrg, q0, iCellVec, cellVec, hybridXc, qInput, sccErrorQ, tConverged,&
-      & deltaRhoOut, deltaRhoIn, deltaRhoDiff, qBlockIn, qBlockOut)
+      & densityMatrix, qBlockIn, qBlockOut)
 
     !> Integral container
     type(TIntegral), intent(in) :: ints
@@ -4517,14 +4530,8 @@ contains
     !> Has the calculation converged>
     logical, intent(out) :: tConverged
 
-    !> Delta density matrix for hybrid xc-functional calculations
-    real(dp), intent(inout) :: deltaRhoOut(:)
-
-    !> Delta density matrix as input for next SCC cycle
-    real(dp), intent(inout), target :: deltaRhoIn(:)
-
-    !> Difference of delta density matrix in and out
-    real(dp), intent(inout) :: deltaRhoDiff(:)
+    !> Holds real and complex delta density matrices and pointers
+    type(TDensityMatrix), intent(inout) :: densityMatrix
 
     !> Block charge input (if needed for orbital potentials)
     real(dp), intent(inout), allocatable :: qBlockIn(:,:,:,:)
@@ -4535,34 +4542,53 @@ contains
     !! Number of spins and spin index
     integer :: nSpin, iSpin
 
-    !! Square delta rho input for dense diagonalization
-    real(dp), pointer :: deltaRhoInSqrCplxHS(:,:,:,:,:,:)
+    !! Difference of delta density matrix in and out
+    real(dp), allocatable :: deltaRhoDiff(:)
 
     nSpin = size(qOutput, dim=3)
 
-    deltaRhoInSqrCplxHS(1:orb%nOrb, 1:orb%nOrb, 1:hybridXc%coeffsDiag(1), 1:hybridXc%coeffsDiag(2),&
-        & 1:hybridXc%coeffsDiag(3), 1:nSpin) => deltaRhoIn
-
-    deltaRhoDiff(:) = deltaRhoOut - deltaRhoIn
+    deltaRhoDiff = densityMatrix%deltaRhoOut - densityMatrix%deltaRhoIn
     sccErrorQ = maxval(abs(deltaRhoDiff))
     tConverged = (sccErrorQ < sccTol)&
         & .and. (iSCCiter >= minSCCIter .or. tReadChrg .or. iGeoStep > 0)
 
     if ((.not. tConverged) .and. (iSCCiter /= maxSccIter .and. .not. tStopScc)) then
       if ((iSCCIter + iGeoStep) == 1 .and. (nSpin > 1 .and. .not. tReadChrg)) then
-        deltaRhoIn(:) = deltaRhoOut
+        densityMatrix%deltaRhoIn(:) = densityMatrix%deltaRhoOut
         qInput(:,:,:) = qOutput
         if (allocated(qBlockIn)) then
           qBlockIn(:,:,:,:) = qBlockOut
         end if
       else
-        call mix(pChrgMixer, deltaRhoIn, deltaRhoDiff)
 
-        call mulliken(qInput, ints%overlap, deltaRhoInSqrCplxHS, orb, neighbourList%iNeighbour,&
-            & nNeighbourSK, img2CentCell, iSparseStart, iAtomStart, iCellVec, cellVec, hybridXc)
+        ! print *, '###################', iSCCiter, '######################'
+        ! print *, 'dP(-1)'
+        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoOutSqrCplxHS(:,:, 1,1,3, 1))
 
-        print *, 'Charges (after mixing):'
-        print *, qInput
+        ! print *, 'dP(0)'
+        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoOutSqrCplxHS(:,:, 1,1,1, 1))
+
+        ! print *, 'dP(1)'
+        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoOutSqrCplxHS(:,:, 1,1,2, 1))
+
+        call mix(pChrgMixer, densityMatrix%deltaRhoIn, deltaRhoDiff)
+
+        ! print *, '###################################################################'
+        ! print *, 'dP(-1)'
+        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoInSqrCplxHS(:,:, 1,1,3, 1))
+
+        ! print *, 'dP(0)'
+        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoInSqrCplxHS(:,:, 1,1,1, 1))
+
+        ! print *, 'dP(1)'
+        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoInSqrCplxHS(:,:, 1,1,2, 1))
+
+        call mulliken(qInput, ints%overlap, densityMatrix%deltaRhoInSqrCplxHS, orb,&
+            & neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart, iAtomStart,&
+            & iCellVec, cellVec, hybridXc)
+
+        ! print *, 'Charges (after mixing):'
+        ! print *, qInput
 
         ! HybridXc: for spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices.

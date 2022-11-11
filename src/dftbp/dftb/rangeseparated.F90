@@ -17,7 +17,8 @@ module dftbp_dftb_hybridxc
   use dftbp_common_globalenv, only : stdOut
   use dftbp_dftb_nonscc, only : TNonSccDiff
   use dftbp_dftb_slakocont, only : TSlakoCont
-  use dftbp_dftb_sparse2dense, only : blockSymmetrizeHS, symmetrizeHS, hermitianSquareMatrix
+  use dftbp_dftb_sparse2dense, only : blockSymmetrizeHS, symmetrizeHS, hermitianSquareMatrix,&
+      & lowerTriangleSquareMatrix
   use dftbp_io_message, only : error
   use dftbp_math_blasroutines, only : gemm
   use dftbp_math_sorting, only : index_heap_sort
@@ -1527,12 +1528,12 @@ contains
             & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights,&
             & iKiSToiGlobalKS, HSqr)
     else
-      call addCamHamiltonianNeighbour_kpts_ct_naive(this, env, deltaRhoSqr, symNeighbourList,&
-          & nNeighbourCamSym, cellVecs, rCellVecs, iSquare, orb, kPoints, kWeights,&
-          & iKiSToiGlobalKS, HSqr, deltaRhoOutSqrCplx)
-      ! call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
-      !     & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr,&
-      !     & deltaRhoOutSqrCplx)
+      ! call addCamHamiltonianNeighbour_kpts_ct_naive(this, env, deltaRhoSqr, symNeighbourList,&
+      !     & nNeighbourCamSym, cellVecs, rCellVecs, iSquare, orb, kPoints, kWeights,&
+      !     & iKiSToiGlobalKS, HSqr, deltaRhoOutSqrCplx)
+      call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
+          & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr,&
+          & deltaRhoOutSqrCplx)
       end if
     case (hybridXcAlgo%matrixBased)
       call error('Matrix based algorithm not implemented for periodic systems.')
@@ -3076,9 +3077,6 @@ contains
           nOrbAt = descN(iNOrb)
           nOrbNeigh = descB(iNOrb)
           pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-          ! print *, 'Overlap', pSbn
-          ! print "(1A4,3F10.6)", 'l:', vecL
-          ! print *, iAtB, iAtN
           do iNeighM = 0, nNeighbourCamSym(iAtM)
             iAtA = symNeighbourList%neighbourList%iNeighbour(iNeighM, iAtM)
             iAtAfold = symNeighbourList%img2CentCell(iAtA)
@@ -3101,7 +3099,7 @@ contains
             loopG: do iG = 1, size(this%cellVecsG, dim=2)
               vecG(:) = this%cellVecsG(:, iG)
               rVecG(:) = this%rCellVecsG(:, iG)
-              ! bvKIndex(:) = this%foldToBvKIndex(vecG + vecL - vecH)
+
               bvKIndex(:) = this%foldToBvKIndex(-vecG - vecL + vecH)
 
               distMN = norm2(this%rCoords(:, iAtM) - (this%rCoords(:, iAtN) + rVecG))
@@ -3119,7 +3117,8 @@ contains
               gammaTot = gammaMN + gammaMB + gammaAN + gammaAB
 
               loopK: do iK = 1, nK
-                phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK), vecG))
+                ! phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK), vecG))
+                phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK), -vecG))
 
                 ! term #1
                 do mu = 1, descM(iNOrb)
@@ -3170,41 +3169,44 @@ contains
       end do
     end do
 
-    print *, 'dP(-3)'
-    bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, -3.0_dp])
-    print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
+    ! print *, 'dP(-3)'
+    ! bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, -3.0_dp])
+    ! print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
 
-    print *, 'dP(-2)'
-    bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, -2.0_dp])
-    print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
+    ! print *, 'dP(-2)'
+    ! bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, -2.0_dp])
+    ! print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
 
-    print *, 'dP(-1)'
-    bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, -1.0_dp])
-    print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
+    ! print *, 'dP(-1)'
+    ! bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, -1.0_dp])
+    ! print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
 
-    print *, 'dP(0)'
-    bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, 0.0_dp])
-    print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
+    ! print *, 'dP(0)'
+    ! bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, 0.0_dp])
+    ! print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
 
-    print *, 'dP(1)'
-    bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, 1.0_dp])
-    print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
+    ! print *, 'dP(1)'
+    ! bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, 1.0_dp])
+    ! print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
 
-    print *, 'dP(2)'
-    bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, 2.0_dp])
-    print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
+    ! print *, 'dP(2)'
+    ! bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, 2.0_dp])
+    ! print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
 
-    print *, 'dP(3)'
-    bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, 3.0_dp])
-    print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
+    ! print *, 'dP(3)'
+    ! bvKIndex(:) = this%foldToBvKIndex([0.0_dp, 0.0_dp, 3.0_dp])
+    ! print "(2F20.16)", transpose(deltaRhoSqr(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), 1))
 
     tmpHSqr(:,:,:) = -0.125_dp * tmpHSqr
+    ! do iK = 1, size(tmpHSqr, dim=3)
+    !   call lowerTriangleSquareMatrix(tmpHSqr(:,:, iK))
+    ! end do
     this%hPrevCplxHS = tmpHSqr
 
-    print *, 'Gamma-Point:'
-    print "(2F20.16)", transpose(tmpHSqr(:,:, 1))
-    print *, 'k-Point #1:'
-    print "(2F20.16)", transpose(tmpHSqr(:,:, 2))
+    ! print *, 'Gamma-Point:'
+    ! print "(2F20.16)", transpose(tmpHSqr(:,:, 1))
+    ! print *, 'k-Point #1:'
+    ! print "(2F20.16)", transpose(tmpHSqr(:,:, 2))
     ! print *, 'k-Point #2:'
     ! print "(2F20.16)", tmpHSqr(:,:, 3)
     ! print *, 'k-Point #3:'
@@ -3212,10 +3214,10 @@ contains
 
     HSqr(:,:,:) = HSqr + tmpHSqr
 
-    print *, 'Gamma-Point (dP(k)):'
-    print *, transpose(deltaRhoOutSqrCplx(:,:, 1))
-    print *, 'k-Point #1 (dP(k)):'
-    print *, transpose(deltaRhoOutSqrCplx(:,:, 2))
+    ! print *, 'Gamma-Point (dP(k)):'
+    ! print *, transpose(deltaRhoOutSqrCplx(:,:, 1))
+    ! print *, 'k-Point #1 (dP(k)):'
+    ! print *, transpose(deltaRhoOutSqrCplx(:,:, 2))
 
     energy = 0.0_dp
     call this%addCamEnergy_kpts(env, iKiSToiGlobalKS, kWeights, deltaRhoOutSqrCplx, energy)
@@ -3507,7 +3509,7 @@ contains
 
           loopKMN: do iK = 1, nK
             iGlobalKS = iKiSToiGlobalKS(iK, iS)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+            phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
                 & this%cellVecsG(:, iGMN)))
 
             ! term #1
@@ -3530,7 +3532,7 @@ contains
 
           loopKMB: do iK = 1, nK
             iGlobalKS = iKiSToiGlobalKS(iK, iS)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+            phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
                 & this%cellVecsG(:, iGMB) - vecL))
 
             ! term #2
@@ -3552,7 +3554,7 @@ contains
 
           loopKAN: do iK = 1, nK
             iGlobalKS = iKiSToiGlobalKS(iK, iS)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+            phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
                 & this%cellVecsG(:, iGAN) + vecH))
 
             ! term #3
@@ -3574,7 +3576,7 @@ contains
 
           loopKAB: do iK = 1, nK
             iGlobalKS = iKiSToiGlobalKS(iK, iS)
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+            phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
                 & this%cellVecsG(:, iGAB) - vecL + vecH))
 
             ! term #4
@@ -3682,7 +3684,7 @@ contains
           iGlobalKS = iKiSToiGlobalKS(iK, iS)
           this%camEnergy = this%camEnergy&
               & + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
-              & deltaRhoOutSqrCplx(:,:, iGlobalKS))
+              & transpose(deltaRhoOutSqrCplx(:,:, iGlobalKS)))
         end do
       end do
     end if

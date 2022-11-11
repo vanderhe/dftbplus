@@ -279,8 +279,8 @@ contains
         if ((.not. present(densityMatrix)) .or. (.not. present(kWeights))) then
           call error("Missing expected array(s) for hybrid xc-functional calculation.")
         end if
-        call hybridXc%addCamEnergy_kpts(env, densityMatrix%iKiSToiGlobalKS,&
-            & kWeights, densityMatrix%deltaRhoOutSqrCplx, energy%Efock)
+        ! call hybridXc%addCamEnergy_kpts(env, densityMatrix%iKiSToiGlobalKS,&
+        !     & kWeights, densityMatrix%deltaRhoOutSqrCplx, energy%Efock)
       end if
     end if
 
