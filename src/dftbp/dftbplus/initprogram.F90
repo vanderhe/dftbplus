@@ -1425,11 +1425,6 @@ contains
       end if
     end if
 
-    this%tRealHS = .false.
-    ! this%kWeight(1) = 0.0_dp
-    ! this%kWeight(2) = 1.0_dp
-    ! this%kWeight(3) = 0.0_dp
-
   #:if WITH_MPI
     if (input%ctrl%parallelOpts%nGroup > nIndepHam * this%nKPoint&
         & .and. (.not. (this%isHybridXc .and. (.not. this%tRealHS)))) then
@@ -5826,7 +5821,6 @@ contains
 
     ! deallocate arrays, if already allocated
     if (allocated(this%densityMatrix%deltaRhoOut)) deallocate(this%densityMatrix%deltaRhoOut)
-    if (allocated(this%densityMatrix%deltaRhoDiff)) deallocate(this%densityMatrix%deltaRhoDiff)
     if (allocated(this%SSqrCplxKpts)) deallocate(this%SSqrCplxKpts)
     if (allocated(this%densityMatrix%deltaRhoOutCplx))&
         & deallocate(this%densityMatrix%deltaRhoOutCplx)
@@ -5839,9 +5833,7 @@ contains
       this%densityMatrix%deltaRhoIn(:) = 0.0_dp
     end if
     allocate(this%densityMatrix%deltaRhoOut(nMixElements))
-    allocate(this%densityMatrix%deltaRhoDiff(nMixElements))
     this%densityMatrix%deltaRhoOut(:) = 0.0_dp
-    this%densityMatrix%deltaRhoDiff(:) = 0.0_dp
 
     if (.not. this%tRealHS) then
       allocate(this%SSqrCplxKpts(this%nOrb, this%nOrb, this%nKpoint))

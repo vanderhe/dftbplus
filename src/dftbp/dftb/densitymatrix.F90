@@ -60,9 +60,6 @@ module dftbp_dftb_densitymatrix
     !> DeltaRho output from calculation of range separated Hamiltonian
     complex(dp), allocatable :: deltaRhoOutCplx(:)
 
-    !> Holds change in deltaRho between SCC steps for range separation
-    real(dp), allocatable :: deltaRhoDiff(:)
-
     !> DeltaRho input for range separation in matrix form
     real(dp), pointer :: deltaRhoInSqr(:,:,:) => null()
 

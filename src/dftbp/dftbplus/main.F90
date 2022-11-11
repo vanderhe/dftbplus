@@ -896,7 +896,7 @@ contains
           call getReksNextInputDensity(sccErrorQ, this%sccTol, tConverged, iSccIter,&
               & this%minSccIter, this%maxSccIter, iGeoStep, tStopScc, this%eigvecsReal,&
               & this%densityMatrix%deltaRhoOut, this%densityMatrix%deltaRhoIn,&
-              & this%densityMatrix%deltaRhoDiff, this%reks)
+              & this%reks)
         else
           call getReksNextInputCharges(this%qInput, this%qOutput, this%qDiff, sccErrorQ,&
               & this%sccTol, tConverged, iSccIter, this%minSccIter, this%maxSccIter, iGeoStep,&
@@ -1193,8 +1193,7 @@ contains
                   & this%img2CentCell, this%pChrgMixer, this%qOutput, this%orb, this%tHelical,&
                   & this%species, this%coord, iGeoStep, iSccIter, this%minSccIter, this%maxSccIter,&
                   & this%sccTol, tStopScc, this%tReadChrg, this%q0, this%qInput, sccErrorQ,&
-                  & tConverged, this%densityMatrix%deltaRhoOut, this%densityMatrix%deltaRhoIn,&
-                  & this%densityMatrix%deltaRhoDiff, this%qBlockIn, this%qBlockOut)
+                  & tConverged, this%densityMatrix, this%qBlockIn, this%qBlockOut)
             else
               call getNextInputDensityCplx(this%ints, this%neighbourList, this%nNeighbourSK,&
                   & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell,&
@@ -3261,21 +3260,12 @@ contains
       end if
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
-      ! print *, 'DFTB-Hamiltonian (pre-diag):'
-      ! print "(2F20.16)", transpose(HSqrCplx(:,:))
-
       ! Add CAM contribution to local Hamiltonian
       ! (Works only if total number of MPI processes matches number of MPI groups.)
       if (allocated(hybridXc)) then
         ! Index iK at this point is only working for spin-restricted calculations
         HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin))
       end if
-
-      ! print *, 'HFX-Hamiltonian (pre-diag):'
-      ! print "(2F20.16)", transpose(HSqrCplxCam(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)))
-
-      ! print *, 'Total-Hamiltonian (pre-diag):'
-      ! print "(2F20.16)", transpose(HSqrCplx)
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
           & errStatus)
@@ -4299,7 +4289,7 @@ contains
   subroutine getNextInputDensityReal(SSqrReal, ints, neighbourList, nNeighbourSK, iAtomStart,&
       & iSparseStart, img2CentCell, pChrgMixer, qOutput, orb, tHelical, species, coord, iGeoStep,&
       & iSccIter, minSccIter, maxSccIter, sccTol, tStopScc, tReadChrg, q0, qInput, sccErrorQ,&
-      & tConverged, deltaRhoOut, deltaRhoIn, deltaRhoDiff, qBlockIn, qBlockOut)
+      & tConverged, densityMatrix, qBlockIn, qBlockOut)
 
     !> Square dense overlap storage
     real(dp), allocatable, intent(inout) :: SSqrReal(:,:)
@@ -4373,14 +4363,8 @@ contains
     !> Has the calculation converged?
     logical, intent(out) :: tConverged
 
-    !> Delta density matrix for hybrid xc-functional calculations
-    real(dp), intent(inout) :: deltaRhoOut(:)
-
-    !> Delta density matrix as input for next SCC cycle
-    real(dp), intent(inout), target :: deltaRhoIn(:)
-
-    !> Difference of delta density matrix in and out
-    real(dp), intent(inout) :: deltaRhoDiff(:)
+    !> Holds real and complex delta density matrices and pointers
+    type(TDensityMatrix), intent(inout) :: densityMatrix
 
     !> Block charge input (if needed for orbital potentials)
     real(dp), intent(inout), allocatable :: qBlockIn(:,:,:,:)
@@ -4388,27 +4372,25 @@ contains
     !> Dual output charges
     real(dp), intent(inout), allocatable :: qBlockOut(:,:,:,:)
 
+    !! Difference of delta density matrix in and out
+    real(dp), allocatable :: deltaRhoDiff(:)
+
     !! Number of spins and spin index
     integer :: nSpin, iSpin
 
     !! Atom/orbital index
     integer :: iAt, iOrb
 
-    !! Square delta rho input for dense diagonalization
-    real(dp), pointer :: deltaRhoInSqr(:,:,:)
-
     nSpin = size(qOutput, dim=3)
 
-    deltaRhoInSqr(1:orb%nOrb, 1:orb%nOrb, 1:nSpin) => deltaRhoIn
-
-    deltaRhoDiff(:) = deltaRhoOut - deltaRhoIn
+    deltaRhoDiff = densityMatrix%deltaRhoOut - densityMatrix%deltaRhoIn
     sccErrorQ = maxval(abs(deltaRhoDiff))
     tConverged = (sccErrorQ < sccTol)&
         & .and. (iSCCiter >= minSCCIter .or. tReadChrg .or. iGeoStep > 0)
 
     if ((.not. tConverged) .and. (iSCCiter /= maxSccIter .and. .not. tStopScc)) then
       if ((iSCCIter + iGeoStep) == 1 .and. (nSpin > 1 .and. .not. tReadChrg)) then
-        deltaRhoIn(:) = deltaRhoOut
+        densityMatrix%deltaRhoIn(:) = densityMatrix%deltaRhoOut
         qInput(:,:,:) = qOutput
         if (allocated(qBlockIn)) then
           qBlockIn(:,:,:,:) = qBlockOut
@@ -4422,8 +4404,8 @@ contains
               & iSparseStart, img2CentCell)
         end if
 
-        call mix(pChrgMixer, deltaRhoIn, deltaRhoDiff)
-        call denseMulliken(deltaRhoInSqr, SSqrReal, iAtomStart, qInput)
+        call mix(pChrgMixer, densityMatrix%deltaRhoIn, deltaRhoDiff)
+        call denseMulliken(densityMatrix%deltaRhoInSqr, SSqrReal, iAtomStart, qInput)
 
         ! HybridXc: For spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices
@@ -4435,7 +4417,7 @@ contains
         end if
 
         if (allocated(qBlockIn)) then
-          call denseBlockMulliken(deltaRhoInSqr, SSqrReal, iAtomStart, qBlockIn)
+          call denseBlockMulliken(densityMatrix%deltaRhoInSqr, SSqrReal, iAtomStart, qBlockIn)
           do iSpin = 1, nSpin
             do iAt = 1, size(qInput, dim=2)
               do iOrb = 1, size(qInput, dim=1)
@@ -4561,34 +4543,11 @@ contains
         end if
       else
 
-        ! print *, '###################', iSCCiter, '######################'
-        ! print *, 'dP(-1)'
-        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoOutSqrCplxHS(:,:, 1,1,3, 1))
-
-        ! print *, 'dP(0)'
-        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoOutSqrCplxHS(:,:, 1,1,1, 1))
-
-        ! print *, 'dP(1)'
-        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoOutSqrCplxHS(:,:, 1,1,2, 1))
-
         call mix(pChrgMixer, densityMatrix%deltaRhoIn, deltaRhoDiff)
-
-        ! print *, '###################################################################'
-        ! print *, 'dP(-1)'
-        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoInSqrCplxHS(:,:, 1,1,3, 1))
-
-        ! print *, 'dP(0)'
-        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoInSqrCplxHS(:,:, 1,1,1, 1))
-
-        ! print *, 'dP(1)'
-        ! print "(2F20.16)", transpose(densityMatrix%deltaRhoInSqrCplxHS(:,:, 1,1,2, 1))
 
         call mulliken(qInput, ints%overlap, densityMatrix%deltaRhoInSqrCplxHS, orb,&
             & neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart, iAtomStart,&
             & iCellVec, cellVec, hybridXc)
-
-        ! print *, 'Charges (after mixing):'
-        ! print *, qInput
 
         ! HybridXc: for spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices.
@@ -8054,9 +8013,8 @@ contains
 
 
   !> Update delta density matrix rather than merely q for hybrid xc-functionals.
-  subroutine getReksNextInputDensity(sccErrorQ, sccTol, tConverged, &
-      & iSccIter, minSccIter, maxSccIter, iGeoStep, tStopScc, &
-      & eigvecs, deltaRhoOut, deltaRhoIn, deltaRhoDiff, reks)
+  subroutine getReksNextInputDensity(sccErrorQ, sccTol, tConverged, iSccIter, minSccIter,&
+      & maxSccIter, iGeoStep, tStopScc, eigvecs, deltaRhoOut, deltaRhoIn, reks)
 
     !> SCC error
     real(dp), intent(out) :: sccErrorQ
@@ -8085,19 +8043,19 @@ contains
     !> Eigenvectors on eixt
     real(dp), intent(inout) :: eigvecs(:,:,:)
 
-    !> delta density matrix for hybrid xc-functional calculations
+    !> Delta density matrix for hybrid xc-functional calculations
     real(dp), intent(inout) :: deltaRhoOut(:)
 
-    !> delta density matrix as inpurt for next SCC cycle
+    !> Delta density matrix as inpurt for next SCC cycle
     real(dp), target, intent(inout) :: deltaRhoIn(:)
 
-    !> difference of delta density matrix in and out
-    real(dp), intent(inout) :: deltaRhoDiff(:)
-
-    !> data type for REKS
+    !> Data type for REKS
     type(TReksCalc), intent(inout) :: reks
 
-    deltaRhoDiff(:) = deltaRhoOut - deltaRhoIn
+    !! Difference of delta density matrix in and out
+    real(dp), allocatable :: deltaRhoDiff(:)
+
+    deltaRhoDiff = deltaRhoOut - deltaRhoIn
     sccErrorQ = maxval(abs(deltaRhoDiff))
 
     tConverged = (sccErrorQ < sccTol) &
