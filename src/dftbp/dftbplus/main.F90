@@ -3192,8 +3192,7 @@ contains
       ! Get CAM-Hamiltonian contribution for all spins/k-points
       call hybridXc%addCamHamiltonian_kpts(env, densityMatrix%deltaRhoInSqrCplxHS,&
           & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb,&
-          & kPoint, kWeight, densityMatrix%iKiSToiGlobalKS, HSqrCplxCam,&
-          & densityMatrix%deltaRhoOutSqrCplx)
+          & kPoint, kWeight, densityMatrix%iKiSToiGlobalKS, HSqrCplxCam)
 
       do iKS = 1, parallelKS%nLocalKS
         iK = parallelKS%localKS(1, iKS)
@@ -3260,12 +3259,21 @@ contains
       end if
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
+      ! print *, 'DFTB-Hamiltonian (pre-diag):'
+      ! print "(2F20.16)", transpose(HSqrCplx(:,:))
+
       ! Add CAM contribution to local Hamiltonian
       ! (Works only if total number of MPI processes matches number of MPI groups.)
       if (allocated(hybridXc)) then
         ! Index iK at this point is only working for spin-restricted calculations
         HSqrCplx(:,:) = HSqrCplx + HSqrCplxCam(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin))
       end if
+
+      ! print *, 'HFX-Hamiltonian (pre-diag):'
+      ! print "(2F20.16)", transpose(HSqrCplxCam(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)))
+
+      ! print *, 'Total-Hamiltonian (pre-diag):'
+      ! print "(2F20.16)", transpose(HSqrCplx)
 
       call diagDenseMtx(env, electronicSolver, 'V', HSqrCplx, SSqrCplx, eigen(:, iK, iSpin),&
           & errStatus)

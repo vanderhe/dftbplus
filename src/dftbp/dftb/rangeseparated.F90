@@ -1473,8 +1473,7 @@ contains
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (k-point version)
   subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, symNeighbourList, nNeighbourCamSym,&
-      & rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr,&
-      & deltaRhoOutSqrCplx)
+      & rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
@@ -1515,8 +1514,6 @@ contains
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(inout) :: HSqr(:,:,:)
 
-    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
-
     call env%globalTimer%startTimer(globalTimers%hybridXcH)
 
     select case(this%hybridXcAlg)
@@ -1529,8 +1526,7 @@ contains
             & iKiSToiGlobalKS, HSqr)
     else
       call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
-          & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr,&
-          & deltaRhoOutSqrCplx)
+          & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
       end if
     case (hybridXcAlgo%matrixBased)
       call error('Matrix based algorithm not implemented for periodic systems.')
@@ -2581,7 +2577,6 @@ contains
     integer :: nAtom0
 
     !! Real-space \vec{h} and \vec{l} vectors in relative coordinates
-    integer :: intVecH(3), intVecL(3)
     real(dp) :: vecH(3), vecL(3)
 
     !! Real-space \vec{h} and \vec{l} vectors in absolute coordinates
@@ -2776,7 +2771,6 @@ contains
       ! get real-space \vec{l} for gamma arguments
       rVecL(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtB))
       vecL(:) = cellVecs(:, symNeighbourList%iCellVec(iAtB))
-      intVecL(:) = nint(vecL)
       ! get 2D pointer to Sbn overlap block
       ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
       nOrbAt = descN(iNOrb)
@@ -2791,24 +2785,23 @@ contains
       ! get real-space \vec{h} for gamma arguments
       rVecH(:) = rCellVecs(:, symNeighbourList%iCellVec(iAtA))
       vecH(:) = cellVecs(:, symNeighbourList%iCellVec(iAtA))
-      intVecH(:) = nint(vecH)
       ! get 2D pointer to Sam overlap block
       ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
       nOrbAt = descM(iNOrb)
       nOrbNeigh = descA(iNOrb)
-      ! S_{\alpha\mu}(h)
+      ! S_{\alpha\mu}
       pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-      ! S_{\mu\alpha}(-h)
+      ! S_{\mu\alpha}
       pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
 
+      gammaMN(:) = getCamGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCellVecsG,&
+          & rVecH - rVecL)
+      gammaMB(:) = getCamGammaGResolved(this, iAtM, iAtBfold, iSpM, iSpB, this%rCellVecsG, rVecH)
+      gammaAN(:) = getCamGammaGResolved(this, iAtAfold, iAtN, iSpA, iSpN, this%rCellVecsG, -rVecL)
       gammaAB(:) = getCamGammaGResolved(this, iAtAfold, iAtBfold, iSpA, iSpB, this%rCellVecsG,&
           & zeros)
-      gammaAN(:) = getCamGammaGResolved(this, iAtAfold, iAtN, iSpA, iSpN, this%rCellVecsG, rVecL)
-      gammaMB(:) = getCamGammaGResolved(this, iAtM, iAtBfold, iSpM, iSpB, this%rCellVecsG, -rVecH)
-      gammaMN(:) = getCamGammaGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCellVecsG,&
-          & rVecL - rVecH)
 
-      tot(1:descM(iNOrb), 1:descN(iNOrb), :) = (0.0_dp, 0.0_dp)
+      tot(:,:,:) = (0.0_dp, 0.0_dp)
 
       loopS: do iS = 1, nS
 
@@ -2816,7 +2809,7 @@ contains
         Pab = deltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd), :,:,:, iS)
 
         loopG: do iG = 1, size(this%cellVecsG, dim=2)
-          bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iG))
+          bvKIndex(:) = this%foldToBvKIndex(-this%cellVecsG(:, iG))
 
           ! term #1/2
           pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab(:,:, bvKIndex(1),&
@@ -2846,8 +2839,8 @@ contains
 
             iGlobalKS = iKiSToiGlobalKS(iK, iS)
 
-            phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                & this%cellVecsG(:, iG) + vecL - vecH))
+            phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
+                & this%cellVecsG(:, iG) - vecL + vecH))
 
             ! term #1
             tot(1:descM(iNOrb), 1:descN(iNOrb), iGlobalKS)&
@@ -2909,8 +2902,7 @@ contains
   !> Adds range-separated contributions to Hamiltonian, using neighbour-list based algorithm.
   !! (k-point version)
   subroutine addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
-      & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr,&
-      & deltaRhoOutSqrCplx)
+      & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
@@ -2947,8 +2939,6 @@ contains
 
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(inout) :: HSqr(:,:,:)
-
-    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
 
     !! Dense matrix descriptor indices
     integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
