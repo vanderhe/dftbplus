@@ -192,7 +192,6 @@ contains
 
     type(TStatus) :: errStatus
     real(dp), pointer :: pDynMatrix(:,:), pDipDerivMatrix(:,:)
-    integer :: iAt
 
     call initGeoOptParameters(this%tCoordOpt, this%nGeoSteps, tGeomEnd, tCoordStep, tStopDriver,&
         & iGeoStep, iLatGeoStep)
@@ -223,8 +222,8 @@ contains
             & this%deltaRhoDets)
         if (isUnReduced) then
           call reduceCharges(this%orb, this%nIneqOrb, this%iEqOrbitals, this%qInput, this%qInpRed,&
-              & this%qBlockIn, this%dftbU, this%iEqBlockDftbu, this%qiBlockIn,&
-              & this%iEqBlockDftbuLS, this%iEqBlockOnSite, this%iEqBlockOnSiteLS)
+              & this%qBlockIn, this%iEqBlockDftbu, this%qiBlockIn, this%iEqBlockDftbuLS,&
+              & this%iEqBlockOnSite, this%iEqBlockOnSiteLS)
         end if
 
         call processGeometry(this, env, iGeoStep, iLatGeoStep, tWriteRestart, tStopScc,&
@@ -517,7 +516,7 @@ contains
           & this%tStress, this%totalStress, pDynMatrix, pDipDerivMatrix, this%tPeriodic,&
           & this%cellVol, this%tMulliken, this%qOutput, this%q0, this%taggedWriter, this%cm5Cont,&
           & this%polarisability, this%dEidE, this%dqOut, this%neFermi, this%dEfdE,&
-          & this%coord0, this%dipoleMoment, this%multipoleOut, this%eFieldScaling)
+          & this%dipoleMoment, this%multipoleOut, this%eFieldScaling)
     end if
     if (this%tWriteCosmoFile .and. allocated(this%solvation)) then
       call writeCosmoFile(this%solvation, this%species0, this%speciesName, this%coord0, &
@@ -805,8 +804,8 @@ contains
     end if
 
     call addUpExternalField(this%eField, this%tPeriodic, this%neighbourList, this%nNeighbourSk,&
-        & this%iCellVec, this%img2CentCell, this%cellVec, this%deltaT, iGeoStep, this%coord0Fold,&
-        & this%coord, this%potential)
+        & this%iCellVec, this%cellVec, this%deltaT, iGeoStep, this%coord0Fold, this%coord,&
+        & this%potential)
 
     call mergeExternalPotentials(this%orb, this%species, this%potential)
 
@@ -877,9 +876,9 @@ contains
         ! Creates (delta) density matrix for averaged state from real eigenvectors.
         call getDensityFromRealEigvecs(env, this%denseDesc, this%filling(:,1,:),&
             & this%neighbourList, this%nNeighbourSK, this%iSparseStart, this%img2CentCell,&
-            & this%orb, this%species, this%denseDesc%iAtomStart, this%coord, this%tPeriodic,&
-            & this%tHelical, this%eigVecsReal, this%parallelKS, this%rhoPrim, this%SSqrReal,&
-            & this%rhoSqrReal, this%densityMatrix%deltaRhoOutSqr)
+            & this%orb, this%species, this%coord, this%tPeriodic, this%tHelical, this%eigVecsReal,&
+            & this%parallelKS, this%rhoPrim, this%SSqrReal, this%rhoSqrReal,&
+            & this%densityMatrix%deltaRhoOutSqr)
         ! For hybrid xc-functional calculations deduct atomic charges from deltaRho
         if (this%isHybridXc) then
           call denseSubtractDensityOfAtoms(this%q0, this%denseDesc%iAtomStart,&
@@ -930,8 +929,8 @@ contains
                 & this%tMD, this%tDerivs, this%tCoordOpt, this%tLatOpt, iLatGeoStep, iSccIter,&
                 & this%dftbEnergy(1), diffElec, sccErrorQ, this%indMovedAtom, this%pCoord0Out,&
                 & this%q0, this%qOutput, this%orb, this%species, this%tPrintMulliken,&
-                & this%extPressure, this%cellVol, this%dftbEnergy(1)%TS, this%tAtomicEnergy,&
-                & this%dispersion, this%tPeriodic, this%tSccCalc, this%invLatVec, this%kPoint,&
+                & this%extPressure, this%cellVol, this%tAtomicEnergy, this%dispersion,&
+                & this%tPeriodic, this%tSccCalc, this%invLatVec, this%kPoint,&
                 & this%iAtInCentralRegion, this%electronicSolver, this%reks,&
                 & allocated(this%thirdOrd), this%isHybridXc, qNetAtom=this%qNetAtom)
           end if
@@ -1019,7 +1018,7 @@ contains
             & this%filling, this%rhoPrim, this%xi, this%orbitalL, this%HSqrReal, this%SSqrReal,&
             & this%eigvecsReal, this%iRhoPrim, this%HSqrCplx, this%SSqrCplx, this%SSqrCplxKpts,&
             & this%eigvecsCplx, this%rhoSqrReal, this%densityMatrix, this%nNeighbourCam,&
-            & this%nNeighbourCamSym, this%tLargeDenseMatrices, this%deltaDftb, errStatus)
+            & this%nNeighbourCamSym, this%deltaDftb, errStatus)
         if (errStatus%hasError()) call error(errStatus%message)
 
         ! CAM calculations deduct atomic charges from delta density matrix
@@ -1184,8 +1183,7 @@ contains
                 & this%qInput, this%qInpRed, sccErrorQ, tConverged, this%dftbU, this%qBlockOut,&
                 & this%iEqBlockDftbU, this%qBlockIn, this%qiBlockOut, this%iEqBlockDftbULS,&
                 & this%species0, this%qiBlockIn, this%iEqBlockOnSite, this%iEqBlockOnSiteLS,&
-                & this%nIneqDip, this%nIneqQuad, this%iEqDipole, this%iEqQuadrupole,&
-                & this%multipoleOut, this%multipoleInp)
+                & this%nIneqDip, this%nIneqQuad, this%multipoleOut, this%multipoleInp)
           else
             if (this%tRealHS) then
               call getNextInputDensityReal(this%SSqrReal, this%ints, this%neighbourList,&
@@ -1243,8 +1241,8 @@ contains
               & iSccIter, this%dftbEnergy(this%deltaDftb%iDeterminant), diffElec, sccErrorQ,&
               & this%indMovedAtom, this%pCoord0Out, this%tPeriodic, this%tSccCalc, this%tNegf,&
               & this%invLatVec, this%kPoint)
-          call writeDetailedOut2(this%fdDetailedOut%unit, this%q0, this%qInput, this%qOutput,&
-              & this%orb, this%species, allocated(this%dftbU), this%tImHam .or. this%tSpinOrbit,&
+          call writeDetailedOut2(this%fdDetailedOut%unit, this%q0, this%qOutput, this%orb,&
+              & this%species, allocated(this%dftbU), this%tImHam .or. this%tSpinOrbit,&
               & this%tPrintMulliken, this%orbitalL, this%qBlockOut, this%nSpin,&
               & allocated(this%onSiteElements), this%iAtInCentralRegion, this%cm5Cont,&
               & this%qNetAtom)
@@ -1252,7 +1250,7 @@ contains
               & this%dftbEnergy(this%deltaDftb%iDeterminant), this%species, allocated(this%dftbU),&
               & this%tPrintMulliken, this%Ef, this%extPressure, this%cellVol, this%tAtomicEnergy,&
               & this%dispersion, allocated(this%eField), this%tPeriodic, this%nSpin, this%tSpin,&
-              & this%tSpinOrbit, this%tSccCalc, allocated(this%onSiteElements), this%tNegf,&
+              & this%tSpinOrbit, this%tSccCalc, allocated(this%onSiteElements),&
               & this%iAtInCentralRegion, this%electronicSolver, allocated(this%halogenXCorrection),&
               & this%isHybridXc, allocated(this%thirdOrd), allocated(this%solvation))
         end if
@@ -1306,25 +1304,25 @@ contains
             & this%tDerivs, this%tCoordOpt, this%tLatOpt, iLatGeoStep, iSccIter,&
             & this%dftbEnergy(1), diffElec, sccErrorQ, this%indMovedAtom, this%pCoord0Out,&
             & this%q0, this%qOutput, this%orb, this%species, this%tPrintMulliken,&
-            & this%extPressure, this%cellVol, this%dftbEnergy(1)%TS, this%tAtomicEnergy,&
-            & this%dispersion, this%tPeriodic, this%tSccCalc, this%invLatVec, this%kPoint,&
-            & this%iAtInCentralRegion, this%electronicSolver, this%reks,&
-            & allocated(this%thirdOrd), this%isHybridXc, qNetAtom=this%qNetAtom)
+            & this%extPressure, this%cellVol, this%tAtomicEnergy, this%dispersion, this%tPeriodic,&
+            & this%tSccCalc, this%invLatVec, this%kPoint, this%iAtInCentralRegion,&
+            & this%electronicSolver, this%reks, allocated(this%thirdOrd), this%isHybridXc,&
+            & qNetAtom=this%qNetAtom)
       else
         call writeDetailedOut1(this%fdDetailedOut%unit, this%iDistribFn, this%nGeoSteps,&
             & iGeoStep, this%tMD, this%tDerivs, this%tCoordOpt, this%tLatOpt, iLatGeoStep,&
             & iSccIter, this%dftbEnergy(this%deltaDftb%iDeterminant), diffElec, sccErrorQ,&
             & this%indMovedAtom, this%pCoord0Out, this%tPeriodic, this%tSccCalc, this%tNegf,&
             & this%invLatVec, this%kPoint)
-        call writeDetailedOut2(this%fdDetailedOut%unit, this%q0, this%qInput, this%qOutput,&
-            & this%orb, this%species, allocated(this%dftbU), this%tImHam.or.this%tSpinOrbit,&
+        call writeDetailedOut2(this%fdDetailedOut%unit, this%q0, this%qOutput, this%orb,&
+            & this%species, allocated(this%dftbU), this%tImHam.or.this%tSpinOrbit,&
             & this%tPrintMulliken, this%orbitalL, this%qBlockOut, this%nSpin,&
             & allocated(this%onSiteElements), this%iAtInCentralRegion, this%cm5Cont, this%qNetAtom)
         call writeDetailedOut3(this%fdDetailedOut%unit, this%qInput, this%qOutput,&
             & this%dftbEnergy(this%deltaDftb%iDeterminant), this%species, allocated(this%dftbU),&
             & this%tPrintMulliken, this%Ef, this%extPressure, this%cellVol, this%tAtomicEnergy,&
             & this%dispersion, allocated(this%eField), this%tPeriodic, this%nSpin, this%tSpin,&
-            & this%tSpinOrbit, this%tSccCalc, allocated(this%onSiteElements), this%tNegf,&
+            & this%tSpinOrbit, this%tSccCalc, allocated(this%onSiteElements),&
             & this%iAtInCentralRegion, this%electronicSolver, allocated(this%halogenXCorrection),&
             & this%isHybridXc, allocated(this%thirdOrd), allocated(this%solvation))
       end if
@@ -1361,7 +1359,7 @@ contains
           & this%img2CentCell, this%tWriteAutotest, this%tCasidaForces, this%tLinRespZVect,&
           & this%tPrintExcitedEigvecs, this%tPrintEigvecsTxt, this%nonSccDeriv,&
           & this%dftbEnergy(1), this%energiesCasida, this%SSqrReal, this%rhoSqrReal,&
-          & this%densityMatrix%deltaRhoOutSqr, this%excitedDerivs, this%dQAtomEx, this%occNatural,&
+          & this%densityMatrix%deltaRhoOutSqr, this%excitedDerivs, this%occNatural,&
           & this%hybridXc)
     end if
 
@@ -1472,7 +1470,7 @@ contains
 
       call env%globalTimer%stopTimer(globalTimers%forceCalc)
 
-      call updateDerivsByPlumed(env, this%plumedCalc, this%nAtom, iGeoStep, this%derivs,&
+      call updateDerivsByPlumed(env, this%plumedCalc, iGeoStep, this%derivs,&
           & this%dftbEnergy(this%deltaDftb%iDeterminant)%EMermin, this%coord0, this%mass,&
           & this%tPeriodic, this%latVec)
 
@@ -2412,7 +2410,7 @@ contains
       & iDistribFn, tempElec, nEl, parallelKS, Ef, mu, energy, hybridXc, eigen, filling, rhoPrim,&
       & xi, orbitalL, HSqrReal, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx, SSqrCplxKpts,&
       & eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym,&
-      & tLargeDenseMatrices, deltaDftb, errStatus)
+      & deltaDftb, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2578,9 +2576,6 @@ contains
 
     !> Symmetric neighbour list version of nNeighbourCam
     integer, intent(in), allocatable :: nNeighbourCamSym(:)
-
-    !> Are dense matrices for H, S, etc. being used
-    logical, intent(in) :: tLargeDenseMatrices
 
     !> Determinant derived type
     type(TDftbDeterminants), intent(inout) :: deltaDftb
@@ -2819,10 +2814,10 @@ contains
     if (nSpin /= 4) then
       if (tRealHS) then
         call buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
-            & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, cellVec, rCellVecs,&
-            & iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord, electronicSolver,&
-            & parallelKS, hybridXc, densityMatrix%deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym,&
-            & HSqrReal, SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
+            & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, tPeriodic, tHelical,&
+            & coord, electronicSolver, parallelKS, hybridXc, densityMatrix%deltaRhoInSqr,&
+            & nNeighbourCam, nNeighbourCamSym, HSqrReal, SSqrReal, eigVecsReal, eigen(:,1,:),&
+            & errStatus)
         @:PROPAGATE_ERROR(errStatus)
       else
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
@@ -2847,9 +2842,8 @@ contains
     if (nSpin /= 4) then
       if (tRealHS) then
         call getDensityFromRealEigvecs(env, denseDesc, filling(:,1,:), neighbourList, nNeighbourSK,&
-            & iSparseStart, img2CentCell, orb, species, denseDesc%iAtomStart, coord, tPeriodic,&
-            & tHelical, eigVecsReal, parallelKS, rhoPrim, SSqrReal, rhoSqrReal,&
-            & densityMatrix%deltaRhoOutSqr)
+            & iSparseStart, img2CentCell, orb, species, coord, tPeriodic, tHelical, eigVecsReal,&
+            & parallelKS, rhoPrim, SSqrReal, rhoSqrReal, densityMatrix%deltaRhoOutSqr)
       else
         call getDensityFromCplxEigvecs(env, denseDesc, filling, kPoint, kWeight, neighbourList,&
             & nNeighbourSK, iSparseStart, img2CentCell, iCellVec, cellVec, orb,&
@@ -2862,8 +2856,8 @@ contains
       filling(:,:,1) = 2.0_dp * filling(:,:,1)
       call getDensityFromPauliEigvecs(env, denseDesc, tRealHS, tSpinOrbit, tDualSpinOrbit,&
           & tMulliken, kPoint, kWeight, filling(:,:,1), neighbourList, nNeighbourSK, orb,&
-          & iSparseStart, img2CentCell, iCellVec, cellVec, species, parallelKS, deltaDftb,&
-          & eigVecsCplx, SSqrCplx, energy, rhoPrim, xi, orbitalL, iRhoPrim)
+          & iSparseStart, img2CentCell, iCellVec, cellVec, species, parallelKS, eigVecsCplx,&
+          & SSqrCplx, energy, rhoPrim, xi, orbitalL, iRhoPrim)
       filling(:,:,1) = 0.5_dp * filling(:,:,1)
     end if
     call env%globalTimer%stopTimer(globalTimers%densityMatrix)
@@ -2873,10 +2867,9 @@ contains
 
   !> Builds and diagonalises dense Hamiltonians.
   subroutine buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
-      & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, cellVecs, rCellVecs,&
-      & iCellVec, latVecs, recVecs2p, tPeriodic, tHelical, coord, electronicSolver, parallelKS,&
-      & hybridXc, deltaRhoInSqr, nNeighbourCam, nNeighbourCamSym, HSqrReal, SSqrReal, eigvecsReal,&
-      & eigen, errStatus)
+      & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, tPeriodic, tHelical,&
+      & coord, electronicSolver, parallelKS, hybridXc, deltaRhoInSqr, nNeighbourCam,&
+      & nNeighbourCamSym, HSqrReal, SSqrReal, eigvecsReal, eigen, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2908,22 +2901,7 @@ contains
     !> species of all atoms in the system
     integer, intent(in) :: species(:)
 
-    !> Vectors to unit cells in relative units
-    real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Vectors to unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Index of unit cell where an atom is located
-    integer, intent(in) :: iCellVec(:)
-
-    !> Lattice vectors
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2 pi
-    real(dp), intent(in) :: recVecs2p(:,:)
-
-    !> Is the system periodic (gamma/general k-points)?
+    !> Is the system periodic?
     logical, intent(in) :: tPeriodic
 
     !> Is the geometry helical
@@ -3410,8 +3388,8 @@ contains
 
   !> Creates sparse density matrix from real eigenvectors.
   subroutine getDensityFromRealEigvecs(env, denseDesc, filling, neighbourList, nNeighbourSK,&
-      & iSparseStart, img2CentCell, orb, species, iAtomStart, coord, tPeriodic, tHelical, eigvecs,&
-      & parallelKS, rhoPrim, work, rhoSqrReal, deltaRhoOutSqr)
+      & iSparseStart, img2CentCell, orb, species, coord, tPeriodic, tHelical, eigvecs, parallelKS,&
+      & rhoPrim, work, rhoSqrReal, deltaRhoOutSqr)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3439,9 +3417,6 @@ contains
 
     !> species of atoms
     integer, intent(in), optional :: species(:)
-
-    !> Start of atomic blocks in dense arrays
-    integer, allocatable, intent(in) :: iAtomStart(:)
 
     !> K-points and spins to process
     type(TParallelKS), intent(in) :: parallelKS
@@ -3713,8 +3688,8 @@ contains
   !> Creates sparse density matrix from two component complex eigenvectors.
   subroutine getDensityFromPauliEigvecs(env, denseDesc, tRealHS, tSpinOrbit, tDualSpinOrbit,&
       & tMulliken, kPoint, kWeight, filling, neighbourList, nNeighbourSK, orb, iSparseStart,&
-      & img2CentCell, iCellVec, cellVec, species, parallelKS, deltaDftb, eigvecs, work, dftbEnergy,&
-      & rhoPrim, xi, orbitalL, iRhoPrim)
+      & img2CentCell, iCellVec, cellVec, species, parallelKS, eigvecs, work, dftbEnergy, rhoPrim,&
+      & xi, orbitalL, iRhoPrim)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3769,9 +3744,6 @@ contains
 
     !> K-points and spins to process
     type(TParallelKS), intent(in) :: parallelKS
-
-    !> Determinant derived type
-    type(TDftbDeterminants), intent(inout) :: deltaDftb
 
     !> eigenvectors
     complex(dp), intent(inout) :: eigvecs(:,:,:)
@@ -4112,7 +4084,7 @@ contains
       & iGeoStep, iSccIter, minSccIter, maxSccIter, sccTol, tStopScc, tMixBlockCharges, tReadChrg,&
       & qInput, qInpRed, sccErrorQ, tConverged, dftbU, qBlockOut, iEqBlockDftbU, qBlockIn,&
       & qiBlockOut, iEqBlockDftbuLS, species0, qiBlockIn, iEqBlockOnSite, iEqBlockOnSiteLS,&
-      & nIneqDip, nIneqQuad, iEqDipole, iEqQuadrupole, multipoleOut, multipoleInp)
+      & nIneqDip, nIneqQuad, multipoleOut, multipoleInp)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -4207,12 +4179,6 @@ contains
     !> Total number of inequivalent cumulative atomic quadrupole moments
     integer, intent(in) :: nIneqQuad
 
-    !> Equivalence relations between cumulative atomic dipole moments
-    integer, intent(in) :: iEqDipole(:,:)
-
-    !> Equivalence relations between cumulative atomic quadrupole moments
-    integer, intent(in) :: iEqQuadrupole(:,:)
-
     !> Multipole moments
     type(TMultipole), intent(inout) :: multipoleInp
 
@@ -4224,8 +4190,8 @@ contains
 
     nSpin = size(qOutput, dim=3)
 
-    call reduceCharges(orb, nIneqOrb, iEqOrbitals, qOutput, qOutRed, qBlockOut, dftbU,&
-        & iEqBlockDftbu, qiBlockOut, iEqBlockDftbuLS, iEqBlockOnSite, iEqBlockOnSiteLS)
+    call reduceCharges(orb, nIneqOrb, iEqOrbitals, qOutput, qOutRed, qBlockOut, iEqBlockDftbu,&
+        & qiBlockOut, iEqBlockDftbuLS, iEqBlockOnSite, iEqBlockOnSiteLS)
     if (nIneqDip > 0) then
       ! FIXME: Assumes we always mix all dipole moments
       nMix = nIneqOrb
@@ -4269,14 +4235,14 @@ contains
         if (nIneqDip > 0) then
           ! FIXME: Assumes we always mix all dipole moments
           nMix = nIneqOrb
-          multipoleInp%dipoleAtom(:,:,:) = reshape(qInpRed(nMix+1:nMix+nIneqDip), &
-              & shape(multipoleInp%dipoleAtom))
+          multipoleInp%dipoleAtom(:,:, 1) = reshape(qInpRed(nMix+1:nMix+nIneqDip),&
+              & shape(multipoleInp%dipoleAtom(:,:, 1)))
         end if
         if (nIneqQuad > 0) then
           ! FIXME: Assumes we always mix all quadrupole moments
           nMix = nIneqOrb + nIneqDip
-          multipoleInp%quadrupoleAtom(:,:,:) = reshape(qInpRed(nMix+1:nMix+nIneqQuad),&
-              & shape(multipoleInp%quadrupoleAtom))
+          multipoleInp%quadrupoleAtom(:,:, 1) = reshape(qInpRed(nMix+1:nMix+nIneqQuad),&
+              & shape(multipoleInp%quadrupoleAtom(:,:, 1)))
         end if
       end if
     end if
@@ -4581,8 +4547,8 @@ contains
 
 
   !> Reduce charges according to orbital equivalency rules.
-  subroutine reduceCharges(orb, nIneqOrb, iEqOrbitals, qOrb, qRed, qBlock, dftbU, iEqBlockDftbu,&
-      & qiBlock, iEqBlockDftbuLS, iEqBlockOnSite, iEqBlockOnSiteLS)
+  subroutine reduceCharges(orb, nIneqOrb, iEqOrbitals, qOrb, qRed, qBlock, iEqBlockDftbu, qiBlock,&
+      & iEqBlockDftbuLS, iEqBlockOnSite, iEqBlockOnSiteLS)
 
     !> Atomic orbital information
     type(TOrbitals), intent(in) :: orb
@@ -4601,9 +4567,6 @@ contains
 
     !> Block (dual) populations, if also being reduced
     real(dp), intent(in), allocatable :: qBlock(:,:,:,:)
-
-    !> Are there orbital potentials present
-    type(TDftbU), intent(in), allocatable :: dftbU
 
     !> equivalences for block charges
     integer, intent(in), allocatable :: iEqBlockDftbu(:,:,:,:)
@@ -4813,7 +4776,7 @@ contains
       & skOverCont, autotestTag, taggedWriter, runId, neighbourList, nNeighbourSk, denseDesc,&
       & iSparseStart, img2CentCell, tWriteAutotest, tForces, tLinRespZVect, tPrintExcEigvecs,&
       & tPrintExcEigvecsTxt, nonSccDeriv, dftbEnergy, energies, work, rhoSqrReal, deltaRhoOutSqr,&
-      & excitedDerivs, dQAtomEx, occNatural, hybridXc)
+      & excitedDerivs, occNatural, hybridXc)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -4922,9 +4885,6 @@ contains
 
     !> excited state energy derivative with respect to atomic coordinates
     real(dp), intent(inout), allocatable :: excitedDerivs(:,:)
-
-    !> Mulliken charges in excited state
-    real(dp), intent(out) :: dQAtomEx(:)
 
     !> natural orbital occupation numbers
     real(dp), intent(inout), allocatable :: occNatural(:)
@@ -6314,7 +6274,7 @@ contains
 
 
   !> use plumed to update derivatives
-  subroutine updateDerivsByPlumed(env, plumedCalc, nAtom, iGeoStep, derivs, energy, coord0, mass,&
+  subroutine updateDerivsByPlumed(env, plumedCalc, iGeoStep, derivs, energy, coord0, mass,&
       & tPeriodic, latVecs)
 
     !> Environment settings
@@ -6322,9 +6282,6 @@ contains
 
     !> PLUMED calculator
     type(TPlumedCalc), allocatable, intent(inout) :: plumedCalc
-
-    !> number of atoms
-    integer, intent(in) :: nAtom
 
     !> steps taken during simulation
     integer, intent(in) :: iGeoStep
@@ -7273,7 +7230,7 @@ contains
       else
 
         call readEigenvecs(eigvecsReal(:,:,1))
-        call renormalizeEigenvecs(env, electronicSolver, eigvecsReal, reks)
+        call renormalizeEigenvecs(env, eigvecsReal, reks)
 
       end if
 
@@ -7281,7 +7238,7 @@ contains
 
     else
 
-      call renormalizeEigenvecs(env, electronicSolver, eigvecsReal, reks)
+      call renormalizeEigenvecs(env, eigvecsReal, reks)
 
     end if
 
@@ -7292,15 +7249,12 @@ contains
 
 
   !> Normalize eigenvectors with unitary transformation
-  subroutine renormalizeEigenvecs(env, electronicSolver, eigvecsReal, reks)
+  subroutine renormalizeEigenvecs(env, eigvecsReal, reks)
     use dftbp_math_blasroutines, only : gemm
     use dftbp_math_eigensolver, only : heev
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
-
-    !> Electronic solver information
-    type(TElectronicSolver), intent(inout) :: electronicSolver
 
     !> Eigenvectors on eixt
     real(dp), intent(inout) :: eigvecsReal(:,:,:)
@@ -7434,8 +7388,8 @@ contains
     do iL = 1, reks%Lmax
 
       call getDensityFromRealEigvecs(env, denseDesc, reks%fillingL(:,:,iL), neighbourList,&
-          & nNeighbourSK, iSparseStart, img2CentCell, orb, species, denseDesc%iAtomStart, coord,&
-          & tPeriodic, tHelical, eigvecs, parallelKS, rhoPrim, work, rhoSqrReal, deltaRhoOutSqr)
+          & nNeighbourSK, iSparseStart, img2CentCell, orb, species, coord, tPeriodic, tHelical,&
+          & eigvecs, parallelKS, rhoPrim, work, rhoSqrReal, deltaRhoOutSqr)
 
       if (reks%tForces) then
         ! reks%rhoSqrL has (my_ud) component
