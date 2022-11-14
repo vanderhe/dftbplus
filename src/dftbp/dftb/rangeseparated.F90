@@ -1354,6 +1354,115 @@ contains
   end subroutine updateCoords_kpts
 
 
+  !> Builds MPI rank dependent composite index for nested HFX loops.
+  subroutine getFourLoopCompositeIndex(this, env, nNeighbourCamSym, pMax, compositeIndex)
+
+    !> Class instance
+    class(THybridXcFunc), intent(in) :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
+
+    !> Nr. of neighbours for each atom.
+    integer, intent(in) :: nNeighbourCamSym(:)
+
+    !! Max estimate for delta-delta density matrix
+    real(dp), intent(in) :: pMax
+
+    !> Composite index for four nested loops
+    integer, intent(out), allocatable :: compositeIndex(:,:)
+
+    !! Auxiliary variables
+    integer :: ii, indGlobal, indLocal
+
+    !! Atom indices (central cell)
+    integer :: iAtM, iAtN
+
+    !! Neighbour indices
+    integer :: iNeighN, iNeighM
+
+    !! Sorted (according to max overlap estimates) neighbour indices
+    integer :: iNeighMsort, iNeighNsort
+
+    !! Max estimate for products of delta-delta density matrix and max overlap estimates
+    real(dp) :: maxEstimate, pSbnPabMax
+
+    !! Start and end index for MPI parallelization, if applicable
+    integer :: iParallelStart, iParallelEnd
+
+    !! Loop counter
+    integer :: ind
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    nAtom0 = size(this%species0)
+
+    ! Lead process counts composite index entries for MPI parallelization
+    ! (includes integral screening)
+    if (env%tGlobalLead) then
+      ! First run over loops to count non-vanishing cycles
+      ind = 0
+      loopM1: do iAtM = 1, nAtom0
+        loopN1: do iAtN = 1, nAtom0
+          loopB1: do iNeighN = 0, nNeighbourCamSym(iAtN)
+            iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
+            pSbnPabMax = pMax * this%testSquareOver(iAtN)%array(iNeighNsort + 1)
+            if (pSbnPabMax < this%pScreeningThreshold) exit loopB1
+            loopA1: do iNeighM = 0, nNeighbourCamSym(iAtM)
+              iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
+              maxEstimate = pSbnPabMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
+              if (maxEstimate < this%pScreeningThreshold) exit loopA1
+
+              ind = ind + 1
+
+            end do loopA1
+          end do loopB1
+        end do loopN1
+      end do loopM1
+    end if
+
+  #:if WITH_MPI
+    call mpifx_bcast(env%mpi%globalComm, ind)
+    call getStartAndEndIndex(ind, env%mpi%globalComm%size, env%mpi%globalComm%rank, iParallelStart,&
+        & iParallelEnd)
+  #:else
+    iParallelStart = 1
+    iParallelEnd = ind
+  #:endif
+
+    ! Composite index needs to be allocated on all ranks
+    allocate(compositeIndex(4, iParallelEnd - iParallelStart + 1))
+
+    ! Flatten four nested loops into a single composite index for MPI parallelization
+    indGlobal = 1
+    indLocal = 1
+    loopM2: do iAtM = 1, nAtom0
+      loopN2: do iAtN = 1, nAtom0
+        loopB2: do iNeighN = 0, nNeighbourCamSym(iAtN)
+          iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
+          pSbnPabMax = pMax * this%testSquareOver(iAtN)%array(iNeighNsort + 1)
+          if (pSbnPabMax < this%pScreeningThreshold) exit loopB2
+          loopA2: do iNeighM = 0, nNeighbourCamSym(iAtM)
+            iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
+            maxEstimate = pSbnPabMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
+            if (maxEstimate < this%pScreeningThreshold) exit loopA2
+            if (indGlobal >= iParallelStart .and. indGlobal <= iParallelEnd) then
+              compositeIndex(1, indLocal) = iAtM
+              compositeIndex(2, indLocal) = iAtN
+              compositeIndex(3, indLocal) = iNeighNsort
+              compositeIndex(4, indLocal) = iNeighMsort
+              indLocal = indLocal + 1
+            end if
+            indGlobal = indGlobal + 1
+          end do loopA2
+        end do loopB2
+      end do loopN2
+    end do loopM2
+
+  end subroutine getFourLoopCompositeIndex
+
+
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (non-periodic version)
   subroutine addCamHamiltonian_cluster(this, env, densSqr, over, iNeighbour, nNeighbourCam,&
@@ -2680,66 +2789,7 @@ contains
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
 
-    ! Lead process builds up composite index for MPI parallelization (includes thresholding)
-    if (env%tGlobalLead) then
-      ! First run over loops to count non-vanishing cycles
-      ind = 0
-      loopM1: do iAtM = 1, nAtom0
-        loopN1: do iAtN = 1, nAtom0
-          loopB1: do iNeighN = 0, nNeighbourCamSym(iAtN)
-            iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
-            pSbnPabMax = pMax * this%testSquareOver(iAtN)%array(iNeighNsort + 1)
-            if (pSbnPabMax < this%pScreeningThreshold) exit loopB1
-            loopA1: do iNeighM = 0, nNeighbourCamSym(iAtM)
-              iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
-              maxEstimate = pSbnPabMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
-              if (maxEstimate < this%pScreeningThreshold) exit loopA1
-
-              ind = ind + 1
-
-            end do loopA1
-          end do loopB1
-        end do loopN1
-      end do loopM1
-    end if
-
-  #:if WITH_MPI
-    call mpifx_bcast(env%mpi%globalComm, ind)
-    call getStartAndEndIndex(ind, env%mpi%globalComm%size, env%mpi%globalComm%rank, iParallelStart,&
-        & iParallelEnd)
-  #:else
-    iParallelStart = 1
-    iParallelEnd = ind
-  #:endif
-
-    ! Composite index needs to be allocated on all ranks
-    allocate(compositeIndex(4, iParallelEnd - iParallelStart + 1))
-
-    ! Flatten four nested loops into a single composite index for MPI parallelization
-    indGlobal = 1
-    indLocal = 1
-    loopM2: do iAtM = 1, nAtom0
-      loopN2: do iAtN = 1, nAtom0
-        loopB2: do iNeighN = 0, nNeighbourCamSym(iAtN)
-          iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
-          pSbnPabMax = pMax * this%testSquareOver(iAtN)%array(iNeighNsort + 1)
-          if (pSbnPabMax < this%pScreeningThreshold) exit loopB2
-          loopA2: do iNeighM = 0, nNeighbourCamSym(iAtM)
-            iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
-            maxEstimate = pSbnPabMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
-            if (maxEstimate < this%pScreeningThreshold) exit loopA2
-            if (indGlobal >= iParallelStart .and. indGlobal <= iParallelEnd) then
-              compositeIndex(1, indLocal) = iAtM
-              compositeIndex(2, indLocal) = iAtN
-              compositeIndex(3, indLocal) = iNeighNsort
-              compositeIndex(4, indLocal) = iNeighMsort
-              indLocal = indLocal + 1
-            end if
-            indGlobal = indGlobal + 1
-          end do loopA2
-        end do loopB2
-      end do loopN2
-    end do loopM2
+    call getFourLoopCompositeIndex(this, env, nNeighbourCamSym, pMax, compositeIndex)
 
     ! allocate delta Hamiltonian
     allocate(tmpHSqr(squareSize, squareSize, nKS))
@@ -3053,66 +3103,7 @@ contains
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
 
-    ! Lead process builds up composite index for MPI parallelization (includes thresholding)
-    if (env%tGlobalLead) then
-      ! First run over loops to count non-vanishing cycles
-      ind = 0
-      loopM1: do iAtM = 1, nAtom0
-        loopN1: do iAtN = 1, nAtom0
-          loopB1: do iNeighN = 0, nNeighbourCamSym(iAtN)
-            iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
-            pSbnPabMax = pMax * this%testSquareOver(iAtN)%array(iNeighNsort + 1)
-            if (pSbnPabMax < this%pScreeningThreshold) exit loopB1
-            loopA1: do iNeighM = 0, nNeighbourCamSym(iAtM)
-              iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
-              maxEstimate = pSbnPabMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
-              if (maxEstimate < this%pScreeningThreshold) exit loopA1
-
-              ind = ind + 1
-
-            end do loopA1
-          end do loopB1
-        end do loopN1
-      end do loopM1
-    end if
-
-  #:if WITH_MPI
-    call mpifx_bcast(env%mpi%globalComm, ind)
-    call getStartAndEndIndex(ind, env%mpi%globalComm%size, env%mpi%globalComm%rank, iParallelStart,&
-        & iParallelEnd)
-  #:else
-    iParallelStart = 1
-    iParallelEnd = ind
-  #:endif
-
-    ! Composite index needs to be allocated on all ranks
-    allocate(compositeIndex(4, iParallelEnd - iParallelStart + 1))
-
-    ! Flatten four nested loops into a single composite index for MPI parallelization
-    indGlobal = 1
-    indLocal = 1
-    loopM2: do iAtM = 1, nAtom0
-      loopN2: do iAtN = 1, nAtom0
-        loopB2: do iNeighN = 0, nNeighbourCamSym(iAtN)
-          iNeighNsort = this%overlapIndices(iAtN)%array(iNeighN + 1) - 1
-          pSbnPabMax = pMax * this%testSquareOver(iAtN)%array(iNeighNsort + 1)
-          if (pSbnPabMax < this%pScreeningThreshold) exit loopB2
-          loopA2: do iNeighM = 0, nNeighbourCamSym(iAtM)
-            iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
-            maxEstimate = pSbnPabMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
-            if (maxEstimate < this%pScreeningThreshold) exit loopA2
-            if (indGlobal >= iParallelStart .and. indGlobal <= iParallelEnd) then
-              compositeIndex(1, indLocal) = iAtM
-              compositeIndex(2, indLocal) = iAtN
-              compositeIndex(3, indLocal) = iNeighNsort
-              compositeIndex(4, indLocal) = iNeighMsort
-              indLocal = indLocal + 1
-            end if
-            indGlobal = indGlobal + 1
-          end do loopA2
-        end do loopB2
-      end do loopN2
-    end do loopM2
+    call getFourLoopCompositeIndex(this, env, nNeighbourCamSym, pMax, compositeIndex)
 
     ! allocate delta Hamiltonian
     allocate(tmpHSqr(squareSize, squareSize, nKS))
