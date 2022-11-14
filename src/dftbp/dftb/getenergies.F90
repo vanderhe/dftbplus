@@ -281,7 +281,6 @@ contains
         end if
         call hybridXc%addCamEnergy_kpts(env, densityMatrix%iKiSToiGlobalKS,&
             & kWeights, densityMatrix%deltaRhoOutSqrCplx, energy%Efock)
-        print *, 'ENERGY:', energy%Efock
       end if
     end if
 

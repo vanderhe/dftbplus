@@ -5437,34 +5437,34 @@ contains
 
     !! Density matrix elements
     real(dp) :: dPab
-    complex(dp) :: dPmk, dPkn, dPmn
+    complex(dp) :: dPkm, dPnk, dPnm
 
     !! Products phase * gammaMK, phase * gammaMB, phase * gammaAK, phase * gammaAB
     complex(dp) :: phaseGammaMK, phaseGammaMB, phaseGammaAK, phaseGammaAB
 
-    !! Product dPmk * phase * gammaMK
-    complex(dp) :: dPmkPhaseGammaMK
+    !! Product dPkm * phase * gammaMK
+    complex(dp) :: dPkmPhaseGammaMK
 
-    !! Product dPmk * phase * gammaMB
-    complex(dp) :: dPmkPhaseGammaMB
+    !! Product dPkm * phase * gammaMB
+    complex(dp) :: dPkmPhaseGammaMB
 
-    !! Product dPmk * phase * gammaAK
-    complex(dp) :: dPmkPhaseGammaAK
+    !! Product dPkm * phase * gammaAK
+    complex(dp) :: dPkmPhaseGammaAK
 
-    !! Product dPmk * phase * gammaAB
-    complex(dp) :: dPmkPhaseGammaAB
+    !! Product dPkm * phase * gammaAB
+    complex(dp) :: dPkmPhaseGammaAB
 
-    !! Product dPmk * phase * gammaMK * Sam
-    complex(dp) :: dPmkPhaseGammaMKSam
+    !! Product dPkm * phase * gammaMK * Sam
+    complex(dp) :: dPkmPhaseGammaMKSam
 
-    !! Product dPmk * phase * gammaMB * Sam
-    complex(dp) :: dPmkPhaseGammaMBSam
+    !! Product dPkm * phase * gammaMB * Sam
+    complex(dp) :: dPkmPhaseGammaMBSam
 
-    !! Product dPmk * phase * gammaAK * Sam
-    complex(dp) :: dPmkPhaseGammaAKSam
+    !! Product dPkm * phase * gammaAK * Sam
+    complex(dp) :: dPkmPhaseGammaAKSam
 
-    !! Product dPmk * phase * gammaAB * Sam
-    complex(dp) :: dPmkPhaseGammaABSam
+    !! Product dPkm * phase * gammaAB * Sam
+    complex(dp) :: dPkmPhaseGammaABSam
 
     !! Directed derivatives
     real(dp), allocatable :: dGammaMK(:,:), dGammaAK(:,:), dGammaKB(:,:)
@@ -5472,9 +5472,9 @@ contains
     !! Product phase * dGammaMK(:, iG)
     complex(dp) :: phasedGammaMK(3), phasedGammaKB(3), phasedGammaAK(3)
 
-    complex(dp) :: dPmkPhasedGammaMK(3), dPmkPhasedGammaMKSam(3), dPknPhasedGammaKB(3)
-    complex(dp) :: dPknPhasedGammaKBSak(3), dPmkPhasedGammaAK(3), dPmkPhasedGammaAKSam(3)
-    complex(dp) :: dPmnPhasedGammaAK(3), dPmnPhasedGammaAKSam(3)
+    complex(dp) :: dPkmPhasedGammaMK(3), dPkmPhasedGammaMKSam(3), dPnkPhasedGammaKB(3)
+    complex(dp) :: dPnkPhasedGammaKBSak(3), dPkmPhasedGammaAK(3), dPkmPhasedGammaAKSam(3)
+    complex(dp) :: dPnmPhasedGammaAK(3), dPnmPhasedGammaAKSam(3)
 
     !! Composite index for mapping iK/iS --> iGlobalKS
     integer, allocatable :: iKiSToiGlobalKS(:,:)
@@ -5525,11 +5525,11 @@ contains
 
             loopGMK1: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtK)%array)
               iGMK = this%nNonZeroGammaG(iAtM, iAtK)%array(iG)
-              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGMK) + vecH - vecL)
+              bvKIndex(:) = this%foldToBvKIndex(vecH - vecL - this%cellVecsG(:, iGMK))
 
               loopKptsMK1: do iK = 1, nK
                 phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                    & this%cellVecsG(:, iGMK)))
+                    & -this%cellVecsG(:, iGMK)))
                 phaseGammaMK = phase * cmplx(this%camGammaEvalG(iAtM, iAtK)%array(iG)&
                     & * kWeights(iK), 0, dp)
 
@@ -5537,18 +5537,18 @@ contains
                 do mu = 1, descM(iNOrb)
                   do kk = 1, descK(iNOrb)
                     do iS = 1, nS
-                      dPmk = deltaRhoOutSqrCplx(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                      dPkm = deltaRhoOutSqrCplx(descK(iStart) + kk - 1, descM(iStart) + mu - 1,&
                           & iKiSToiGlobalKS(iK, iS))
-                      dPmkPhaseGammaMK = dPmk * phaseGammaMK
+                      dPkmPhaseGammaMK = dPkm * phaseGammaMK
                       do alpha = 1, descA(iNOrb)
                         Sam = pSam(alpha, mu)
-                        dPmkPhaseGammaMKSam = dPmkPhaseGammaMK * cmplx(Sam, 0, dp)
+                        dPkmPhaseGammaMKSam = dPkmPhaseGammaMK * cmplx(Sam, 0, dp)
                         do beta = 1, descB(iNOrb)
                           dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
                               & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
 
                           tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                              & + real(2.0_dp * dPmkPhaseGammaMKSam&
+                              & + real(2.0_dp * dPkmPhaseGammaMKSam&
                               & * cmplx(dPab * SbnPrimeKequalsN(beta, kk, :), 0, dp), dp)
                         end do
                       end do
@@ -5561,11 +5561,11 @@ contains
 
             loopGMB: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtBfold)%array)
               iGMB = this%nNonZeroGammaG(iAtM, iAtBfold)%array(iG)
-              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGMB) + vecH)
+              bvKIndex(:) = this%foldToBvKIndex(vecH - this%cellVecsG(:, iGMB))
 
               loopKptsMB: do iK = 1, nK
                 phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                    & this%cellVecsG(:, iGMB) + vecL))
+                    & vecL - this%cellVecsG(:, iGMB)))
                 phaseGammaMB = phase * cmplx(this%camGammaEvalG(iAtM, iAtBfold)%array(iG)&
                     & * kWeights(iK), 0, dp)
 
@@ -5573,18 +5573,18 @@ contains
                 do mu = 1, descM(iNOrb)
                   do kk = 1, descK(iNOrb)
                     do iS = 1, nS
-                      dPmk = deltaRhoOutSqrCplx(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                      dPkm = deltaRhoOutSqrCplx(descK(iStart) + kk - 1, descM(iStart) + mu - 1,&
                           & iKiSToiGlobalKS(iK, iS))
-                      dPmkPhaseGammaMB = dPmk * phaseGammaMB
+                      dPkmPhaseGammaMB = dPkm * phaseGammaMB
                       do alpha = 1, descA(iNOrb)
                         Sam = pSam(alpha, mu)
-                        dPmkPhaseGammaMBSam = dPmkPhaseGammaMB * cmplx(Sam, 0, dp)
+                        dPkmPhaseGammaMBSam = dPkmPhaseGammaMB * cmplx(Sam, 0, dp)
                         do beta = 1, descB(iNOrb)
                           dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
                               & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
 
                           tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                              & + real(2.0_dp * dPmkPhaseGammaMBSam&
+                              & + real(2.0_dp * dPkmPhaseGammaMBSam&
                               & * cmplx(dPab * SbnPrimeKequalsN(beta, kk, :), 0, dp), dp)
                         end do
                       end do
@@ -5597,11 +5597,11 @@ contains
 
             loopGAK1: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtK)%array)
               iGAK = this%nNonZeroGammaG(iAtAfold, iAtK)%array(iG)
-              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGAK) - vecL)
+              bvKIndex(:) = this%foldToBvKIndex(-this%cellVecsG(:, iGAK) - vecL)
 
               loopKptsAK1: do iK = 1, nK
                 phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                    & this%cellVecsG(:, iGAK) - vecH))
+                    & -this%cellVecsG(:, iGAK) - vecH))
                 phaseGammaAK = phase * cmplx(this%camGammaEvalG(iAtAfold, iAtK)%array(iG)&
                     & * kWeights(iK), 0, dp)
 
@@ -5609,18 +5609,18 @@ contains
                 do mu = 1, descM(iNOrb)
                   do kk = 1, descK(iNOrb)
                     do iS = 1, nS
-                      dPmk = deltaRhoOutSqrCplx(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                      dPkm = deltaRhoOutSqrCplx(descK(iStart) + kk - 1, descM(iStart) + mu - 1,&
                           & iKiSToiGlobalKS(iK, iS))
-                      dPmkPhaseGammaAK = dPmk * phaseGammaAK
+                      dPkmPhaseGammaAK = dPkm * phaseGammaAK
                       do alpha = 1, descA(iNOrb)
                         Sam = pSam(alpha, mu)
-                        dPmkPhaseGammaAKSam = dPmkPhaseGammaAK * cmplx(Sam, 0, dp)
+                        dPkmPhaseGammaAKSam = dPkmPhaseGammaAK * cmplx(Sam, 0, dp)
                         do beta = 1, descB(iNOrb)
                           dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
                               & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
 
                           tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                              & + real(2.0_dp * dPmkPhaseGammaAKSam&
+                              & + real(2.0_dp * dPkmPhaseGammaAKSam&
                               & * cmplx(dPab * SbnPrimeKequalsN(beta, kk, :), 0, dp), dp)
                         end do
                       end do
@@ -5633,11 +5633,11 @@ contains
 
             loopGAB1: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtBfold)%array)
               iGAB = this%nNonZeroGammaG(iAtAfold, iAtBfold)%array(iG)
-              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGAB))
+              bvKIndex(:) = this%foldToBvKIndex(-this%cellVecsG(:, iGAB))
 
               loopKptsAB1: do iK = 1, nK
                 phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                    & this%cellVecsG(:, iGAB) + vecL - vecH))
+                    & -this%cellVecsG(:, iGAB) + vecL - vecH))
                 phaseGammaAB = phase * cmplx(this%camGammaEvalG(iAtAfold, iAtBfold)%array(iG)&
                     & * kWeights(iK), 0, dp)
 
@@ -5645,18 +5645,18 @@ contains
                 do mu = 1, descM(iNOrb)
                   do kk = 1, descK(iNOrb)
                     do iS = 1, nS
-                      dPmk = deltaRhoOutSqrCplx(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                      dPkm = deltaRhoOutSqrCplx(descK(iStart) + kk - 1, descM(iStart) + mu - 1,&
                           & iKiSToiGlobalKS(iK, iS))
-                      dPmkPhaseGammaAB = dPmk * phaseGammaAB
+                      dPkmPhaseGammaAB = dPkm * phaseGammaAB
                       do alpha = 1, descA(iNOrb)
                         Sam = pSam(alpha, mu)
-                        dPmkPhaseGammaABSam = dPmkPhaseGammaAB * cmplx(Sam, 0, dp)
+                        dPkmPhaseGammaABSam = dPkmPhaseGammaAB * cmplx(Sam, 0, dp)
                         do beta = 1, descB(iNOrb)
                           dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
                               & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
 
                           tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                              & + real(2.0_dp * dPmkPhaseGammaABSam&
+                              & + real(2.0_dp * dPkmPhaseGammaABSam&
                               & * cmplx(dPab * SbnPrimeKequalsN(beta, kk, :), 0, dp), dp)
                         end do
                       end do
@@ -5702,29 +5702,29 @@ contains
 
             loopGMK: do iG = 1, size(this%nNonZeroGammaG(iAtM, iAtK)%array)
               iGMK = this%nNonZeroGammaG(iAtM, iAtK)%array(iG)
-              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGMK) + vecH - vecL)
+              bvKIndex(:) = this%foldToBvKIndex(vecH - vecL - this%cellVecsG(:, iGMK))
 
               loopKptsMK: do iK = 1, nK
                 phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                    & this%cellVecsG(:, iGMK)))
+                    & -this%cellVecsG(:, iGMK)))
                 phasedGammaMK(:) = phase * cmplx(dGammaMK(:, iG) * kWeights(iK), 0, dp)
 
                 do mu = 1, descM(iNOrb)
                   do kk = 1, descK(iNOrb)
                     do iS = 1, nS
-                      dPmk = deltaRhoOutSqrCplx(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                      dPkm = deltaRhoOutSqrCplx(descK(iStart) + kk - 1, descM(iStart) + mu - 1,&
                           & iKiSToiGlobalKS(iK, iS))
-                      dPmkPhasedGammaMK(:) = dPmk * phasedGammaMK
+                      dPkmPhasedGammaMK(:) = dPkm * phasedGammaMK
                       do alpha = 1, descA(iNOrb)
                         Sam = pSam(alpha, mu)
-                        dPmkPhasedGammaMKSam(:) = dPmkPhasedGammaMK * cmplx(Sam, 0, dp)
+                        dPkmPhasedGammaMKSam(:) = dPkmPhasedGammaMK * cmplx(Sam, 0, dp)
                         do beta = 1, descB(iNOrb)
                           Sbk = pSbk(beta, kk)
                           dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
                               & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
 
                           tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                              & + real(dPmkPhasedGammaMKSam * cmplx(Sbk * dPab, 0, dp), dp)
+                              & + real(dPkmPhasedGammaMKSam * cmplx(Sbk * dPab, 0, dp), dp)
                         end do
                       end do
                     end do
@@ -5769,29 +5769,29 @@ contains
 
             loopGKB: do iG = 1, size(this%nNonZeroGammaG(iAtK, iAtBfold)%array)
               iGKB = this%nNonZeroGammaG(iAtK, iAtBfold)%array(iG)
-              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGKB) + vecH)
+              bvKIndex(:) = this%foldToBvKIndex(vecH - this%cellVecsG(:, iGKB))
 
               loopKptsKB: do iK = 1, nK
                 phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                    & this%cellVecsG(:, iGKB) + vecL))
+                    & vecL - this%cellVecsG(:, iGKB)))
                 phasedGammaKB(:) = phase * cmplx(dGammaKB(:, iG) * kWeights(iK), 0, dp)
 
                 do nu = 1, descN(iNOrb)
                   do kk = 1, descK(iNOrb)
                     do iS = 1, nS
-                      dPkn = deltaRhoOutSqrCplx(descK(iStart) + kk - 1, descN(iStart) + nu - 1,&
+                      dPnk = deltaRhoOutSqrCplx(descN(iStart) + nu - 1, descK(iStart) + kk - 1,&
                           & iKiSToiGlobalKS(iK, iS))
-                      dPknPhasedGammaKB(:) = dPkn * phasedGammaKB
+                      dPnkPhasedGammaKB(:) = dPnk * phasedGammaKB
                       do alpha = 1, descA(iNOrb)
                         Sak = pSak(alpha, kk)
-                        dPknPhasedGammaKBSak(:) = dPknPhasedGammaKB * cmplx(Sak, 0, dp)
+                        dPnkPhasedGammaKBSak(:) = dPnkPhasedGammaKB * cmplx(Sak, 0, dp)
                         do beta = 1, descB(iNOrb)
                           Sbn = pSbn(beta, nu)
                           dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
                               & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
 
                           tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                              & + real(dPknPhasedGammaKBSak * cmplx(Sbn * dPab, 0, dp), dp)
+                              & + real(dPnkPhasedGammaKBSak * cmplx(Sbn * dPab, 0, dp), dp)
                         end do
                       end do
                     end do
@@ -5836,29 +5836,29 @@ contains
 
             loopGAK2: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtK)%array)
               iGAK = this%nNonZeroGammaG(iAtAfold, iAtK)%array(iG)
-              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGAK) - vecL)
+              bvKIndex(:) = this%foldToBvKIndex(-this%cellVecsG(:, iGAK) - vecL)
 
               loopKptsAK2: do iK = 1, nK
                 phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                    & this%cellVecsG(:, iGAK) - vecH))
+                    & -this%cellVecsG(:, iGAK) - vecH))
                 phasedGammaAK(:) = phase * cmplx(dGammaAK(:, iG) * kWeights(iK), 0, dp)
 
                 do mu = 1, descM(iNOrb)
                   do kk = 1, descK(iNOrb)
                     do iS = 1, nS
-                      dPmk = deltaRhoOutSqrCplx(descM(iStart) + mu - 1, descK(iStart) + kk - 1,&
+                      dPkm = deltaRhoOutSqrCplx(descK(iStart) + kk - 1, descM(iStart) + mu - 1,&
                           & iKiSToiGlobalKS(iK, iS))
-                      dPmkPhasedGammaAK(:) = dPmk * phasedGammaAK
+                      dPkmPhasedGammaAK(:) = dPkm * phasedGammaAK
                       do alpha = 1, descA(iNOrb)
                         Sam = pSam(alpha, mu)
-                        dPmkPhasedGammaAKSam(:) = dPmkPhasedGammaAK * cmplx(Sam, 0, dp)
+                        dPkmPhasedGammaAKSam(:) = dPkmPhasedGammaAK * cmplx(Sam, 0, dp)
                         do beta = 1, descB(iNOrb)
                           Sbk = pSbk(beta, kk)
                           dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
                               & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
 
                           tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                              & + real(dPmkPhasedGammaAKSam * cmplx(Sbk * dPab, 0, dp), dp)
+                              & + real(dPkmPhasedGammaAKSam * cmplx(Sbk * dPab, 0, dp), dp)
                         end do
                       end do
                     end do
@@ -5905,29 +5905,29 @@ contains
 
             loopGAK3: do iG = 1, size(this%nNonZeroGammaG(iAtAfold, iAtK)%array)
               iGAK = this%nNonZeroGammaG(iAtAfold, iAtK)%array(iG)
-              bvKIndex(:) = this%foldToBvKIndex(this%cellVecsG(:, iGAK))
+              bvKIndex(:) = this%foldToBvKIndex(-this%cellVecsG(:, iGAK))
 
               loopKptsAK3: do iK = 1, nK
                 phase = exp(cmplx(0, 1, dp) * dot_product(2.0_dp * pi * kPoints(:, iK),&
-                    & this%cellVecsG(:, iGAK) + vecL - vecH))
+                    & vecL - this%cellVecsG(:, iGAK) - vecH))
                 phasedGammaAK(:) = phase * cmplx(dGammaAK(:, iG) * kWeights(iK), 0, dp)
 
                 do mu = 1, descM(iNOrb)
                   do nu = 1, descN(iNOrb)
                     do iS = 1, nS
-                      dPmn = deltaRhoOutSqrCplx(descM(iStart) + mu - 1, descN(iStart) + nu - 1,&
+                      dPnm = deltaRhoOutSqrCplx(descN(iStart) + nu - 1, descM(iStart) + mu - 1,&
                           & iKiSToiGlobalKS(iK, iS))
-                      dPmnPhasedGammaAK(:) = dPmn * phasedGammaAK
+                      dPnmPhasedGammaAK(:) = dPnm * phasedGammaAK
                       do alpha = 1, descA(iNOrb)
                         Sam = pSam(alpha, mu)
-                        dPmnPhasedGammaAKSam(:) = dPmnPhasedGammaAK * cmplx(Sam, 0, dp)
+                        dPnmPhasedGammaAKSam(:) = dPnmPhasedGammaAK * cmplx(Sam, 0, dp)
                         do beta = 1, descB(iNOrb)
                           Sbn = pSbn(beta, nu)
                           dPab = deltaRhoSqr(descA(iStart) + alpha - 1, descB(iStart) + beta - 1,&
                               & bvKIndex(1), bvKIndex(2), bvKIndex(3), iS)
 
                           tmpGradients(:, iAtK) = tmpGradients(:, iAtK)&
-                              & + real(dPmnPhasedGammaAKSam * cmplx(Sbn * dPab, 0, dp), dp)
+                              & + real(dPnmPhasedGammaAKSam * cmplx(Sbn * dPab, 0, dp), dp)
                         end do
                       end do
                     end do
