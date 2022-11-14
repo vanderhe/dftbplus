@@ -1,0 +1,61 @@
+Geometry = GenFormat {
+   <<< GaAs_2x2x2.gen
+}
+
+Hamiltonian = DFTB {
+
+  SCC = Yes
+  MaxSccIterations = 100
+  SccTolerance = 1e-08
+
+  Filling = Fermi {
+    Temperature [K] = 0.0
+  }
+
+  MaxAngularMomentum = {
+    Ga = "d"
+    As = "d"
+  }
+
+  SlaterKosterFiles = Type2FileNames {
+    Prefix = "./"
+    Separator = "-"
+    Suffix = ".skf"
+  }
+
+  Hybrid = LC {
+    CoulombMatrix = Truncated+Damping {
+      CoulombCutoff = 0.703465E+01
+      GSummationCutoff = 0.140693E+02
+    }
+    Screening = NeighbourBased {
+      CutoffReduction = 17.0
+      Threshold = 1e-100
+    }
+  }
+
+  KPointsAndWeights = SupercellFolding {
+     3   0   0
+     0   3   0
+     0   0   3
+    0.0 0.0 0.0
+  }
+
+}
+
+Analysis {
+  CalculateForces = No
+}
+
+Options {
+  WriteAutotestTag = Yes
+}
+
+ParserOptions {
+  ParserVersion = 13
+}
+
+Parallel {
+  UseOmpThreads = No
+  Groups = 2
+}
