@@ -31,10 +31,6 @@ module dftbp_dftb_hybridxc
   use dftbp_common_parallel, only : getStartAndEndIndex
   use dftbp_math_wigner, only : generateWignerSeitzGrid
 
-#:if WITH_OMP
-  use omp_lib, only : OMP_GET_NUM_THREADS, OMP_GET_THREAD_NUM
-#:endif
-
 #:if WITH_MPI
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip, mpifx_allreduce, mpifx_bcast
 #:endif
@@ -2756,9 +2752,6 @@ contains
     !! Number of k-point-spin compound indices
     integer :: nKS
 
-    !! Pre-factor
-    real(dp) :: fac
-
     zeros(:) = 0.0_dp
 
     tot(:,:,:) = (0.0_dp, 0.0_dp)
@@ -3072,9 +3065,6 @@ contains
     !! Number of k-point-spin compound indices
     integer :: nKS
 
-    !! Pre-factor
-    real(dp) :: fac
-
     tot(:,:,:) = (0.0_dp, 0.0_dp)
 
     squareSize = size(HSqr, dim=1)
@@ -3298,13 +3288,18 @@ contains
 
 
   !> Adds the CAM-energy contribution to the total energy.
-  subroutine addCamEnergy_kpts(this, env, iKiSToiGlobalKS, kWeights, deltaRhoOutSqrCplx, energy)
+  subroutine addCamEnergy_kpts(this, env, localKS, iKiSToiGlobalKS, kWeights, deltaRhoOutSqrCplx,&
+      & energy)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
+
+    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
+    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
+    integer, intent(in) :: localKS(:,:)
 
     !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
     integer, intent(in) :: iKiSToiGlobalKS(:,:)
@@ -3321,22 +3316,31 @@ contains
     !! Spin and k-point indices
     integer :: iS, iK
 
-    !! Global iKS for arrays present at every MPI rank
-    integer :: iGlobalKS
+    !! Local and global iKS for arrays present at every MPI rank
+    integer :: iLocalKS, iGlobalKS
 
-    if (env%tGlobalLead) then
-      do iK = 1, size(kWeights)
-        do iS = 1, nint(real(size(deltaRhoOutSqrCplx, dim=3), dp) / real(size(kWeights), dp))
-          iGlobalKS = iKiSToiGlobalKS(iK, iS)
-          this%camEnergy = this%camEnergy&
-              & + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
-              & transpose(deltaRhoOutSqrCplx(:,:, iGlobalKS)))
-        end do
-      end do
-    end if
+    !! Pre-factor
+    real(dp) :: fac
+
+    ! Add energy contribution but divide by the number of processes in group
+    ! (when querying this%camEnergy, an in-place allreduce is performed)
+  #:if WITH_MPI
+    fac = 1.0_dp / real(env%mpi%groupComm%size, dp)
+  #:else
+    fac = 1.0_dp
+  #:endif
+
+    do iLocalKS = 1, size(localKS, dim=2)
+      iK = localKS(1, iLocalKS)
+      iS = localKS(2, iLocalKS)
+      iGlobalKS = iKiSToiGlobalKS(iK, iS)
+      this%camEnergy = this%camEnergy&
+          & + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
+          & transpose(deltaRhoOutSqrCplx(:,:, iLocalKS)))
+    end do
 
   #:if WITH_MPI
-    call mpifx_bcast(env%mpi%globalComm, this%camEnergy)
+    call mpifx_allreduceip(env%mpi%globalComm, this%camEnergy, MPI_SUM)
   #:endif
 
     energy = energy + this%camEnergy

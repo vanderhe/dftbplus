@@ -5799,6 +5799,9 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
+    !! Number of k-points in local MPI group
+    integer :: nLocalK
+
     !! Global iKS composite index
     integer :: iGlobalKS
 
@@ -5836,7 +5839,8 @@ contains
       allocate(this%SSqrCplxKpts(this%nOrb, this%nOrb, this%nKpoint))
       this%SSqrCplxKpts(:,:,:) = 0.0_dp
 
-      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb*this%nOrb*this%nSpin*this%nKPoint))
+      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
+      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin * nLocalK))
       this%densityMatrix%deltaRhoOutCplx(:) = 0.0_dp
 
       ! Build spin/k-point composite index for all spins and k-points (global)
@@ -5862,6 +5866,9 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
+    !! Number of k-points in local MPI group
+    integer :: nLocalK
+
     if (this%tRealHS) then
       nMixElements = this%nOrb * this%nOrb * this%nSpin
       this%densityMatrix%deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
@@ -5869,9 +5876,10 @@ contains
       this%densityMatrix%deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoOut(1:nMixElements)
     else
+      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
       nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%hybridXc%coeffsDiag)
-      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * this%nKPoint)&
-          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb*this%nOrb*this%nSpin*this%nKPoint)
+      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * nLocalK)&
+          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin * nLocalK)
 
       this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
           & 1:this%hybridXc%coeffsDiag(1), 1:this%hybridXc%coeffsDiag(2),&

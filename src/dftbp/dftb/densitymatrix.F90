@@ -87,17 +87,14 @@ contains
 
 
   !> Transforms dense, square density matrix for all spins/k-points to real-space (BvK cell).
-  subroutine transformDualSpaceToBvKRealSpace(rhoSqrDual, parallelKS, iKiSToiGlobalKS, kPoint,&
-      & kWeight, bvKShifts, coeffsDiag, rhoSqrBvK)
+  subroutine transformDualSpaceToBvKRealSpace(rhoSqrDual, parallelKS, kPoint, kWeight, bvKShifts,&
+      & coeffsDiag, rhoSqrBvK)
 
     !> Complex, dense, square dual-space rho of all spins/k-points
     complex(dp), intent(in), pointer :: rhoSqrDual(:,:,:)
 
     !> K-points and spins to process
     type(TParallelKS), intent(in) :: parallelKS
-
-    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
-    integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
     !> k-points in relative units
     real(dp), intent(in) :: kPoint(:,:)
@@ -134,7 +131,7 @@ contains
         phase = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoint(:, iK), bvKShifts(:, iG)))
         rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
             & = rhoSqrBvK(:,:, bvKIndex(1), bvKIndex(2), bvKIndex(3), iSpin)&
-            & + kWeight(iK) * real(rhoSqrDual(:,:, iKiSToiGlobalKS(iK, iSpin)) * phase, dp)
+            & + kWeight(iK) * real(rhoSqrDual(:,:, iKS) * phase, dp)
       end do
     end do
 

@@ -1050,10 +1050,10 @@ contains
                 end if
               else
                 ! Substract q0 from k-space density matrix rho(iKS)
-                ! denseSubtractDensityOfAtoms_spin_cmplx_periodic_nompi()
+                ! denseSubtractDensityOfAtoms_spin_cmplx_periodic()
                 call denseSubtractDensityOfAtoms(this%q0, this%denseDesc%iAtomStart,&
-                    & this%densityMatrix%iKiSToiGlobalKS, this%SSqrCplxKpts,&
-                    & this%densityMatrix%deltaRhoOutSqrCplx, iSpin)
+                    & this%parallelKS, this%SSqrCplxKpts, this%densityMatrix%deltaRhoOutSqrCplx,&
+                    & iSpin)
               end if
             end do
           case(1)
@@ -1068,10 +1068,9 @@ contains
                     & this%densityMatrix%deltaRhoOutSqr)
               end if
             else
-              ! denseSubtractDensityOfAtoms_nospin_cmplx_periodic_nompi()
+              ! denseSubtractDensityOfAtoms_nospin_cmplx_periodic()
               call denseSubtractDensityOfAtoms(this%q0, this%denseDesc%iAtomStart,&
-                  & this%densityMatrix%iKiSToiGlobalKS, this%SSqrCplxKpts,&
-                  & this%densityMatrix%deltaRhoOutSqrCplx)
+                  & this%parallelKS, this%SSqrCplxKpts, this%densityMatrix%deltaRhoOutSqrCplx)
             end if
           case default
             call error("Range separation not implemented for non-colinear spin")
@@ -1083,9 +1082,8 @@ contains
             ! Reset deltaRhoOutSqrCplxHS, because of internal summation
             this%densityMatrix%deltaRhoOutSqrCplxHS(:,:,:,:,:,:) = 0.0_dp
             call transformDualSpaceToBvKRealSpace(this%densityMatrix%deltaRhoOutSqrCplx,&
-                & this%parallelKS, this%densityMatrix%iKiSToiGlobalKS, this%kPoint, this%kWeight,&
-                & this%hybridXc%bvKShifts, this%hybridXc%coeffsDiag,&
-                & this%densityMatrix%deltaRhoOutSqrCplxHS)
+                & this%parallelKS, this%kPoint, this%kWeight, this%hybridXc%bvKShifts,&
+                & this%hybridXc%coeffsDiag, this%densityMatrix%deltaRhoOutSqrCplxHS)
           #:if WITH_MPI
             ! Distribute all square, real-space density matrices to all nodes via global summation
             call mpifx_allreduceip(env%mpi%interGroupComm, this%densityMatrix%deltaRhoOutSqrCplxHS,&
@@ -1168,9 +1166,12 @@ contains
             & this%extPressure, this%dftbEnergy(this%deltaDftb%iDeterminant)%TS, this%potential,&
             & this%dftbEnergy(this%deltaDftb%iDeterminant), this%thirdOrd, this%solvation,&
             & this%hybridXc, this%reks, this%qDepExtPot, this%qBlockOut, this%qiBlockOut, this%xi,&
-            & this%iAtInCentralRegion, this%tFixEf, this%Ef, this%tRealHS, this%onSiteElements,&
-            & this%qNetAtom, this%potential%intOnSiteAtom, this%potential%extOnSiteAtom,&
-            & this%densityMatrix, this%kWeight)
+            & this%iAtInCentralRegion, this%tFixEf, this%Ef, this%tRealHS,&
+            & onSiteElements=this%onSiteElements, qNetAtom=this%qNetAtom,&
+            & vOnSiteAtomInt=this%potential%intOnSiteAtom,&
+            & vOnSiteAtomExt=this%potential%extOnSiteAtom,&
+            & densityMatrix=this%densityMatrix, kWeights=this%kWeight,&
+            & localKS=this%parallelKS%localKS)
 
         tStopScc = hasStopFile(fStopScc)
 
@@ -3661,26 +3662,14 @@ contains
       if (allocated(hybridXc)) then
         ! Store square density matrix P(iKS), since currently needed for q0 substraction
         call hermitianSquareMatrix(work)
-        densityMatrix%deltaRhoOutSqrCplx(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)) = work
+        densityMatrix%deltaRhoOutSqrCplx(:,:, iKS) = work
       end if
     end do
-
-  #:if WITH_MPI
-    if (allocated(hybridXc)) then
-      ! Distribute all complex, square, k-space density matrices to all nodes via global summation
-      call mpifx_allreduceip(env%mpi%interGroupComm, densityMatrix%deltaRhoOutSqrCplx, MPI_SUM)
-    end if
-  #:endif
 
   #:if WITH_SCALAPACK
     ! Add up and distribute density matrix contribution from each group
     call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
   #:endif
-
-    ! print *, 'Gamma-Point (dP(k)):'
-    ! print *, transpose(densityMatrix%deltaRhoOutSqrCplx(:,:, 1))
-    ! print *, 'k-Point #1 (dP(k)):'
-    ! print *, transpose(densityMatrix%deltaRhoOutSqrCplx(:,:, 2))
 
   end subroutine getDensityFromCplxEigvecs
 

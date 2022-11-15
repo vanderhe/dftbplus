@@ -49,7 +49,7 @@ contains
       & nNeighbourSK, img2CentCell, iSparseStart, cellVol, extPressure, TS, potential,&
       & energy, thirdOrd, solvation, hybridXc, reks, qDepExtPot, qBlock, qiBlock, xi,&
       & iAtInCentralRegion, tFixEf, Ef, tRealHS, onSiteElements, qNetAtom, vOnSiteAtomInt,&
-      & vOnSiteAtomExt, densityMatrix, kWeights)
+      & vOnSiteAtomExt, densityMatrix, kWeights, localKS)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -173,10 +173,14 @@ contains
     real(dp), intent(in), optional :: vOnSiteAtomExt(:,:)
 
     !> Holds real and complex delta density matrices and pointers
-    type(TDensityMatrix), intent(inout), optional :: densityMatrix
+    type(TDensityMatrix), intent(in), optional :: densityMatrix
 
     !> K-point weights
     real(dp), intent(in), optional :: kWeights(:)
+
+    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
+    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
+    integer, intent(in), optional :: localKS(:,:)
 
     integer :: nSpin
     real(dp) :: nEl(2)
@@ -279,7 +283,7 @@ contains
         if ((.not. present(densityMatrix)) .or. (.not. present(kWeights))) then
           call error("Missing expected array(s) for hybrid xc-functional calculation.")
         end if
-        call hybridXc%addCamEnergy_kpts(env, densityMatrix%iKiSToiGlobalKS,&
+        call hybridXc%addCamEnergy_kpts(env, localKS, densityMatrix%iKiSToiGlobalKS,&
             & kWeights, densityMatrix%deltaRhoOutSqrCplx, energy%Efock)
       end if
     end if
