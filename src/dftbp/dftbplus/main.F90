@@ -3162,14 +3162,10 @@ contains
         call error("Hybrid xc-functional calculation expected SSqrCplxKpts to be allocated.")
       end if
       SSqrCplxKpts(:,:,:) = (0.0_dp, 0.0_dp)
-      ! HSqrCplxCam is allocated for all existing spins and k-points (no distribution)
-      allocate(HSqrCplxCam(size(SSqrCplxKpts, dim=1), size(SSqrCplxKpts, dim=1),&
-          & size(kPoint, dim=2) * size(densityMatrix%deltaRhoInSqrCplxHS, dim=6)))
-      HSqrCplxCam(:,:,:) = (0.0_dp, 0.0_dp)
 
       ! Pre-calculate CAM-Hamiltonian and overlap
       ! Get CAM-Hamiltonian contribution for all spins/k-points
-      call hybridXc%addCamHamiltonian_kpts(env, densityMatrix%deltaRhoInSqrCplxHS,&
+      call hybridXc%getCamHamiltonian_kpts(env, densityMatrix%deltaRhoInSqrCplxHS,&
           & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb,&
           & kPoint, kWeight, densityMatrix%iKiSToiGlobalKS, HSqrCplxCam)
 

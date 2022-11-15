@@ -5764,20 +5764,13 @@ contains
     if (present(gammaCutoff)) then
       cutOff%gammaCutoff = gammaCutoff
     else
-      ! cutOff%gammaCutoff = (3.0_dp * determinant33(latVecs) * product(supercellFoldingDiag)&
-      !     & / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
-      ! cutOff%gammaCutoff = minLatVecNorm2 * 0.5_dp&
-      !     & * product(supercellFoldingDiag)**(1.0_dp / 3.0_dp)
-      ! cutOff%gammaCutoff = 0.5_dp * minNormTimesNKpt * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
       cutOff%gammaCutoff = 0.25_dp * minNormTimesNKpt
-      ! cutOff%gammaCutoff = 0.55_dp * minNormTimesNKpt
     end if
 
     if (present(gSummationCutoff)) then
       cutOff%gSummationCutoff = gSummationCutoff
     else
       ! This would correspond to "the savest option"
-      ! cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
       cutOff%gSummationCutoff = 2.0_dp * cutOff%gammaCutoff
     end if
 
@@ -5815,7 +5808,6 @@ contains
       nMixElements = 0
     else
       ! normal k-point case, without restart from file
-      ! nMixElements = this%nOrb * this%nOrb * this%nSpin * this%nKPoint
       nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%supercellFoldingDiag)
     end if
 

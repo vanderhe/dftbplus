@@ -285,7 +285,7 @@ module dftbp_dftb_hybridxc
 
     procedure :: addCamHamiltonian_cluster
     procedure :: addCamHamiltonian_gamma
-    procedure :: addCamHamiltonian_kpts
+    procedure :: getCamHamiltonian_kpts
 
     procedure :: addCamHamiltonianMatrix_cluster_cmplx
 
@@ -1577,8 +1577,8 @@ contains
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (k-point version)
-  subroutine addCamHamiltonian_kpts(this, env, deltaRhoSqr, symNeighbourList, nNeighbourCamSym,&
-      & rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
+  subroutine getCamHamiltonian_kpts(this, env, deltaRhoSqr, symNeighbourList, nNeighbourCamSym,&
+      & rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqrCplxCam)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
@@ -1617,29 +1617,30 @@ contains
     integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
-    complex(dp), intent(inout) :: HSqr(:,:,:)
+    complex(dp), intent(out), allocatable :: HSqrCplxCam(:,:,:)
 
     call env%globalTimer%startTimer(globalTimers%hybridXcH)
 
     select case(this%hybridXcAlg)
     case (hybridXcAlgo%threshold)
-      call error('Thresholded algorithm not implemented for periodic systems.')
+      call error('Thresholded algorithm not implemented for CAM beyond the Gamma point.')
     case (hybridXcAlgo%neighbour)
       if (this%gammaType == hybridXcGammaTypes%mic) then
         call addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, symNeighbourList,&
             & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights,&
-            & iKiSToiGlobalKS, HSqr)
+            & iKiSToiGlobalKS, HSqrCplxCam)
     else
       call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
-          & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
+          & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS,&
+          & HSqrCplxCam)
       end if
     case (hybridXcAlgo%matrixBased)
-      call error('Matrix based algorithm not implemented for periodic systems.')
+      call error('Matrix based algorithm not implemented for CAM beyond the Gamma point.')
     end select
 
     call env%globalTimer%stopTimer(globalTimers%hybridXcH)
 
-  end subroutine addCamHamiltonian_kpts
+  end subroutine getCamHamiltonian_kpts
 
 
   !> Adds CAM range-separated contributions to Hamiltonian, using the thresholding algorithm.
@@ -2616,7 +2617,7 @@ contains
   !! (k-point version)
   subroutine addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, symNeighbourList,&
       & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS,&
-      & HSqr)
+      & HSqrCplxCam)
 
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
@@ -2655,7 +2656,7 @@ contains
     integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
-    complex(dp), intent(inout) :: HSqr(:,:,:)
+    complex(dp), intent(out), allocatable :: HSqrCplxCam(:,:,:)
 
     !! Dense matrix descriptor indices
     integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
@@ -2676,7 +2677,6 @@ contains
 
     !! Temporary storages
     real(dp), allocatable :: deltaDeltaRhoSqr(:,:,:,:,:,:)
-    complex(dp), allocatable :: tmpHSqr(:,:,:)
 
     !! Number of atoms in central cell
     integer :: nAtom0
@@ -2756,7 +2756,7 @@ contains
 
     tot(:,:,:) = (0.0_dp, 0.0_dp)
 
-    squareSize = size(HSqr, dim=1)
+    squareSize = size(deltaRhoSqr, dim=1)
     nAtom0 = size(this%species0)
     nS = size(deltaRhoSqr, dim=6)
     nK = size(kPoints, dim=2)
@@ -2779,14 +2779,14 @@ contains
     ! store delta density matrix
     this%dRhoPrevCplxHS = deltaRhoSqr
 
+    ! allocate delta Hamiltonian
+    allocate(HSqrCplxCam(squareSize, squareSize, nKS))
+    HSqrCplxCam(:,:,:) = (0.0_dp, 0.0_dp)
+
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
 
     call getFourLoopCompositeIndex(this, env, nNeighbourCamSym, pMax, compositeIndex)
-
-    ! allocate delta Hamiltonian
-    allocate(tmpHSqr(squareSize, squareSize, nKS))
-    tmpHSqr(:,:,:) = (0.0_dp, 0.0_dp)
 
     allocate(gammaMN(size(this%cellVecsG, dim=2)))
     allocate(gammaMB(size(this%cellVecsG, dim=2)))
@@ -2912,31 +2912,31 @@ contains
 
       end do loopS
 
-      tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
-          & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
+      HSqrCplxCam(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
+          & = HSqrCplxCam(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
           & + tot(1:descM(iNOrb), 1:descN(iNOrb), :)
 
     end do loopMNBA
 
     if (this%tSpin .or. this%tREKS) then
-      tmpHSqr(:,:,:) = -0.25_dp * tmpHSqr
+      HSqrCplxCam(:,:,:) = -0.25_dp * HSqrCplxCam
     else
-      tmpHSqr(:,:,:) = -0.125_dp * tmpHSqr
+      HSqrCplxCam(:,:,:) = -0.125_dp * HSqrCplxCam
     end if
 
   #:if WITH_MPI
     ! Sum up contributions of current MPI group
-    call mpifx_allreduceip(env%mpi%globalComm, tmpHSqr, MPI_SUM)
+    call mpifx_allreduceip(env%mpi%globalComm, HSqrCplxCam, MPI_SUM)
   #:endif
 
     if (env%tGlobalLead) then
-      this%hprevCplxHS(:,:,:) = this%hprevCplxHS + tmpHSqr
-      HSqr(:,:,:) = HSqr + this%hprevCplxHS
+      this%hprevCplxHS(:,:,:) = this%hprevCplxHS + HSqrCplxCam
+      HSqrCplxCam(:,:,:) = this%hprevCplxHS
     end if
 
   #:if WITH_MPI
     call mpifx_bcast(env%mpi%globalComm, this%hprevCplxHS)
-    call mpifx_bcast(env%mpi%globalComm, HSqr)
+    call mpifx_bcast(env%mpi%globalComm, HSqrCplxCam)
   #:endif
 
   end subroutine addCamHamiltonianNeighbour_kpts_mic
@@ -2945,7 +2945,7 @@ contains
   !> Adds range-separated contributions to Hamiltonian, using neighbour-list based algorithm.
   !! (k-point version)
   subroutine addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
-      & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqr)
+      & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, kWeights, iKiSToiGlobalKS, HSqrCplxCam)
 
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
@@ -2980,8 +2980,8 @@ contains
     !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
     integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
-    !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
-    complex(dp), intent(inout) :: HSqr(:,:,:)
+    !> Square (unpacked) Hamiltonian for all k-point/spin composite indices
+    complex(dp), intent(out), allocatable :: HSqrCplxCam(:,:,:)
 
     !! Dense matrix descriptor indices
     integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
@@ -2998,7 +2998,6 @@ contains
 
     !! Temporary storages
     real(dp), allocatable :: deltaDeltaRhoSqr(:,:,:,:,:,:)
-    complex(dp), allocatable :: tmpHSqr(:,:,:)
 
     !! Number of atoms in central cell
     integer :: nAtom0
@@ -3067,7 +3066,7 @@ contains
 
     tot(:,:,:) = (0.0_dp, 0.0_dp)
 
-    squareSize = size(HSqr, dim=1)
+    squareSize = size(deltaRhoSqr, dim=1)
     nAtom0 = size(this%species0)
     nS = size(deltaRhoSqr, dim=6)
     nK = size(kPoints, dim=2)
@@ -3090,14 +3089,14 @@ contains
     ! store delta density matrix
     this%dRhoPrevCplxHS = deltaRhoSqr
 
+    ! allocate delta Hamiltonian
+    allocate(HSqrCplxCam(squareSize, squareSize, nKS))
+    HSqrCplxCam(:,:,:) = (0.0_dp, 0.0_dp)
+
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (pMax < 1e-16_dp) return
 
     call getFourLoopCompositeIndex(this, env, nNeighbourCamSym, pMax, compositeIndex)
-
-    ! allocate delta Hamiltonian
-    allocate(tmpHSqr(squareSize, squareSize, nKS))
-    tmpHSqr(:,:,:) = (0.0_dp, 0.0_dp)
 
     loopMNBA: do ii = 1, size(compositeIndex, dim=2)
       ! Recover indices from composite
@@ -3233,31 +3232,31 @@ contains
 
       end do loopS
 
-      tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
-          & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
+      HSqrCplxCam(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
+          & = HSqrCplxCam(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd), :)&
           & + tot(1:descM(iNOrb), 1:descN(iNOrb), :)
 
     end do loopMNBA
 
     if (this%tSpin .or. this%tREKS) then
-      tmpHSqr(:,:,:) = -0.25_dp * tmpHSqr
+      HSqrCplxCam(:,:,:) = -0.25_dp * HSqrCplxCam
     else
-      tmpHSqr(:,:,:) = -0.125_dp * tmpHSqr
+      HSqrCplxCam(:,:,:) = -0.125_dp * HSqrCplxCam
     end if
 
   #:if WITH_MPI
     ! Sum up contributions of current MPI group
-    call mpifx_allreduceip(env%mpi%globalComm, tmpHSqr, MPI_SUM)
+    call mpifx_allreduceip(env%mpi%globalComm, HSqrCplxCam, MPI_SUM)
   #:endif
 
     if (env%tGlobalLead) then
-      this%hprevCplxHS(:,:,:) = this%hprevCplxHS + tmpHSqr
-      HSqr(:,:,:) = HSqr + this%hprevCplxHS
+      this%hprevCplxHS(:,:,:) = this%hprevCplxHS + HSqrCplxCam
+      HSqrCplxCam(:,:,:) = this%hprevCplxHS
     end if
 
   #:if WITH_MPI
     call mpifx_bcast(env%mpi%globalComm, this%hprevCplxHS)
-    call mpifx_bcast(env%mpi%globalComm, HSqr)
+    call mpifx_bcast(env%mpi%globalComm, HSqrCplxCam)
   #:endif
 
   end subroutine addCamHamiltonianNeighbour_kpts_ct
