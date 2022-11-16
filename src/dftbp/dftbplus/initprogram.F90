@@ -5685,15 +5685,13 @@ contains
     if (present(gammaCutoff)) then
       cutOff%gammaCutoff = gammaCutoff
     else
-      ! cutOff%gammaCutoff = 0.5_dp * minLatVecNorm2 * (3.0_dp / (4.0_dp * pi))**(1.0_dp / 3.0_dp)
-      cutOff%gammaCutoff = 0.25_dp * minLatVecNorm2
+      cutOff%gammaCutoff = 0.5_dp * minLatVecNorm2
     end if
 
     if (present(gSummationCutoff)) then
       cutOff%gSummationCutoff = gSummationCutoff
     else
       ! This would correspond to "the savest option"
-      ! cutOff%gSummationCutoff = 2.0_dp * cutOff%mCutOff + cutOff%gammaCutoff
       cutOff%gSummationCutoff = 2.0_dp * cutOff%gammaCutoff
     end if
 
@@ -5764,7 +5762,7 @@ contains
     if (present(gammaCutoff)) then
       cutOff%gammaCutoff = gammaCutoff
     else
-      cutOff%gammaCutoff = 0.25_dp * minNormTimesNKpt
+      cutOff%gammaCutoff = 0.5_dp * minNormTimesNKpt
     end if
 
     if (present(gSummationCutoff)) then
