@@ -11,7 +11,14 @@ Unreleased
 Added
 -----
 
-- Born charges from finite difference dipole derivatives
+- Born charges and polarizability derivatives from finite difference
+  derivatives.
+
+- Infrared and Raman intensities from the modes code.
+
+- Spin-orbit coupling for xTB
+
+- Dual American and British English spelling for various input keywords
 
 
 Fixed
@@ -21,6 +28,9 @@ Fixed
   in October 2019 by commit 11abba39b
 
 - Corrected units for electrostatic gate potentials in transport
+
+- Stratmann solver available without ARPACK
+
 
 22.1 (2022-05-25)
 =================

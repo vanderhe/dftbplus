@@ -55,7 +55,8 @@ module dftbp_dftbplus_parser
   use dftbp_io_hsdparser, only : getNodeHSdName, parseHsd
   use dftbp_io_hsdutils, only : detailedError, detailedWarning, getChild, getChildValue,&
       & getChildren, getSelectedAtomIndices, setChild, setChildValue
-  use dftbp_io_hsdutils2, only : convertUnitHsd, getNodeName2, setUnprocessed, splitModifier
+  use dftbp_io_hsdutils2, only : convertUnitHsd, getNodeName2, setUnprocessed, splitModifier,&
+      & renameChildren
   use dftbp_io_message, only : error, warning
   use dftbp_io_xmlutils, only : removeChildNodes
   use dftbp_math_lapackroutines, only : matinv
@@ -66,6 +67,7 @@ module dftbp_dftbplus_parser
   use dftbp_dftb_nonscc, only : diffTypes
   use dftbp_reks_reks, only : reksTypes
   use dftbp_solvation_solvparser, only : readSolvation, readCM5
+  use dftbp_timedep_linresptypes, only : linRespSolverTypes
   use dftbp_timedep_timeprop, only : TElecDynamicsInp, pertTypes, tdSpinTypes, envTypes
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_linkedlist, only : TListCharLc, TListInt, TListIntR1, TListReal, TListRealR1,&
@@ -463,6 +465,7 @@ contains
     end if
   #:endif
 
+    call renameChildren(parent, "GeometryOptimization", "GeometryOptimisation")
     call getNodeName2(node, buffer)
     driver: select case (char(buffer))
     case ("")
@@ -1192,6 +1195,7 @@ contains
     ! Read individual atom specifications
     call getChildren(child, "Mass", children)
     if (getLength(children) == 0) then
+      call destroyNodeList(children)
       return
     end if
 
@@ -1533,30 +1537,8 @@ contains
     ! External fields and potentials
     call readExternal(node, ctrl, geo)
 
-    call getChild(node, "SpinOrbit", child, requested=.false.)
-    if (.not. associated(child)) then
-      ctrl%tSpinOrbit = .false.
-      allocate(ctrl%xi(0,0))
-    else
-      if (ctrl%tSpin .and. .not. ctrl%t2Component) then
-        call error("Spin-orbit coupling incompatible with collinear spin.")
-      end if
-
-      ctrl%tSpinOrbit = .true.
-      ctrl%t2Component = .true.
-
-      call getChildValue(child, "Dual", ctrl%tDualSpinOrbit, .true.)
-
-      allocate(ctrl%xi(slako%orb%mShell,geo%nSpecies))
-      ctrl%xi = 0.0_dp
-      do iSp1 = 1, geo%nSpecies
-        call getChildValue(child, geo%speciesNames(iSp1), &
-            & ctrl%xi(:slako%orb%nShell(iSp1),iSp1), modifier=modifier, &
-            & child=child2 )
-        call convertUnitHsd(char(modifier), energyUnits, child2, &
-            & ctrl%xi(:slako%orb%nShell(iSp1),iSp1))
-      end do
-    end if
+    ! Non-self-consistent spin-orbit coupling
+    call readSpinOrbit(node, ctrl, geo, slako%orb)
 
     ! Electronic solver
   #:if WITH_TRANSPORT
@@ -1633,6 +1615,7 @@ contains
           end if
           call append(lrN(iSp1),rTmp)
         end do
+        call destroyNodeList(children)
       end do
 
       do iSp1 = 1, geo%nSpecies
@@ -1833,12 +1816,13 @@ contains
     !> Poisson solver paramenters
     type(TPoissonInfo), intent(inout) :: poisson
 
-    type(fnode), pointer :: value1, child
-    type(string) :: buffer
+    type(fnode), pointer :: value1, child, child2
+    type(string) :: buffer, modifier
     type(string), allocatable :: searchPath(:)
     logical :: tBadIntegratingKPoints
-    integer :: method
+    integer :: method, iSp1
     character(len=:), allocatable :: paramFile, paramTmp
+    type(TOrbitals) :: orb
 
     ctrl%hamiltonian = hamiltonianTypes%xtb
 
@@ -1922,6 +1906,10 @@ contains
     ! External fields and potentials
     call readExternal(node, ctrl, geo)
 
+    ! Non-self-consistent spin-orbit coupling
+    call ctrl%tbliteInp%setupOrbitals(geo%species, orb)
+    call readSpinOrbit(node, ctrl, geo, orb)
+
     ! Electronic solver
   #:if WITH_TRANSPORT
     call readSolver(node, ctrl, geo, tp, greendens, poisson)
@@ -1984,6 +1972,51 @@ contains
     end if
 
   end subroutine readXTBHam
+
+
+  !> Reads in settings for spin orbit enabled calculations
+  subroutine readSpinOrbit(node, ctrl, geo, orb)
+
+    !> Node to get the information from
+    type(fnode), pointer :: node
+
+    !> Control structure to be filled
+    type(TControl), intent(inout) :: ctrl
+
+    !> Geometry structure to be filled
+    type(TGeometry), intent(in) :: geo
+
+    !> Information about the orbitals of the species/atoms in the system
+    class(TOrbitals), intent(in) :: orb
+
+    type(fnode), pointer :: child, child2
+    type(string) :: modifier
+    integer :: iSp
+
+    call getChild(node, "SpinOrbit", child, requested=.false.)
+    if (.not. associated(child)) then
+      ctrl%tSpinOrbit = .false.
+      allocate(ctrl%xi(0,0))
+    else
+      if (ctrl%tSpin .and. .not. ctrl%t2Component) then
+        call error("Spin-orbit coupling incompatible with collinear spin.")
+      end if
+
+      ctrl%tSpinOrbit = .true.
+      ctrl%t2Component = .true.
+
+      call getChildValue(child, "Dual", ctrl%tDualSpinOrbit, .true.)
+
+      allocate(ctrl%xi(orb%mShell,geo%nSpecies), source = 0.0_dp)
+      do iSp = 1, geo%nSpecies
+        call getChildValue(child, geo%speciesNames(iSp), &
+            & ctrl%xi(:orb%nShell(iSp),iSp), modifier=modifier, child=child2 )
+        call convertUnitHsd(char(modifier), energyUnits, child2,&
+            & ctrl%xi(:orb%nShell(iSp),iSp))
+      end do
+    end if
+
+  end subroutine readSpinOrbit
 
 
   !> Read in maximal angular momenta or selected shells
@@ -2227,6 +2260,7 @@ contains
     type(fnode), pointer :: value1, child
     type(string) :: buffer
 
+    call renameChildren(node, "SpinPolarization", "SpinPolarisation")
     call getChildValue(node, "SpinPolarisation", value1, "", child=child, &
         &allowEmptyValue=.true.)
     call getNodeName2(value1, buffer)
@@ -3899,6 +3933,7 @@ contains
     end if
     call getChildValue(node, "WriteHS", ctrl%tWriteHS, .false.)
     call getChildValue(node, "WriteRealHS", ctrl%tWriteRealHS, .false.)
+    call renameChildren(node, "MinimizeMemoryUsage", "MinimiseMemoryUsage")
     call getChildValue(node, "MinimiseMemoryUsage", ctrl%tMinMemory, .false., child=child)
     if (ctrl%tMinMemory) then
       call detailedWarning(child, "Memory minimisation is not working currently, normal calculation&
@@ -4042,6 +4077,7 @@ contains
             &modifier=modifier2, child=child3)
         call convertUnitHsd(char(modifier2), lengthUnits, child3, &
             &rCutoffs(iSp1))
+        call renameChildren(child2, "HybridPolarizations", "HybridPolarisations")
         call getChildValue(child2, "HybridPolarisations", tmp2R2(:, iSp1), &
             &modifier=modifier2, child=child3)
         if (len(modifier2) > 0) then
@@ -4750,18 +4786,10 @@ contains
     type(fnode), pointer :: child
     type(fnode), pointer :: child2
     type(fnode), pointer :: value
-    type(string) :: buffer
-
-  #:if WITH_ARPACK
-    type(string) :: modifier
+    type(string) :: buffer, modifier
 
     ! Linear response stuff
     call getChild(node, "Casida", child, requested=.false.)
-
-    if (associated(child) .and. .not. withArpack) then
-      call detailedError(child, 'This DFTB+ binary has been compiled without support for linear&
-          & response calculations (requires the ARPACK/ngARPACK libraries).')
-    end if
 
     if (associated(child)) then
 
@@ -4834,20 +4862,25 @@ contains
       if (allocated(ctrl%hybridXcInp)) then
         call getChildValue(child, "WriteTransitionCharges", ctrl%lrespini%tTransQ, default=.false.)
       end if
-      ctrl%lrespini%tUseArpack = .true.
+      ctrl%lrespini%iLinRespSolver = linRespSolverTypes%None
 
+      call renameChildren(child, "Diagonalizer", "Diagonaliser")
       call getChildValue(child, "Diagonaliser", child2)
       call getNodeName(child2, buffer)
       select case(char(buffer))
-        case ("arpack")
-          call getChildValue(child2, "WriteStatusArnoldi", ctrl%lrespini%tArnoldi, default=.false.)
-          call getChildValue(child2, "TestArnoldi", ctrl%lrespini%tDiagnoseArnoldi, default=.false.)
-          ctrl%lrespini%tUseArpack = .true.
-        case ("stratmann")
-          ctrl%lrespini%tUseArpack = .false.
-          call getChildValue(child2, "SubSpaceFactor", ctrl%lrespini%subSpaceFactorStratmann, 20)
-        case default
-          call detailedError(child2, "Invalid diagonaliser method '" // char(buffer) // "'")
+      case ("arpack")
+        if (.not. withArpack) then
+          call detailedError(child2, 'This DFTB+ binary has been compiled without support for&
+              & linear response calculations using the ARPACK/ngARPACK library.')
+        end if
+        call getChildValue(child2, "WriteStatusArnoldi", ctrl%lrespini%tArnoldi, default=.false.)
+        call getChildValue(child2, "TestArnoldi", ctrl%lrespini%tDiagnoseArnoldi, default=.false.)
+        ctrl%lrespini%iLinRespSolver = linRespSolverTypes%Arpack
+      case ("stratmann")
+        ctrl%lrespini%iLinRespSolver = linRespSolverTypes%Stratmann
+        call getChildValue(child2, "SubSpaceFactor", ctrl%lrespini%subSpaceFactorStratmann, 20)
+      case default
+        call detailedError(child2, "Invalid diagonaliser method '" // char(buffer) // "'")
       end select
 
       if (ctrl%tForces .or. ctrl%tPrintForces) then
@@ -4855,8 +4888,6 @@ contains
       end if
 
     end if
-
-  #:endif
 
     !pp-RPA
     call getChild(node, "PP-RPA", child, requested=.false.)
@@ -4991,7 +5022,9 @@ contains
           ctrl%RegionLabel(iReg) = unquote(char(buffer))
         end do
       end if
+      call destroyNodeList(children)
 
+      call renameChildren(node, "Localize", "Localise")
       call getChild(node, "Localise", child=val, requested=.false.)
       if (associated(val)) then
         ctrl%tLocalise = .true.
@@ -5040,19 +5073,19 @@ contains
 
       call getChildValue(node, "WriteBandOut", ctrl%tWriteBandDat, tWriteBandDatDef)
 
-      ctrl%isDFTBPT = .false.
+      ctrl%doPerturbation = .false.
 
       ! electric field polarisability of system
       call getChild(node, "Polarisability", child=child, requested=.false.)
       if (associated(child)) then
-        ctrl%isDFTBPT = .true.
+        ctrl%doPerturbation = .true.
         ctrl%isEPerturb = .true.
         call freqRanges(child, ctrl%dynEFreq)
       end if
 
       call getChild(node, "ResponseKernel", child=child, requested=.false.)
       if (associated(child)) then
-        ctrl%isDFTBPT = .true.
+        ctrl%doPerturbation = .true.
         ctrl%isRespKernelPert = .true.
         if (ctrl%tSCC) then
           call getChildValue(child, "RPA", ctrl%isRespKernelRPA, .false.)
@@ -5062,7 +5095,7 @@ contains
         call freqRanges(child, ctrl%dynKernelFreq)
       end if
 
-      if (ctrl%isDFTBPT) then
+      if (ctrl%doPerturbation) then
         call getChildValue(node, "DegeneracyTolerance", ctrl%tolDegenDFTBPT, 128.0_dp,&
             & child=child)
         if (ctrl%tolDegenDFTBPT < 1.0_dp) then
@@ -5502,6 +5535,7 @@ contains
     type(fnode), pointer :: child, child2
     integer :: iSp1
 
+    call renameChildren(node, "CustomizedHubbards", "CustomisedHubbards")
     call getChild(node, "CustomisedHubbards", child, requested=.false.)
     if (associated(child)) then
       allocate(hubbU(orb%mShell, geo%nSpecies))
@@ -5616,6 +5650,7 @@ contains
 
     case ("kick")
       input%pertType = pertTypes%kick
+      call renameChildren(value1, "PolarizationDirection", "PolarisationDirection")
       call getChildValue(value1, "PolarisationDirection", buffer2)
       input%polDir = directionConversion(unquote(char(buffer2)), value1)
 
@@ -5633,7 +5668,9 @@ contains
 
     case ("laser")
       input%pertType = pertTypes%laser
+      call renameChildren(value1, "PolarizationDirection", "PolarisationDirection")
       call getChildValue(value1, "PolarisationDirection", input%reFieldPolVec)
+      call renameChildren(value1, "ImagPolarizationDirection", "ImagPolarisationDirection")
       call getChildValue(value1, "ImagPolarisationDirection", input%imFieldPolVec, &
           & [0.0_dp, 0.0_dp, 0.0_dp])
       call getChildValue(value1, "LaserEnergy", input%omega, modifier=modifier, child=child)
@@ -5893,8 +5930,8 @@ contains
     call getChildren(root, "Contact", pNodeList)
     transpar%ncont = getLength(pNodeList)
     allocate(transpar%contacts(transpar%ncont))
-
-    call readContacts(pNodeList, transpar%contacts, geom, char(buffer))
+    call readContacts(pNodeList, transpar%contacts, geom, char(buffer), transpar%contactLayerTol)
+    call destroyNodeList(pNodeList)
 
     transpar%taskUpload = .false.
 
@@ -6810,8 +6847,10 @@ contains
                 &for atom" // i2c(iAt) // " has been overwritten")
           end if
           atmCoupling(iAt) = rTmp
-        enddo
-      enddo
+        end do
+      end do
+      call destroyNodeList(children)
+
       ! Transform atom coupling in orbital coupling
       norbs = 0
       do ii=atm_range(1), atm_range(2)
@@ -6974,13 +7013,15 @@ contains
 
 
   !> Read bias information, used in Analysis and Green's function eigensolver
-  subroutine readContacts(pNodeList, contacts, geom, task)
+  subroutine readContacts(pNodeList, contacts, geom, task, contactLayerTol)
     type(fnodeList), pointer :: pNodeList
     type(ContactInfo), allocatable, dimension(:), intent(inout) :: contacts
     type(TGeometry), intent(in) :: geom
     character(*), intent(in) :: task
 
-    real(dp) :: contactLayerTol
+    !> Tolerance to distortion of contact vectors
+    real(dp), intent(out) :: contactLayerTol
+
     integer :: ii
     type(fnode), pointer :: field, pNode, pTmp, child1, child2
     type(string) :: buffer, modifier
@@ -7231,6 +7272,7 @@ contains
         call setChild(node, "Region", child)
         call setChildValue(child, "Atoms", trim(strTmp))
         call setChildValue(child, "Label", "localDOS")
+        call destroyNodeList(children)
         call getChildren(node, "Region", children)
         nReg = getLength(children)
       else
@@ -7354,6 +7396,7 @@ contains
     character(sc), allocatable :: shellNamesTmp(:)
     logical, allocatable :: atomOverriden(:)
 
+    call renameChildren(root, "CustomizedOccupations", "CustomisedOccupations")
     call getChild(root, "CustomisedOccupations", container, requested=.false.)
     if (.not. associated(container)) then
       return
@@ -7390,9 +7433,7 @@ contains
       end do
       deallocate(shellNamesTmp)
     end do
-    if (associated(nodes)) then
-      call destroyNodeList(nodes)
-    end if
+    call destroyNodeList(nodes)
 
   end subroutine readCustomReferenceOcc
 

@@ -118,7 +118,7 @@ module dftbp_dftbplus_initprogram
   use dftbp_solvation_solvation, only : TSolvation
   use dftbp_solvation_solvinput, only : createSolvationModel, writeSolvationInfo
   use dftbp_timedep_linresp, only : LinResp_init
-  use dftbp_timedep_linresptypes, only : TLinResp
+  use dftbp_timedep_linresptypes, only : TLinResp, linRespSolverTypes
   use dftbp_timedep_pprpa, only : TppRPAcal
   use dftbp_timedep_timeprop, only : TElecDynamics, TElecDynamics_init, tdSpinTypes
   use dftbp_type_commontypes, only : TOrbitals, TParallelKS, TParallelKS_init
@@ -534,7 +534,10 @@ module dftbp_dftbplus_initprogram
     type(TPipekMezey), allocatable :: pipekMezey
 
     !> Density functional tight binding perturbation theory
-    logical :: isDFTBPT = .false.
+    logical :: doPerturbation = .false.
+
+    !> Density functional tight binding perturbation for each geometry step
+    logical :: doPerturbEachGeom = .false.
 
     !> Response property calculations
     type(TResponse), allocatable :: response
@@ -2328,8 +2331,10 @@ contains
           & spin orbit calculations")
     end if
 
-    this%isDFTBPT = input%ctrl%isDFTBPT
-    if (this%isDFTBPT) then
+    this%doPerturbation = input%ctrl%doPerturbation
+    this%doPerturbEachGeom = this%tDerivs .and. this%doPerturbation ! needs work
+
+    if (this%doPerturbation .or. this%doPerturbEachGeom) then
 
       allocate(this%response)
       call TResponse_init(this%response, responseSolverTypes%spectralSum, this%tFixEf,&
@@ -2409,9 +2414,9 @@ contains
     if (this%isLinResp) then
 
       ! input checking for linear response
-      if (.not. withArpack) then
+      if (input%ctrl%lrespini%iLinRespSolver==linrespSolverTypes%Arpack .and. .not.withArpack) then
         call error("This binary has been compiled without support for linear response&
-            & calculations.")
+            & calculations using the Arpack solver.")
       end if
       isOnsiteCorrected = allocated(this%onSiteElements)
       call ensureLinRespConditions(this%tSccCalc, this%t3rd .or. this%t3rdFull, this%tRealHS,&
@@ -2634,7 +2639,7 @@ contains
       allocate(tmp3Coords(3,this%nMovedAtom))
       tmp3Coords = this%coord0(:,this%indMovedAtom)
       call create(this%derivDriver, tmp3Coords, size(this%indDerivAtom), input%ctrl%deriv2ndDelta,&
-          &this%tDipole)
+          &this%tDipole, this%doPerturbEachGeom)
       this%coord0(:,this%indMovedAtom) = tmp3Coords
       deallocate(tmp3Coords)
       this%nGeoSteps = 2 * 3 * this%nMovedAtom - 1
@@ -3230,12 +3235,17 @@ contains
     endif
 
     if(this%isLinResp) then
-       if(input%ctrl%lrespini%tUseArpack) then
-          write(stdOut, "(A,':',T30,A)")    "Casida solver", "Arpack"
-       else
-          write(stdOut, "(A,':',T30,A,i4)") "Casida solver", &
-          & "Stratmann, SubSpace: ", input%ctrl%lrespini%subSpaceFactorStratmann
-       end if
+      select case(input%ctrl%lrespini%iLinRespSolver)
+      case (linrespSolverTypes%None)
+        call error("Casida solver has not been selected")
+      case (linrespSolverTypes%Arpack)
+        write(stdOut, "(A,':',T30,A)") "Casida solver", "Arpack"
+      case (linrespSolverTypes%Stratmann)
+        write(stdOut, "(A,':',T30,A,i4)") "Casida solver", "Stratmann, SubSpace: ",&
+            & input%ctrl%lrespini%subSpaceFactorStratmann
+      case default
+        call error("Unknown Casida solver")
+      end select
     end if
 
     if (this%tSccCalc .and. .not.this%tRestartNoSC) then
@@ -4639,18 +4649,47 @@ contains
     !> Instance
     class(TDftbPlusMain), intent(in) :: this
 
+    !> Environment settings
     type(TEnvironment), intent(inout) :: env
+
+    !> Holds the parsed input data.
     type(TInputData), intent(in) :: input
+
+    !> electronic solver for the system
     type(TElectronicSolver), intent(inout) :: electronicSolver
+
+    !> Number of spin components, 1 is unpolarised, 2 is polarised, 4 is noncolinear / spin-orbit
     integer, intent(in) :: nSpin
+
+    !> electron temperature
     real(dp), intent(in) :: tempElec
+
+    !> Transport interface
     logical, intent(in) :: tNegf
+
+    !> Whether a contact Hamiltonian is being computed and stored
     logical, intent(out) :: isAContactCalc
+
+    !> Holds spin-dependent electrochemical potentials of contacts
+    !> This is because libNEGF is not spin-aware
     real(dp), allocatable, intent(out) :: mu(:,:)
+
+    !> Transport interface
     type(TNegfInt), intent(out) :: negfInt
+
+    !> container for data needed by libNEGF
     type(TNegfInfo), intent(out) :: ginfo
+
+    !> Transport calculation parameters
     type(TTransPar), intent(out) :: transpar
-    logical, intent(out) :: writeTunn, tWriteLDOS
+
+    !> Should tunnelling be written out
+    logical, intent(out) :: writeTunn
+
+    !> Should local density of states be written out
+    logical, intent(out) :: tWriteLDOS
+
+    !> Labels for different regions for DOS output
     character(lc), allocatable, intent(out) :: regionLabelLDOS(:)
 
     logical :: tAtomsOutside
@@ -4658,7 +4697,7 @@ contains
     integer :: nSpinChannels, iCont, jCont
     real(dp) :: mu1, mu2
 
-    ! Its a contact calculation in the case that some contact is computed
+    ! It is a contact calculation in the case that some contact is computed
     isAContactCalc = (input%transpar%taskContInd /= 0)
 
     if (nSpin <= 2) then
@@ -4709,7 +4748,7 @@ contains
 
       ! Some checks and initialization of GDFTB/NEGF
       call TNegfInt_init(negfInt, input%transpar, env, input%ginfo%greendens,&
-          & input%ginfo%tundos, tempElec, this%coord0, this%cutOff%skCutoff)
+          & input%ginfo%tundos, tempElec, this%coord0, this%cutOff%skCutoff, this%tPeriodic)
 
       ginfo = input%ginfo
 
@@ -4761,7 +4800,7 @@ contains
     end if
     if (this%tWriteBandDat) then
       call initOutputFile(bandOut)
-      if (this%isDFTBPT .and. this%isEResp) then
+      if (this%doPerturbation .and. this%isEResp) then
         call initOutputFile(derivEBandOut)
       end if
     end if
@@ -5575,12 +5614,13 @@ contains
       end if
     end if
 
-    if (isOnsiteCorrected .and. (.not. input%ctrl%lrespini%tUseArpack)) then
+    if (isOnsiteCorrected .and. input%ctrl%lrespini%iLinRespSolver == linRespSolverTypes%Stratmann)&
+        & then
       call error("Onsite corrections not implemented for Stratmann diagonaliser.")
     end if
 
     if (isRS_LinResp) then
-      if (input%ctrl%lrespini%tUseArpack) then
+      if (input%ctrl%lrespini%iLinRespSolver /= linRespSolverTypes%Stratmann) then
         call error("TD-LC-DFTB implemented only for Stratmann diagonaliser.")
       end if
       if (tPeriodic) then
