@@ -738,7 +738,7 @@ contains
     ! Charge difference
     real(dp), allocatable :: dQ(:,:,:)
 
-    ! loop index
+    ! Loop indices
     integer :: iSpin, iKS
 
     real(dp), allocatable :: dipoleTmp(:)
@@ -900,8 +900,7 @@ contains
 
         call getHamiltonianLandEnergyL(env, this%denseDesc, this%scc, this%tblite, this%orb,&
             & this%species, this%neighbourList, this%symNeighbourList, this%nNeighbourSK,&
-            & this%iSparseStart, this%cellVec, this%rCellVec, this%iCellVec, this%latVec,&
-            & this%invLatVec, this%img2CentCell, this%H0, this%ints, this%spinW, this%cellVol,&
+            & this%iSparseStart, this%img2CentCell, this%H0, this%ints, this%spinW, this%cellVol,&
             & this%extPressure, this%dftbEnergy(1), this%q0, this%iAtInCentralRegion,&
             & this%solvation, this%thirdOrd, this%potential, this%hybridXc, this%nNeighbourCam,&
             & this%nNeighbourCamSym, this%tDualSpinOrbit, this%xi, this%isExtField, this%isXlbomd,&
@@ -1495,13 +1494,13 @@ contains
             & this%isXlbomd, this%nonSccDeriv, this%rhoPrim, this%ERhoPrim, this%qOutput, this%q0,&
             & this%skHamCont, this%skOverCont, this%repulsive, this%neighbourList,&
             & this%symNeighbourList, this%nNeighbourSk, this%nNeighbourCamSym, this%cellVec,&
-            & this%rCellVec, this%iCellVec, this%latVec, this%invLatVec, this%species,&
-            & this%img2CentCell, this%iSparseStart, this%orb, this%potential, this%coord,&
-            & this%derivs, this%groundDerivs, this%tripletderivs, this%mixedderivs, this%iRhoPrim,&
-            & this%thirdOrd, this%solvation, this%qDepExtPot, this%chrgForces, this%dispersion,&
-            & this%hybridXc, this%SSqrReal, this%ints, this%denseDesc, this%halogenXCorrection,&
-            & this%tHelical, this%coord0, this%deltaDftb, this%tPeriodic, this%tRealHS,&
-            & this%kPoint, this%kWeight, deltaRhoOutSqr=this%densityMatrix%deltaRhoOutSqr,&
+            & this%rCellVec, this%invLatVec, this%species, this%img2CentCell, this%iSparseStart,&
+            & this%orb, this%potential, this%coord, this%derivs, this%groundDerivs,&
+            & this%tripletderivs, this%mixedderivs, this%iRhoPrim, this%thirdOrd, this%solvation,&
+            & this%qDepExtPot, this%chrgForces, this%dispersion, this%hybridXc, this%SSqrReal,&
+            & this%ints, this%denseDesc, this%halogenXCorrection, this%tHelical, this%coord0,&
+            & this%deltaDftb, this%tPeriodic, this%tRealHS, this%kPoint, this%kWeight,&
+            & deltaRhoOutSqr=this%densityMatrix%deltaRhoOutSqr,&
             & deltaRhoInSqrCplxHS=this%densityMatrix%deltaRhoInSqrCplxHS,&
             & deltaRhoOutSqrCplx=this%densityMatrix%deltaRhoOutSqrCplx)
 
@@ -2864,9 +2863,9 @@ contains
       else
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
-            & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species,&
-            & coord, hybridXc, densityMatrix, nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx,&
-            & SSqrCplxKpts, eigVecsCplx, eigen, errStatus)
+            & recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord,&
+            & hybridXc, densityMatrix, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts,&
+            & eigVecsCplx, eigen, errStatus)
         @:PROPAGATE_ERROR(errStatus)
       end if
     else
@@ -3092,10 +3091,10 @@ contains
 
   !> Builds and diagonalises dense k-point dependent Hamiltonians.
   subroutine buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
-      & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
-      & latVecs, recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord,&
-      & hybridXc, densityMatrix, nNeighbourCam, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts,&
-      & eigvecsCplx, eigen, errStatus)
+      & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec, recVecs2p,&
+      & cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord, hybridXc,&
+      & densityMatrix, nNeighbourCamSym, HSqrCplx, SSqrCplx, SSqrCplxKpts, eigvecsCplx, eigen,&
+      & errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3133,9 +3132,6 @@ contains
     !> Index for which unit cell atoms are associated with
     integer, intent(in) :: iCellVec(:)
 
-    !> Lattice vectors
-    real(dp), intent(in) :: latVecs(:,:)
-
     !> Reciprocal lattice vectors in units of 2 pi
     real(dp), intent(in) :: recVecs2p(:,:)
 
@@ -3165,9 +3161,6 @@ contains
 
     !> Holds real and complex delta density matrices and pointers
     type(TDensityMatrix), intent(inout) :: densityMatrix
-
-    !> Number of neighbours for each of the atoms for the exchange contributions of CAM functionals
-    integer, intent(in), allocatable :: nNeighbourCam(:)
 
     !> Symmetric neighbour list version of nNeighbourCam
     integer, intent(in), allocatable :: nNeighbourCamSym(:)
@@ -4513,7 +4506,7 @@ contains
     real(dp), intent(inout), allocatable :: qBlockOut(:,:,:,:)
 
     !! Number of spins and spin index
-    integer :: nSpin, iSpin
+    integer :: nSpin
 
     !! Difference of delta density matrix in and out
     real(dp), allocatable :: deltaRhoDiff(:)
@@ -4550,21 +4543,7 @@ contains
           qInput(:,:,:) = qInput + q0
         end if
 
-        ! if (allocated(qBlockIn)) then
-        !   call denseBlockMulliken(deltaRhoInSqrCplxHS, SSqrCplx, iAtomStart, qBlockIn)
-        !   do iSpin = 1, nSpin
-        !     do iAt = 1, size(qInput, dim=2)
-        !       do iOrb = 1, size(qInput, dim=1)
-        !         qBlockIn(iOrb, iOrb, iAt, iSpin) = qInput(iOrb, iAt, iSpin)
-        !       end do
-        !     end do
-        !   end do
-        ! end if
-
         call ud2qm(qInput)
-        ! if (allocated(qBlockIn)) then
-        !   call ud2qm(qBlockIn)
-        ! end if
 
       end if
     end if
@@ -5957,12 +5936,12 @@ contains
   !> Calculates the gradients
   subroutine getGradients(env, boundaryConds, sccCalc, tblite, isExtField, isXlbomd, nonSccDeriv,&
       & rhoPrim, ERhoPrim, qOutput, q0, skHamCont, skOverCont, repulsive, neighbourList,&
-      & symNeighbourList, nNeighbourSK, nNeighbourCamSym, cellVecs, rCellVecs, iCellVec, latVecs,&
-      & recVecs2p, species, img2CentCell, iSparseStart, orb, potential, coord, derivs,&
-      & groundDerivs, tripletderivs, mixedderivs, iRhoPrim, thirdOrd, solvation, qDepExtPot,&
-      & chrgForces, dispersion, hybridXc, SSqrReal, ints, denseDesc, halogenXCorrection, tHelical,&
-      & coord0, deltaDftb, tPeriodic, tRealHS, kPoint, kWeight, deltaRhoOutSqr,&
-      & deltaRhoInSqrCplxHS, deltaRhoOutSqrCplx)
+      & symNeighbourList, nNeighbourSK, nNeighbourCamSym, cellVecs, rCellVecs, recVecs2p,&
+      & species, img2CentCell, iSparseStart, orb, potential, coord, derivs, groundDerivs,&
+      & tripletderivs, mixedderivs, iRhoPrim, thirdOrd, solvation, qDepExtPot, chrgForces,&
+      & dispersion, hybridXc, SSqrReal, ints, denseDesc, halogenXCorrection, tHelical, coord0,&
+      & deltaDftb, tPeriodic, tRealHS, kPoint, kWeight, deltaRhoOutSqr, deltaRhoInSqrCplxHS,&
+      & deltaRhoOutSqrCplx)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -6023,12 +6002,6 @@ contains
 
     !> Vectors to unit cells in absolute units
     real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Index of unit cell where an atom is located
-    integer, intent(in) :: iCellVec(:)
-
-    !> Lattice vectors
-    real(dp), intent(in) :: latVecs(:,:)
 
     !> Reciprocal lattice vectors in units of 2 pi
     real(dp), intent(in) :: recVecs2p(:,:)
@@ -7550,12 +7523,11 @@ contains
   !> Build L, spin dependent Hamiltonian with various contributions
   !> and compute the energy of microstates
   subroutine getHamiltonianLandEnergyL(env, denseDesc, sccCalc, tblite, orb, species,&
-      & neighbourList, symNeighbourList, nNeighbourSK, iSparseStart, cellVecs, rCellVecs, iCellVec,&
-      & latVecs, recVecs2p, img2CentCell, H0, ints, spinW, cellVol, extPressure, energy, q0,&
-      & iAtInCentralRegion, solvation, thirdOrd, potential, hybridXc, nNeighbourCam,&
-      & nNeighbourCamSym, tDualSpinOrbit, xi, isExtField, isXlbomd, dftbU, TS, qDepExtPot, qBlock,&
-      & qiBlock, tFixEf, Ef, rhoPrim, onSiteElements, dispersion, tConverged, species0,&
-      & referenceN0, qNetAtom, multipole, reks)
+      & neighbourList, symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, H0, ints, spinW,&
+      & cellVol, extPressure, energy, q0, iAtInCentralRegion, solvation, thirdOrd, potential,&
+      & hybridXc, nNeighbourCam, nNeighbourCamSym, tDualSpinOrbit, xi, isExtField, isXlbomd, dftbU,&
+      & TS, qDepExtPot, qBlock, qiBlock, tFixEf, Ef, rhoPrim, onSiteElements, dispersion,&
+      & tConverged, species0, referenceN0, qNetAtom, multipole, reks)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -7586,21 +7558,6 @@ contains
 
     !> Index for atomic blocks in sparse data
     integer, intent(in) :: iSparseStart(:,:)
-
-    !> Vectors to unit cells in relative units
-    real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Vectors to unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
-
-    !> Index of unit cell where an atom is located
-    integer, intent(in) :: iCellVec(:)
-
-    !> Lattice vectors
-    real(dp), intent(in) :: latVecs(:,:)
-
-    !> Reciprocal lattice vectors in units of 2 pi
-    real(dp), intent(in) :: recVecs2p(:,:)
 
     !> map from image atom to real atoms
     integer, intent(in) :: img2CentCell(:)
