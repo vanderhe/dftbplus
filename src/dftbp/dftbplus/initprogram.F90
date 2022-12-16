@@ -5423,31 +5423,33 @@ contains
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
 
-    !> Is this a shell resolved calculation
+    !> True, if this is a shell resolved calculation
     logical, intent(in) :: tShellResolved
 
     !> Parameters for the range separated calculation
     type(THybridXcInp), intent(in) :: hybridXcInp
 
     if (withMpi .and. (.not. this%tPeriodic)) then
-      call error("Hybrid calculations of non-periodic systems do not profit from MPI yet")
+      call error("Hybrid calculations of non-periodic systems do not profit from MPI parallelism&
+          & yet.")
     end if
 
     if (this%tPeriodic) then
       if ((.not. this%tRealHS) .and. (hybridXcInp%hybridXcAlg /= hybridXcAlgo%neighbour)) then
-        call error("Hybrid functionality for periodic system currently only working for&
-            & the neighbour list based algorithm")
+        call error("Hybrid functionality for periodic systems beyond the Gamma-point currently only&
+            & working for the neighbour list based algorithm.")
       end if
       if (this%tRealHS .and. hybridXcInp%hybridXcAlg == hybridXcAlgo%threshold) then
-        call error("Hybrid functionality at Gamma-point not implemented for threshold&
-            & algorithm")
+        call error("Hybrid functionality at the Gamma-point not implemented for the threshold&
+            & algorithm.")
       end if
     end if
 
-    ! if ((.not. this%tRealHS) .and. this%tForces) then
-    !   call error("Hybrid functionals don't yet support gradient calculations for periodic systems&
-    !       & beyond the Gamma point.")
-    ! end if
+    if ((.not. this%tRealHS) .and. this%tForces&
+        & .and. (hybridXcInp%gammaType /= hybridXcGammaTypes%truncated)) then
+      call error("Hybrid functionals don't yet support gradient calculations for periodic systems&
+          & beyond the Gamma point for CoulombMatrix settings other than 'Truncated'.")
+    end if
 
     if (this%tPeriodic .and. this%tRealHS&
         & .and. hybridXcInp%gammaType /= hybridXcGammaTypes%truncated&
@@ -5457,37 +5459,36 @@ contains
     end if
 
     if (this%tHelical) then
-      call error("Hybrid functionality only works with non-helical structures at the&
-          & moment")
+      call error("Hybrid functionality only works with non-helical structures at the moment.")
     end if
 
     if (this%tReadChrg .and. hybridXcInp%hybridXcAlg == hybridXcAlgo%threshold) then
-      call error("Restart on thresholded range separation not working correctly")
+      call error("Restart on thresholded range separation not working correctly.")
     end if
 
     if (tShellResolved) then
-      call error("Hybrid functionality currently does not yet support shell-resolved scc")
+      call error("Hybrid functionality currently does not yet support shell-resolved SCF.")
     end if
 
     if (this%tAtomicEnergy) then
-      call error("Atomic resolved energies cannot be calculated with the range-separated&
-          & hybrid functional at the moment")
+      call error("Atomic resolved energies cannot be calculated with hybrid functionals at the&
+          & moment.")
     end if
 
     if (this%nSpin > 2) then
-      call error("Hybrid calculations not implemented for non-colinear calculations")
+      call error("Hybrid calculations not implemented for non-colinear calculations.")
     end if
 
     if (this%tSpinOrbit) then
-      call error("Hybrid calculations not currently implemented for spin orbit")
+      call error("Hybrid calculations not currently implemented for spin orbit coupling.")
     end if
 
     if (this%isXlbomd) then
-      call error("Hybrid calculations not currently implemented for XLBOMD")
+      call error("Hybrid calculations not currently implemented for XLBOMD.")
     end if
 
     if (this%t3rd) then
-      call error("Hybrid calculations not currently implemented for 3rd order DFTB")
+      call error("Hybrid calculations not currently implemented for 3rd-order DFTB.")
     end if
 
     if (this%isRS_LinResp .and. hybridXcInp%hybridXcType == hybridXcFunc%cam) then
