@@ -117,14 +117,8 @@ module dftbp_dftb_hybridxc
     !> Truncated and poly5zero damped gamma function (truncated+damping)
     integer :: truncatedAndDamped = 2
 
-    !> Artificially screened gamma function (screened)
-    integer :: screened = 3
-
-    !> Artificially screened and poly5zero damped gamma function (screened+damping)
-    integer :: screenedAndDamped = 4
-
     !> Minimum image convention, based on density matrix criteria (mic)
-    integer :: mic = 5
+    integer :: mic = 3
 
   end type THybridXcGammaTypesEnum
 
@@ -239,15 +233,8 @@ module dftbp_dftb_hybridxc
     !> Damping distance for Gamma truncation
     real(dp) :: gammaDamping
 
-    !> Auxiliary gamma damping/screening parameter
-    real(dp) :: auxiliaryScreening
-
     !> Value, 1st and 2nd derivative of gamma integral at damping distance
     real(dp), allocatable :: lrGammaAtDamping(:,:), lrdGammaAtDamping(:,:), lrddGammaAtDamping(:,:)
-
-    !> Value, 1st and 2nd derivative of screened gamma integral at damping distance
-    real(dp), allocatable :: lrScreenedGammaAtDamping(:,:), lrdScreenedGammaAtDamping(:,:)
-    real(dp), allocatable :: lrddScreenedGammaAtDamping(:,:)
 
     !> Value, 1st and 2nd derivative of gamma integral at damping distance
     real(dp), allocatable :: hfGammaAtDamping(:,:), hfdGammaAtDamping(:,:), hfddGammaAtDamping(:,:)
@@ -378,34 +365,6 @@ module dftbp_dftb_hybridxc
   end type THybridXcFunc_truncatedAndDamped
 
 
-  !> Base type extension for artificially screened analytical gamma functions.
-  type, extends(THybridXcFunc) :: THybridXcFunc_screened
-
-  contains
-
-    procedure :: getLrGammaValue => getLrScreenedGammaValue
-    procedure :: getLrGammaPrimeValue => getdLrScreenedGammaValue
-
-    procedure :: getHfGammaValue => getHfScreenedGammaValue
-    procedure :: getHfGammaPrimeValue => getdHfScreenedGammaValue
-
-  end type THybridXcFunc_screened
-
-
-  !> Base type extension for artificially screened and poly5zero damped analytical gamma functions.
-  type, extends(THybridXcFunc) :: THybridXcFunc_screenedAndDamped
-
-  contains
-
-    procedure :: getLrGammaValue => getLrScreenedAndDampedGammaValue
-    procedure :: getLrGammaPrimeValue => getdLrScreenedAndDampedGammaValue
-
-    procedure :: getHfGammaValue => getHfScreenedAndDampedGammaValue
-    procedure :: getHfGammaPrimeValue => getdHfScreenedAndDampedGammaValue
-
-  end type THybridXcFunc_screenedAndDamped
-
-
   !> Base type extension for minimum image convention, based on density matrix criteria.
   type, extends(THybridXcFunc) :: THybridXcFunc_mic
 
@@ -425,7 +384,7 @@ contains
   !> Intitializes the range-separated module.
   subroutine THybridXcFunc_init(this, nAtom, species0, hubbu, screen, omega, camAlpha, camBeta,&
       & tSpin, tREKS, hybridXcAlg, hybridXcType, gammaType, tPeriodic, tRealHS, gammaCutoff,&
-      & gSummationCutoff, wignerSeitzReduction, auxiliaryScreening, coeffsDiag, latVecs)
+      & gSummationCutoff, wignerSeitzReduction, coeffsDiag, latVecs)
 
     !> Class instance
     class(THybridXcFunc), intent(out), allocatable :: this
@@ -482,9 +441,6 @@ contains
     !! cell construction
     integer, intent(in), optional :: wignerSeitzReduction
 
-    !> Auxiliary gamma damping/screening parameter
-    real(dp), intent(in), optional :: auxiliaryScreening
-
     !> Supercell folding coefficients (diagonal elements)
     integer, intent(in), optional :: coeffsDiag(:)
 
@@ -496,12 +452,6 @@ contains
 
     !! Number of unique species in system
     integer :: nUniqueSpecies
-
-    real(dp), allocatable :: wsDistances(:)
-    integer, allocatable :: wsDegeneracy(:)
-
-    ! integer :: ii, fd
-    ! real(dp) :: dist, gamma, dgamma
 
     ! Perform basic consistency checks for optional arguments
     if (tPeriodic .and. (.not. present(gSummationCutoff))) then
@@ -531,22 +481,6 @@ contains
             & present.')
       end if
       allocate(THybridXcFunc_truncatedAndDamped:: this)
-    case (hybridXcGammaTypes%screened)
-      if (.not. present(auxiliaryScreening)) then
-        call error('Range-separated Module: Coulomb screening requires additional range-separation&
-            & parameter, which is not present.')
-      end if
-      allocate(THybridXcFunc_screened:: this)
-    case (hybridXcGammaTypes%screenedAndDamped)
-      if (.not. present(gammaCutoff)) then
-        call error('Range-separated Module: Coulomb truncation requires cutoff, which is not&
-            & present.')
-      end if
-      if (.not. present(auxiliaryScreening)) then
-        call error('Range-separated Module: Coulomb screening requires additional range-separation&
-            & parameter, which is not present.')
-      end if
-      allocate(THybridXcFunc_screenedAndDamped:: this)
     case default
       call error('Range-separated Module: Invalid gamma function type obtained.')
     end select
@@ -570,7 +504,6 @@ contains
 
     if (present(gSummationCutoff)) this%gSummationCutoff = gSummationCutoff
     if (present(wignerSeitzReduction)) this%wignerSeitzReduction = wignerSeitzReduction
-    if (present(auxiliaryScreening)) this%auxiliaryScreening = auxiliaryScreening
 
     if (present(gammaCutoff)) then
       this%gammaCutoff = gammaCutoff
@@ -599,26 +532,6 @@ contains
               & this%omega, this%gammaDamping, 1e-08_dp)
         end do
       end do
-
-      if (present(auxiliaryScreening)) then
-        allocate(this%lrScreenedGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
-        allocate(this%lrdScreenedGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
-        allocate(this%lrddScreenedGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
-        do iSp2 = 1, nUniqueSpecies
-          do iSp1 = 1, nUniqueSpecies
-            this%lrScreenedGammaAtDamping(iSp1, iSp2)&
-                & = getLrScreenedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-                & this%omega, this%auxiliaryScreening, this%gammaDamping)
-            this%lrdScreenedGammaAtDamping(iSp1, iSp2)&
-                & = getdLrScreenedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-                & this%omega, this%auxiliaryScreening, this%gammaDamping)
-            this%lrddScreenedGammaAtDamping(iSp1, iSp2)&
-                & = getddLrNumericalScreenedGammaValue_workhorse(this%hubbu(iSp1),&
-                & this%hubbu(iSp2), this%omega, this%auxiliaryScreening, this%gammaDamping,&
-                & 1e-08_dp)
-          end do
-        end do
-      end if
 
       call getNumberOfUniqueInt(this%species0, nUniqueSpecies)
       allocate(this%hfGammaAtDamping(nUniqueSpecies, nUniqueSpecies))
@@ -743,70 +656,6 @@ contains
     end subroutine getBvKLatticeShifts
 
   end subroutine THybridXcFunc_init
-
-
-  ! !> Brute force search of phase periodicity for a given k-point.
-  ! function findPhasePeriodicity(kPoint, uBound) result(periodicity)
-
-  !   !> Single (relative) k-point coordinates for phase factor
-  !   real(dp), intent(in) :: kPoint(:)
-
-  !   !> Optional upper bound as limit for brute-force search
-  !   integer, intent(in), optional :: uBound
-
-  !   !! G-vector in relative coordinates
-  !   real(dp) :: gVec(3)
-
-  !   !! Periodicity of phase factor
-  !   integer :: periodicity(3)
-
-  !   !! Upper bound as limit for brute-force search
-  !   integer :: uBound_
-
-  !   !! True, if the periodicity has not been found yet
-  !   logical :: tSearchIncomplete
-
-  !   !! Phase factor
-  !   complex(dp) :: phase
-
-  !   !! Auxiliary variables
-  !   integer :: iBound, ii, jj, kk
-
-  !   complex(dp), allocatable :: phaseMesh(:,:,:)
-  !   logical, allocatable :: tMatch(:,:,:)
-
-  !   tSearchIncomplete = .true.
-
-  !   if (present(uBound)) then
-  !     uBound_ = uBound
-  !   else
-  !     uBound_ = 10000
-  !   end if
-
-  !   do iBound = 1, uBound_
-  !     gVec = real(ii, dp)
-
-  !     if (allocated(phaseMesh)) deallocate(phaseMesh)
-  !     allocate(phaseMesh(iBound + 1, iBound + 1, iBound + 1))
-  !     do kk = 0, iBound
-  !       gVec(3) = real(kk, dp)
-  !       do jj = 0, iBound
-  !         gVec(2) = real(jj, dp)
-  !         do ii = 0, iBound
-  !           gVec(1) = real(ii, dp)
-  !           phaseMesh(ii, jj, kk) = exp(cmplx(0, -1, dp) * dot_product(2.0_dp * pi * kPoint, gVec))
-  !         end do
-  !       end do
-  !     end do
-
-  !     tMatch = abs(phaseMesh - (1.0_dp, 0.0_dp)) > 1e-12_dp
-  !     print *, tMatch
-  !     stop
-  !   end do
-
-  !   periodicity(:) = 0
-
-  ! end function findPhasePeriodicity1D
 
 
   !> Checks if obtained supercell folding matrix meets current requirements.
@@ -1042,39 +891,9 @@ contains
       this%camEnergy = 0.0_dp
     end if
 
+    call calculateOverlapEstimates(this, symNeighbourList, nNeighbourCamSym, iSquare)
+
     ! ##################### Beginning of \gamma(\bm{g}) pre-tabulation #############################
-
-    ! allocate max estimates of square overlap blocks and index array for sorting
-    if (allocated(this%testSquareOver)) deallocate(this%testSquareOver)
-    allocate(this%testSquareOver(nAtom0))
-    if (allocated(this%overlapIndices)) deallocate(this%overlapIndices)
-    allocate(this%overlapIndices(nAtom0))
-
-    do iAtN = 1, nAtom0
-      descN = getDescriptor(iAtN, iSquare)
-      allocate(this%testSquareOver(iAtN)%array(nNeighbourCamSym(iAtN) + 1))
-      do iNeighN = 0, nNeighbourCamSym(iAtN)
-        iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
-        iAtBfold = symNeighbourList%img2CentCell(iAtB)
-        descB = getDescriptor(iAtBfold, iSquare)
-        ! get 2D pointer to Sbn overlap block
-        ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
-        nOrbAt = descN(iNOrb)
-        nOrbNeigh = descB(iNOrb)
-        pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-        this%testSquareOver(iAtN)%array(iNeighN + 1) = maxval(abs(pSbn))
-      end do
-    end do
-
-    ! sort max square overlap estimates (descending)
-    ! this way we can exit the whole loop a.s.a. threshold has been undershot for the first time
-    do iAtN = 1, nAtom0
-      allocate(this%overlapIndices(iAtN)%array(nNeighbourCamSym(iAtN) + 1))
-      call index_heap_sort(this%overlapIndices(iAtN)%array, this%testSquareOver(iAtN)%array)
-      ! switch from ascending to descending
-      this%overlapIndices(iAtN)%array(:)&
-          & = this%overlapIndices(iAtN)%array(size(this%overlapIndices(iAtN)%array):1:-1)
-    end do
 
     do iAtM = 1, nAtom0
       iSpM = this%species0(iAtM)
@@ -1165,31 +984,14 @@ contains
     integer :: nGShifts
 
     !! Composite index iAtM/iAtN
-    integer :: ii, iAtMN(2, size(this%species0)**2)
+    integer :: ii
+    integer, allocatable :: iAtMN(:,:)
 
     !! Dummy array with zeros
     real(dp) :: zeros(3)
 
-    !! Minimum and maximum cell translations of neighbour list in each direction
-    integer :: minVecX, maxVecX, minVecY, maxVecY, minVecZ, maxVecZ
-
-    !! Real-space shift components of neighbour list atoms
-    integer :: vecLx, vecLy, vecLz, vecHx, vecHy, vecHz
-
-    !! Real-space \vec{h} and \vec{l} vectors in relative coordinates
-    integer :: vecH(3), vecL(3)
-
-    !! Real-space \vec{h} and \vec{l} vectors in absolute coordinates
-    real(dp) :: rVecH(3), rVecL(3)
-
-    !! Real-space shift of delta density matrix argument
-    integer :: dPabArg(3)
-
     !! Iterates over g-vectors
     integer :: iG
-
-    ! Max estimate for overlap and products
-    real(dp) :: maxEstimate, pSbnMax
 
     zeros(:) = 0.0_dp
 
@@ -1221,39 +1023,7 @@ contains
       this%camEnergy = 0.0_dp
     end if
 
-    ! ##################### Beginning of overlap screening pre-tabulation ##########################
-
-    ! allocate max estimates of square overlap blocks and index array for sorting
-    if (allocated(this%testSquareOver)) deallocate(this%testSquareOver)
-    allocate(this%testSquareOver(nAtom0))
-    if (allocated(this%overlapIndices)) deallocate(this%overlapIndices)
-    allocate(this%overlapIndices(nAtom0))
-
-    do iAtN = 1, nAtom0
-      descN = getDescriptor(iAtN, iSquare)
-      allocate(this%testSquareOver(iAtN)%array(nNeighbourCamSym(iAtN) + 1))
-      do iNeighN = 0, nNeighbourCamSym(iAtN)
-        iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
-        iAtBfold = symNeighbourList%img2CentCell(iAtB)
-        descB = getDescriptor(iAtBfold, iSquare)
-        ! get 2D pointer to Sbn overlap block
-        ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
-        nOrbAt = descN(iNOrb)
-        nOrbNeigh = descB(iNOrb)
-        pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-        this%testSquareOver(iAtN)%array(iNeighN + 1) = maxval(abs(pSbn))
-      end do
-    end do
-
-    ! sort max square overlap estimates (descending)
-    ! this way we can exit the whole loop a.s.a. threshold has been undershot for the first time
-    do iAtN = 1, nAtom0
-      allocate(this%overlapIndices(iAtN)%array(nNeighbourCamSym(iAtN) + 1))
-      call index_heap_sort(this%overlapIndices(iAtN)%array, this%testSquareOver(iAtN)%array)
-      ! switch from ascending to descending
-      this%overlapIndices(iAtN)%array(:)&
-          & = this%overlapIndices(iAtN)%array(size(this%overlapIndices(iAtN)%array):1:-1)
-    end do
+    call calculateOverlapEstimates(this, symNeighbourList, nNeighbourCamSym, iSquare)
 
     ! ##################### Beginning of \gamma(\bm{g}) pre-tabulation #############################
 
@@ -1273,15 +1043,7 @@ contains
 
     else
 
-      ! Build up composite index iAtMN for collapsing iAtM and iAtN
-      ind = 1
-      loopM: do iAtM = 1, nAtom0
-        loopN: do iAtN = 1, nAtom0
-          iAtMN(1, ind) = iAtM
-          iAtMN(2, ind) = iAtN
-          ind = ind + 1
-        end do loopN
-      end do loopM
+      call getTwoCentralCellLoopCompositeIndex(nAtom0, iAtMN)
 
       ! get all cell translations within given cutoff
       call getCellTranslations(this%cellVecsG, this%rCellVecsG, latVecs, recVecs2p,&
@@ -1348,6 +1110,113 @@ contains
     end function getNumberOfNonZeroElements
 
   end subroutine updateCoords_kpts
+
+
+  !> Tabulates (descending) overlap estimates for SPS-product screening.
+  subroutine calculateOverlapEstimates(this, symNeighbourList, nNeighbourCamSym, iSquare)
+
+    !> Class instance
+    class(THybridXcFunc), intent(inout), target :: this
+
+    !> List of neighbours for each atom (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
+
+    !> Symmetric neighbour list version of nNeighbourCam
+    integer, intent(in) :: nNeighbourCamSym(:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !! Atom blocks from sparse, real-space overlap matrix S_{\beta\nu}
+    real(dp), pointer :: pSbn(:,:)
+
+    !! Dense matrix descriptor indices
+    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
+
+    !! Index of atom in central cell
+    integer :: iAtN
+
+    !! Neighbour index (+corresponding atom index)
+    integer :: iNeighN, iAtB
+
+    !! Folded (to central cell) atom index
+    integer :: iAtBfold
+
+    !! Stores start/end index and number of orbitals of square matrices
+    integer :: descN(descLen), descB(descLen)
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    !! Auxiliary variables for setting up 2D pointer to sparse overlap
+    integer :: ind, nOrbAt, nOrbNeigh
+
+    ! get number of atoms in central cell
+    nAtom0 = size(this%species0)
+
+    ! allocate max estimates of square overlap blocks and index array for sorting
+    if (allocated(this%testSquareOver)) deallocate(this%testSquareOver)
+    allocate(this%testSquareOver(nAtom0))
+    if (allocated(this%overlapIndices)) deallocate(this%overlapIndices)
+    allocate(this%overlapIndices(nAtom0))
+
+    do iAtN = 1, nAtom0
+      descN = getDescriptor(iAtN, iSquare)
+      allocate(this%testSquareOver(iAtN)%array(nNeighbourCamSym(iAtN) + 1))
+      do iNeighN = 0, nNeighbourCamSym(iAtN)
+        iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighN, iAtN)
+        iAtBfold = symNeighbourList%img2CentCell(iAtB)
+        descB = getDescriptor(iAtBfold, iSquare)
+        ! get 2D pointer to Sbn overlap block
+        ind = symNeighbourList%iPair(iNeighN, iAtN) + 1
+        nOrbAt = descN(iNOrb)
+        nOrbNeigh = descB(iNOrb)
+        pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+        this%testSquareOver(iAtN)%array(iNeighN + 1) = maxval(abs(pSbn))
+      end do
+    end do
+
+    ! sort max square overlap estimates (descending)
+    ! this way we can exit the whole loop a.s.a. threshold has been undershot for the first time
+    do iAtN = 1, nAtom0
+      allocate(this%overlapIndices(iAtN)%array(nNeighbourCamSym(iAtN) + 1))
+      call index_heap_sort(this%overlapIndices(iAtN)%array, this%testSquareOver(iAtN)%array)
+      ! switch from ascending to descending
+      this%overlapIndices(iAtN)%array(:)&
+          & = this%overlapIndices(iAtN)%array(size(this%overlapIndices(iAtN)%array):1:-1)
+    end do
+
+  end subroutine calculateOverlapEstimates
+
+
+  !> Builds simple composite index for two nested loops over atoms in the central cell.
+  subroutine getTwoCentralCellLoopCompositeIndex(nAtom0, iAtMN)
+
+    !> Number of atoms in central cell
+    integer, intent(in) :: nAtom0
+
+    !> Composite index for two nested loops over central cell
+    integer, intent(out), allocatable :: iAtMN(:,:)
+
+    !! Indices of atoms in central cell
+    integer :: iAtM, iAtN
+
+    !! Auxiliary variable
+    integer :: ind
+
+    allocate(iAtMN(2, nAtom0**2))
+
+    ! Build up composite index iAtMN for collapsing iAtM and iAtN
+    ind = 1
+    loopM: do iAtM = 1, nAtom0
+      loopN: do iAtN = 1, nAtom0
+        iAtMN(1, ind) = iAtM
+        iAtMN(2, ind) = iAtN
+        ind = ind + 1
+      end do loopN
+    end do loopM
+
+  end subroutine getTwoCentralCellLoopCompositeIndex
 
 
   !> Builds MPI rank dependent composite index for nested HFX loops.
@@ -2388,6 +2257,7 @@ contains
 
     !! Atom blocks from sparse, real-space overlap matrices S_{\alpha\mu}, S_{\beta\nu}
     real(dp), pointer :: pSam(:,:), pSbn(:,:)
+    real(dp), allocatable :: pSamT(:,:)
 
     !! Density matrix block from sparse matrix
     real(dp), allocatable :: Pab(:,:)
@@ -2397,10 +2267,8 @@ contains
 
     !! Temporary storages
     real(dp), allocatable :: tmpDeltaRhoSqr(:,:), tmpDeltaDeltaRhoSqr(:,:), tmpHSqr(:,:)
-
-    !! \tilde{\gamma}_{\mu\nu}, \tilde{\gamma}_{\mu\beta},
-    !! \tilde{\gamma}_{\alpha\nu}, \tilde{\gamma}_{\alpha\beta}
-    real(dp) :: gammaMNMB, gammaTot
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: tot
+    real(dp), dimension(orb%mOrb, orb%mOrb) :: pSamT_Pab, Pab_Sbn, pSamT_Pab_pSbn, pSamT_Pab_gammaAB
 
     !! Overlap matrix elements
     real(dp) :: Sam, Sbn
@@ -2426,8 +2294,8 @@ contains
     !! Sorted (according to max overlap estimates) neighbour indices
     integer :: iNeighMsort, iNeighNsort
 
-    !! Auxiliary variables for setting up 2D pointer to sparse overlap
-    integer :: ind, nOrbAt, nOrbNeigh
+    !! Auxiliary variable
+    integer :: ind
 
     !! Number of atoms in central cell
     integer :: nAtom0
@@ -2443,20 +2311,13 @@ contains
     integer :: iParallelStart, iParallelEnd
 
     !! Composite index iAtM/iAtN
-    integer :: ii, iAtMN(2, size(this%species0)**2)
+    integer :: ii
+    integer, allocatable :: iAtMN(:,:)
 
     squareSize = size(HSqr, dim=1)
     nAtom0 = size(this%species0)
 
-    ! Build up composite index iAtMN for collapsing iAtM and iAtN
-    ind = 1
-    loopM: do iAtM = 1, nAtom0
-      loopN: do iAtN = 1, nAtom0
-        iAtMN(1, ind) = iAtM
-        iAtMN(2, ind) = iAtN
-        ind = ind + 1
-      end do loopN
-    end do loopM
+    call getTwoCentralCellLoopCompositeIndex(nAtom0, iAtMN)
 
   #:if WITH_MPI
     call getStartAndEndIndex(nAtom0**2, env%mpi%groupComm%size, env%mpi%groupComm%rank,&
@@ -2508,13 +2369,10 @@ contains
         iAtB = symNeighbourList%neighbourList%iNeighbour(iNeighNsort, iAtN)
         iAtBfold = symNeighbourList%img2CentCell(iAtB)
         descB = getDescriptor(iAtBfold, iSquare)
-        ! get 2D pointer to S_{\beta\nu}(\vec{l}) overlap block
+        ! get 2D pointer to Sbn overlap block
         ind = symNeighbourList%iPair(iNeighNsort, iAtN) + 1
-        nOrbAt = descN(iNOrb)
-        nOrbNeigh = descB(iNOrb)
-        pSbn(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
-        ! \tilde{\gamma}_{\mu\nu} + \tilde{\gamma}_{\mu\beta}
-        gammaMNMB = this%camGammaEval0(iAtM, iAtN) + this%camGammaEval0(iAtM, iAtBfold)
+        pSbn(1:descB(iNOrb), 1:descN(iNOrb))&
+            & => this%overSym(ind:ind + descB(iNOrb) * descN(iNOrb) - 1)
         loopA: do iNeighM = 0, nNeighbourCamSym(iAtM)
           iNeighMsort = this%overlapIndices(iAtM)%array(iNeighM + 1) - 1
           maxEstimate = pSbnMax * this%testSquareOver(iAtM)%array(iNeighMsort + 1)
@@ -2524,60 +2382,40 @@ contains
           descA = getDescriptor(iAtAfold, iSquare)
           ! get continuous 2D copy of Pab density matrix block
           Pab = tmpDeltaDeltaRhoSqr(descA(iStart):descA(iEnd), descB(iStart):descB(iEnd))
-          ! get 2D pointer to S_{\alpha\mu}(\vec{h}) overlap block
+          ! get 2D pointer to Sam overlap block
           ind = symNeighbourList%iPair(iNeighMsort, iAtM) + 1
-          nOrbAt = descM(iNOrb)
-          nOrbNeigh = descA(iNOrb)
-          pSam(1:nOrbNeigh, 1:nOrbAt) => this%overSym(ind:ind + nOrbNeigh * nOrbAt - 1)
+          pSam(1:descA(iNOrb), 1:descM(iNOrb))&
+              & => this%overSym(ind:ind + descA(iNOrb) * descM(iNOrb) - 1)
+          pSamT = transpose(pSam(1:descA(iNOrb), 1:descM(iNOrb)))
 
-          gammaTot = gammaMNMB + this%camGammaEval0(iAtAfold, iAtN)&
-              & + this%camGammaEval0(iAtAfold, iAtBfold)
+          pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab)
+          Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab, pSbn)
 
-          do mu = 1, descM(iNOrb)
-            do nu = 1, descN(iNOrb)
-              do beta = 1, descB(iNOrb)
-                Sbn = pSbn(beta, nu)
-                do alpha = 1, descA(iNOrb)
-                  Sam = pSam(alpha, mu)
-                  dPab = Pab(alpha, beta)
-                  SamdPabSbnGammaTot = Sam * dPab * Sbn * gammaTot
+          ! term #1
+          pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+              & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
+              & * this%camGammaEval0(iAtM, iAtN)
 
-                  tmpHSqr(descM(iStart) + mu - 1, descN(iStart) + nu - 1)&
-                      & = tmpHSqr(descM(iStart) + mu - 1, descN(iStart) + nu - 1)&
-                      & + SamdPabSbnGammaTot
-                end do
-              end do
-            end do
-          end do
+          ! term #2
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+              & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb))&
+              & * this%camGammaEval0(iAtM, iAtBfold), pSbn)
 
-          ! \transpose{S_{\alpha\mu}(\vec{-h})}
-          ! pSamT = transpose(pSam(1:nOrbNeigh, 1:nOrbAt))
+          ! term #3
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+              & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb))&
+              & * this%camGammaEval0(iAtAfold, iAtN))
 
-          ! pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) = matmul(pSamT, Pab)
-          ! Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) = matmul(Pab, pSbn)
+          ! term #4
+          pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb))&
+              & = matmul(pSamT, Pab * this%camGammaEval0(iAtAfold, iAtBfold))
+          tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
+              & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
 
-          ! ! term #1
-          ! pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-          !     & = matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
-          ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = pSamT_Pab_pSbn(1:descM(iNOrb), 1:descN(iNOrb))&
-          !     & * gammaMN
-
-          ! ! term #2
-          ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-          !     & + matmul(pSamT_Pab(1:descM(iNOrb), 1:descB(iNOrb)) * gammaMB, pSbn)
-
-          ! ! term #3
-          ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-          !     & + matmul(pSamT, Pab_Sbn(1:descA(iNOrb), 1:descN(iNOrb)) * gammaAN)
-
-          ! ! term #4
-          ! pSamT_Pab_gammaAB(1:descM(iNorb), 1:descB(iNorb)) = matmul(pSamT, Pab * gammaAB)
-          ! tot(1:descM(iNOrb), 1:descN(iNOrb)) = tot(1:descM(iNOrb), 1:descN(iNOrb))&
-          !     & + matmul(pSamT_Pab_gammaAB(1:descM(iNOrb), 1:descB(iNOrb)), pSbn)
-
-          ! tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-          !     & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
-          !     & + tot(1:descM(iNOrb), 1:descN(iNOrb))
+          tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+              & = tmpHSqr(descM(iStart):descM(iEnd), descN(iStart):descN(iEnd))&
+              & + tot(1:descM(iNOrb), 1:descN(iNOrb))
 
         end do loopA
       end do loopB
@@ -2594,20 +2432,22 @@ contains
     call mpifx_allreduceip(env%mpi%groupComm, tmpHSqr, MPI_SUM)
   #:endif
 
-    this%hprev(:,:) = this%hprev + tmpHSqr
-    HSqr(:,:) = HSqr + this%hprev
+    if (env%tGlobalLead) then
+      this%hprev(:,:) = this%hprev + tmpHSqr
+      HSqr(:,:) = HSqr + this%hprev
+    end if
 
-    ! HSqr(:,:) = HSqr + tmpHSqr
+  #:if WITH_MPI
+    call mpifx_bcast(env%mpi%globalComm, this%hprev)
+    call mpifx_bcast(env%mpi%globalComm, HSqr)
+  #:endif
 
     ! Add energy contribution but divide by the number of processes
   #:if WITH_MPI
     this%camEnergy = this%camEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)&
         & / real(env%mpi%groupComm%size, dp)
-    ! this%camEnergy = this%camEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)&
-    !     & / real(env%mpi%groupComm%size, dp)
   #:else
     this%camEnergy = this%camEnergy + evaluateEnergy_real(this%hprev, tmpDeltaRhoSqr)
-    ! this%camEnergy = this%camEnergy + evaluateEnergy_real(tmpHSqr, tmpDeltaRhoSqr)
   #:endif
 
   end subroutine addCamHamiltonianNeighbour_gamma
@@ -3588,170 +3428,6 @@ contains
   end function getddHfNumericalGammaDeriv
 
 
-  !> Calculates analytical, screened Coulomb, long-range gamma.
-  function getLrScreenedGammaValue(this, iSp1, iSp2, dist) result(gamma)
-
-    !> Class instance
-    class(THybridXcFunc_screened), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: iSp1
-
-    !> Second species
-    integer, intent(in) :: iSp2
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma
-    real(dp) :: gamma
-
-    gamma = getLrScreenedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2), this%omega,&
-        & this%auxiliaryScreening, dist)
-
-  end function getLrScreenedGammaValue
-
-
-  !> Calculates analytical, screened Coulomb, long-range gamma.
-  function getLrScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening, dist)&
-      & result(gamma)
-
-    !> Hubbard U's
-    real(dp), intent(in) :: hubbu1, hubbu2
-
-    !> Range-separation parameter
-    real(dp), intent(in) :: omega
-
-    !> Auxiliary screening parameter
-    real(dp), intent(in) :: auxiliaryScreening
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma
-    real(dp) :: gamma
-
-    gamma = getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening, dist)&
-        & - getLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist)
-
-  end function getLrScreenedGammaValue_workhorse
-
-
-  !> Calculates analytical, screened and poly5zero damped Coulomb, long-range gamma.
-  function getLrScreenedAndDampedGammaValue(this, iSp1, iSp2, dist) result(gamma)
-
-    !> Class instance
-    class(THybridXcFunc_screenedAndDamped), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: iSp1
-
-    !> Second species
-    integer, intent(in) :: iSp2
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma
-    real(dp) :: gamma
-
-    gamma = getLrScreenedAndDampedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-        & this%omega, this%auxiliaryScreening, dist, this%gammaCutoff, this%gammaDamping,&
-        & this%lrScreenedGammaAtDamping(iSp1, iSp2), this%lrdScreenedGammaAtDamping(iSp1, iSp2),&
-        & this%lrddScreenedGammaAtDamping(iSp1, iSp2))
-
-  end function getLrScreenedAndDampedGammaValue
-
-
-  !> Calculates analytical, screened and poly5zero damped Coulomb, long-range gamma.
-  function getLrScreenedAndDampedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening,&
-      & dist, gammaCutoff, gammaDamping, lrScreenedGammaAtDamping, lrdScreenedGammaAtDamping,&
-      & lrddScreenedGammaAtDamping) result(gamma)
-
-    !> Hubbard U's
-    real(dp), intent(in) :: hubbu1, hubbu2
-
-    !> Range-separation parameter
-    real(dp), intent(in) :: omega
-
-    !> Auxiliary screening parameter
-    real(dp), intent(in) :: auxiliaryScreening
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Cutoff for truncated Gamma
-    real(dp), intent(in) :: gammaCutoff
-
-    !> Damping distance for Gamma truncation
-    real(dp), intent(in) :: gammaDamping
-
-    !> Value, 1st and 2nd derivative of screened gamma integral at damping distance
-    real(dp), intent(in) :: lrScreenedGammaAtDamping
-    real(dp), intent(in) :: lrdScreenedGammaAtDamping
-    real(dp), intent(in) :: lrddScreenedGammaAtDamping
-
-    !> Resulting screened gamma
-    real(dp) :: gamma
-
-    if (dist > gammaDamping .and. dist < gammaCutoff) then
-      gamma = poly5zero(lrScreenedGammaAtDamping, lrdScreenedGammaAtDamping,&
-          & lrddScreenedGammaAtDamping, dist, gammaDamping, gammaCutoff, tDerivative=.false.)
-    elseif (dist >= gammaCutoff) then
-      gamma = 0.0_dp
-    else
-      gamma = getLrScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening, dist)
-    end if
-
-  end function getLrScreenedAndDampedGammaValue_workhorse
-
-
-  !> Calculates analytical, screened Coulomb, full-range Hartree-Fock gamma.
-  function getHfScreenedGammaValue(this, iSp1, iSp2, dist) result(gamma)
-
-    !> Class instance
-    class(THybridXcFunc_screened), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: iSp1
-
-    !> Second species
-    integer, intent(in) :: iSp2
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma
-    real(dp) :: gamma
-
-    gamma = 0.0_dp
-
-  end function getHfScreenedGammaValue
-
-
-  !> Calculates analytical, screened and poly5zero damped Coulomb, full-range Hartree-Fock gamma.
-  function getHfScreenedAndDampedGammaValue(this, iSp1, iSp2, dist) result(gamma)
-
-    !> Class instance
-    class(THybridXcFunc_screenedAndDamped), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: iSp1
-
-    !> Second species
-    integer, intent(in) :: iSp2
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma
-    real(dp) :: gamma
-
-    gamma = 0.0_dp
-
-  end function getHfScreenedAndDampedGammaValue
-
-
   !> Calculates analytical, truncated Coulomb, long-range gamma.
   function getLrTruncatedGammaValue(this, iSp1, iSp2, dist) result(gamma)
 
@@ -4223,200 +3899,6 @@ contains
     end if
 
   end function getdHfTruncatedAndDampedGammaValue
-
-
-  !> Calculates analytical, screened Coulomb, long-range gamma derivative.
-  function getdLrScreenedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
-
-    !> Class instance
-    class(THybridXcFunc_screened), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: iSp1
-
-    !> Second species
-    integer, intent(in) :: iSp2
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma derivative
-    real(dp) :: dGamma
-
-    dGamma = getdLrScreenedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-        & this%omega, this%auxiliaryScreening, dist)
-
-  end function getdLrScreenedGammaValue
-
-
-  !> Calculates analytical, screened Coulomb, long-range gamma derivative.
-  function getdLrScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening, dist)&
-      & result(dGamma)
-
-    !> Hubbard U's
-    real(dp), intent(in) :: hubbu1, hubbu2
-
-    !> Range-separation parameter
-    real(dp), intent(in) :: omega
-
-    !> Auxiliary screening parameter
-    real(dp), intent(in) :: auxiliaryScreening
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma derivative
-    real(dp) :: dGamma
-
-    dGamma = getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening, dist)&
-        & - getdLrAnalyticalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist)
-
-  end function getdLrScreenedGammaValue_workhorse
-
-
-  !> Calculates analytical, screened Coulomb, long-range gamma (2nd) derivative.
-  function getddLrNumericalScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening,&
-      & dist, delta) result(ddGamma)
-
-    !> Hubbard U's
-    real(dp), intent(in) :: hubbu1, hubbu2
-
-    !> Range-separation parameter
-    real(dp), intent(in) :: omega
-
-    !> Auxiliary screening parameter
-    real(dp), intent(in) :: auxiliaryScreening
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Delta for finite differences
-    real(dp), intent(in) :: delta
-
-    !> Resulting screened gamma (2nd) derivative
-    real(dp) :: ddGamma
-
-    ddGamma = getddLrNumericalGammaValue_workhorse(hubbu1, hubbu2, omega + auxiliaryScreening,&
-        & dist, delta)&
-        & - getddLrNumericalGammaValue_workhorse(hubbu1, hubbu2, auxiliaryScreening, dist, delta)
-
-  end function getddLrNumericalScreenedGammaValue_workhorse
-
-
-  !> Calculates analytical, screened and poly5zero damped Coulomb, long-range gamma derivative.
-  function getdLrScreenedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
-
-    !> Class instance
-    class(THybridXcFunc_screenedAndDamped), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: iSp1
-
-    !> Second species
-    integer, intent(in) :: iSp2
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma derivative
-    real(dp) :: dGamma
-
-    dGamma = getdLrScreenedAndDampedGammaValue_workhorse(this%hubbu(iSp1), this%hubbu(iSp2),&
-        & this%omega, this%auxiliaryScreening, dist, this%gammaCutoff, this%gammaDamping,&
-        & this%lrScreenedGammaAtDamping(iSp1, iSp2), this%lrdScreenedGammaAtDamping(iSp1, iSp2),&
-        & this%lrddScreenedGammaAtDamping(iSp1, iSp2))
-
-  end function getdLrScreenedAndDampedGammaValue
-
-
-  !> Calculates analytical, screened and poly5zero damped Coulomb, long-range gamma derivative.
-  function getdLrScreenedAndDampedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening,&
-      & dist, gammaCutoff, gammaDamping, lrScreenedGammaAtDamping, lrdScreenedGammaAtDamping,&
-      & lrddScreenedGammaAtDamping) result(dGamma)
-
-    !> Hubbard U's
-    real(dp), intent(in) :: hubbu1, hubbu2
-
-    !> Range-separation parameter
-    real(dp), intent(in) :: omega
-
-    !> Auxiliary screening parameter
-    real(dp), intent(in) :: auxiliaryScreening
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Cutoff for truncated Gamma
-    real(dp), intent(in) :: gammaCutoff
-
-    !> Damping distance for Gamma truncation
-    real(dp), intent(in) :: gammaDamping
-
-    !> Value, 1st and 2nd derivative of screened gamma integral at damping distance
-    real(dp), intent(in) :: lrScreenedGammaAtDamping
-    real(dp), intent(in) :: lrdScreenedGammaAtDamping
-    real(dp), intent(in) :: lrddScreenedGammaAtDamping
-
-    !> Resulting screened gamma derivative
-    real(dp) :: dGamma
-
-    if (dist > gammaDamping .and. dist < gammaCutoff) then
-      dGamma = poly5zero(lrScreenedGammaAtDamping, lrdScreenedGammaAtDamping,&
-          & lrddScreenedGammaAtDamping, dist, gammaDamping, gammaCutoff, tDerivative=.true.)
-    elseif (dist >= gammaCutoff) then
-      dGamma = 0.0_dp
-    else
-      dGamma = getdLrScreenedGammaValue_workhorse(hubbu1, hubbu2, omega, auxiliaryScreening, dist)
-    end if
-
-  end function getdLrScreenedAndDampedGammaValue_workhorse
-
-
-  !> Calculates analytical, screened Coulomb, full-range Hartree-Fock gamma derivative.
-  function getdHfScreenedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
-
-    !> Class instance
-    class(THybridXcFunc_screened), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: iSp1
-
-    !> Second species
-    integer, intent(in) :: iSp2
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma derivative
-    real(dp) :: dGamma
-
-    dGamma = 0.0_dp
-
-  end function getdHfScreenedGammaValue
-
-
-  !> Calculates analytical, screened and poly5zero damped Coulomb, full-range Hartree-Fock gamma
-  !! derivative.
-  function getdHfScreenedAndDampedGammaValue(this, iSp1, iSp2, dist) result(dGamma)
-
-    !> Class instance
-    class(THybridXcFunc_screenedAndDamped), intent(in) :: this
-
-    !> First species
-    integer, intent(in) :: iSp1
-
-    !> Second species
-    integer, intent(in) :: iSp2
-
-    !> Distance between atoms
-    real(dp), intent(in) :: dist
-
-    !> Resulting screened gamma derivative
-    real(dp) :: dGamma
-
-    dGamma = 0.0_dp
-
-  end function getdHfScreenedAndDampedGammaValue
 
 
   !> Returns g-sum of long-range and full-range Hartree-Fock gamma derivatives.

@@ -2858,13 +2858,8 @@ contains
         call checkSupercellFoldingMatrix(coeffsAndShifts,&
             & supercellFoldingDiagOut=ctrl%supercellFoldingDiag)
         ctrl%supercellFoldingMatrix = coeffsAndShifts
-        ! For Gamma-point we don't need this information
-        ! if (sum(ctrl%supercellFoldingDiag) <= 3 .and. ) then
-        !   deallocate(ctrl%supercellFoldingDiag, ctrl%supercellFoldingMatrix)
-        ! end if
       end if
       tReduceByInversion = (.not. ctrl%tSpinOrbit)
-      ! tReduceByInversion = (.not. ctrl%tSpinOrbit) .and. (.not. allocated(ctrl%hybridXcInp))
       call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
           & ctrl%kPoint, ctrl%kWeight, reduceByInversion=tReduceByInversion)
       ctrl%nKPoint = size(ctrl%kPoint, dim=2)
@@ -7710,8 +7705,8 @@ contains
     integer :: hybridXcInputTag
 
     !! auxiliary node pointers
-    type(fnode), pointer :: hybridChild, hybridValue, screeningNode, screeningChild
-    type(fnode), pointer :: screeningValue, cmNode, cmChild, cmValue, child1, child2
+    type(fnode), pointer :: hybridChild, hybridValue, screeningChild
+    type(fnode), pointer :: screeningValue, cmChild, cmValue, child1, child2
 
     !! Temporary string buffers
     type(string) :: buffer, modifier
@@ -7731,14 +7726,6 @@ contains
     call inquireHybridXcTag(fileName, hybridXcSkTag)
 
     call getChild(node, "Hybrid", child=hybridChild, requested=.false.)
-
-    ! Check if Hybrid block is actually expected for given SK-files
-    ! if ((.not. associated(hybridChild)) .and. allocated(hybridXcSkTag)) then
-    !   call detailedError(node, "SK-files generated with hybrid xc-functional, but HSD input block&
-    !       & missing.")
-    ! elseif (associated(hybridChild) .and. (.not. allocated(hybridXcSkTag))) then
-    !   call detailedError(node, "SK-files not generated with hybrid xc-functional.")
-    ! end if
 
     if (associated(hybridChild)) then
       call getChildValue(node, "Hybrid", hybridValue, "None", child=hybridChild)
@@ -7794,7 +7781,7 @@ contains
       ! Additional settings for periodic sytems
       ifPeriodic: if (geo%tPeriodic) then
 
-        ! parse gamma function type (full, truncated, screened, ...)
+        ! parse gamma function type (full, truncated, mic, ...)
         call getChildValue(hybridValue, "CoulombMatrix", cmValue, "Truncated", child=cmChild)
 
         call getNodeName(cmValue, buffer)
@@ -7807,10 +7794,6 @@ contains
           input%gammaType = hybridXcGammaTypes%truncated
         case ("truncated+damping")
           input%gammaType = hybridXcGammaTypes%truncatedAndDamped
-        case ("screened")
-          input%gammaType = hybridXcGammaTypes%screened
-        case ("screened+damping")
-          input%gammaType = hybridXcGammaTypes%screenedAndDamped
         case default
           call getNodeHSdName(cmValue, buffer)
           call detailedError(cmChild, "Invalid Gamma function type '" // char(strBuffer) // "'")
@@ -7828,8 +7811,7 @@ contains
         end if
 
         if (input%gammaType == hybridXcGammaTypes%truncated&
-            & .or. input%gammaType == hybridXcGammaTypes%truncatedAndDamped&
-            & .or. input%gammaType == hybridXcGammaTypes%screenedAndDamped) then
+            & .or. input%gammaType == hybridXcGammaTypes%truncatedAndDamped) then
           call getChild(cmValue, "CoulombCutoff", child=child1, modifier=modifier,&
               & requested=.false.)
           if (associated(child1)) then
@@ -7839,14 +7821,6 @@ contains
           end if
         end if
 
-        if (input%gammaType == hybridXcGammaTypes%screened&
-            & .or. input%gammaType == hybridXcGammaTypes%truncatedAndDamped) then
-          call getChild(cmValue, "AuxiliaryScreening", child=child1, requested=.false.)
-          if (associated(child1)) then
-            allocate(input%auxiliaryScreening)
-            call getChildValue(child1, "", input%auxiliaryScreening)
-          end if
-        end if
       else
         ! Always use unaltered gamma function for non-periodic systems
         input%gammaType = hybridXcGammaTypes%full

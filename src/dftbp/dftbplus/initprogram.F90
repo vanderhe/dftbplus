@@ -2746,7 +2746,7 @@ contains
           & gammaCutoff=this%cutOff%gammaCutoff,&
           & gSummationCutoff=this%cutOff%gSummationCutoff,&
           & wignerSeitzReduction=this%cutOff%wignerSeitzReduction,&
-          & auxiliaryScreening=this%cutOff%auxiliaryScreening, latVecs=input%geom%latVecs)
+          & latVecs=input%geom%latVecs)
       ! now all information are present to properly allocate density matrices and associate pointers
       call this%reallocateHybridXc()
       ! reset number of mixer elements, so that there is enough space for density matrices
@@ -3547,30 +3547,22 @@ contains
         if (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%full) then
           write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "full"
         elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%mic) then
-          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "minimal image convention"
+          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "minimum image convention"
           write(stdOut, "(2X,A,':',T30,2X,I0,A)") "Wigner-Seitz cell reduction",&
               & this%cutOff%wignerSeitzReduction, " primitive cell(s)"
         elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncated) then
           write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated"
         elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncatedAndDamped) then
           write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "truncated+poly5zero"
-        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%screened) then
-          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened"
-        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%screenedAndDamped) then
-          write(stdOut, "(2X,A,':',T30,2X,A)") "Gamma function", "screened+poly5zero"
         end if
         if (input%ctrl%hybridXcInp%gammaType /= hybridXcGammaTypes%mic) then
           write(stdOut, "(2X,A,':',T30,E14.6,A)") "G-Summation Cutoff",&
               & this%cutOff%gSummationCutoff, " Bohr"
         end if
         if (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncated&
-            & .or. input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncatedAndDamped&
-            & .or. input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%screenedAndDamped) then
+            & .or. input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%truncatedAndDamped) then
           write(stdOut, "(2X,A,':',T30,E14.6,A)") "Coulomb Truncation",&
               & this%cutOff%gammaCutoff, " Bohr"
-        elseif (input%ctrl%hybridXcInp%gammaType == hybridXcGammaTypes%screened) then
-          write(stdOut, "(2X,A,':',T30,E14.6,A)") "Auxiliary Screening",&
-              & this%cutOff%auxiliaryScreening, " Bohr^-1"
         end if
       end if
 
