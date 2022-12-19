@@ -5479,6 +5479,10 @@ contains
       call error("Hybrid calculations not implemented for non-colinear calculations.")
     end if
 
+    if (this%tPeriodic .and. this%nSpin == 2) then
+      call error("Hybrid functionality currently does not yet support spin-polarization.")
+    end if
+
     if (this%tSpinOrbit) then
       call error("Hybrid calculations not currently implemented for spin orbit coupling.")
     end if
