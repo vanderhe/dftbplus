@@ -5479,9 +5479,9 @@ contains
       call error("Hybrid calculations not implemented for non-colinear calculations.")
     end if
 
-    if (this%tPeriodic .and. this%nSpin == 2) then
-      call error("Hybrid functionality currently does not yet support spin-polarization.")
-    end if
+    ! if (this%tPeriodic .and. this%nSpin == 2) then
+    !   call error("Hybrid functionality currently does not yet support spin-polarization.")
+    ! end if
 
     if (this%tSpinOrbit) then
       call error("Hybrid calculations not currently implemented for spin orbit coupling.")
@@ -5827,9 +5827,6 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
-    !! Number of k-points in local MPI group
-    integer :: nLocalK
-
     !! Global iKS composite index
     integer :: iGlobalKS
 
@@ -5866,8 +5863,8 @@ contains
       allocate(this%SSqrCplxKpts(this%nOrb, this%nOrb, this%nKpoint))
       this%SSqrCplxKpts(:,:,:) = 0.0_dp
 
-      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
-      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb * this%nSpin * nLocalK))
+      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb * this%nOrb&
+          & * size(this%parallelKS%localKS, dim=2)))
       this%densityMatrix%deltaRhoOutCplx(:) = 0.0_dp
 
       ! Build spin/k-point composite index for all spins and k-points (global)
@@ -5893,9 +5890,6 @@ contains
     !! Size of arrays
     integer :: nMixElements
 
-    !! Number of k-points in local MPI group
-    integer :: nLocalK
-
     if (this%tRealHS) then
       nMixElements = this%nOrb * this%nOrb * this%nSpin
       this%densityMatrix%deltaRhoInSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
@@ -5903,10 +5897,11 @@ contains
       this%densityMatrix%deltaRhoOutSqr(1:this%nOrb, 1:this%nOrb, 1:this%nSpin)&
           & => this%densityMatrix%deltaRhoOut(1:nMixElements)
     else
-      nLocalK = size(this%parallelKS%localKS, dim=2) / this%nSpin
       nMixElements = this%nOrb * this%nOrb * this%nSpin * product(this%hybridXc%coeffsDiag)
-      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb, 1:this%nSpin * nLocalK)&
-          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb * this%nSpin * nLocalK)
+      this%densityMatrix%deltaRhoOutSqrCplx(1:this%nOrb, 1:this%nOrb,&
+          & 1:size(this%parallelKS%localKS, dim=2))&
+          & => this%densityMatrix%deltaRhoOutCplx(1:this%nOrb * this%nOrb&
+          & * size(this%parallelKS%localKS, dim=2))
 
       this%densityMatrix%deltaRhoInSqrCplxHS(1:this%nOrb, 1:this%nOrb,&
           & 1:this%hybridXc%coeffsDiag(1), 1:this%hybridXc%coeffsDiag(2),&
@@ -6199,106 +6194,105 @@ contains
     integer :: ii, iType
     character(lc) :: strTmp
 
-    write (stdOut,*)
-    write (stdOut,*)
-    write (stdOut, "(A,':',T30,A)") "REKS Calculation", "Yes"
+    write(stdOut,*)
+    write(stdOut,*)
+    write(stdOut, "(A,':',T30,A)") "REKS Calculation", "Yes"
 
     select case (reks%reksAlg)
     case (reksTypes%noReks)
     case (reksTypes%ssr22)
-      write (stdOut, "(A,':',T30,A)") "SSR(2,2) Calculation", "Yes"
+      write(stdOut, "(A,':',T30,A)") "SSR(2,2) Calculation", "Yes"
       if (reks%Efunction == 1) then
-        write (stdOut, "(A,':',T30,A)") "Energy Functional", "PPS"
+        write(stdOut, "(A,':',T30,A)") "Energy Functional", "PPS"
       else if (reks%Efunction == 2) then
-        write (stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS)/2"
+        write(stdOut, "(A,':',T30,A)") "Energy Functional", "(PPS+OSS)/2"
       end if
     case (reksTypes%ssr44)
       call error("SSR(4,4) is not implemented yet")
     end select
 
-    write (stdOut, "(A,':',T30,I14)") "Number of Core Orbitals", reks%Nc
-    write (stdOut, "(A,':',T30,I14)") "Number of Active Orbitals", reks%Na
-    write (stdOut, "(A,':',T30,I14)") "Number of Basis", orb%nOrb
-    write (stdOut, "(A,':',T30,I14)") "Number of States", reks%nstates
+    write(stdOut, "(A,':',T30,I14)") "Number of Core Orbitals", reks%Nc
+    write(stdOut, "(A,':',T30,I14)") "Number of Active Orbitals", reks%Na
+    write(stdOut, "(A,':',T30,I14)") "Number of Basis", orb%nOrb
+    write(stdOut, "(A,':',T30,I14)") "Number of States", reks%nstates
     do ii = 1, reks%SAstates
       if (ii == 1) then
-        write (strTmp, "(A,':')") "State-Averaging Weight"
+        write(strTmp, "(A,':')") "State-Averaging Weight"
       else
-        write (strTmp, "(A)") ""
+        write(strTmp, "(A)") ""
       end if
-      write (stdOut, "(A,T30,F12.6)") trim(strTmp), reks%SAweight(ii)
+      write(stdOut, "(A,T30,F12.6)") trim(strTmp), reks%SAweight(ii)
     end do
-    write (stdOut, "(A,':',T30,I14)") "State of Interest", reks%rstate
+    write(stdOut, "(A,':',T30,I14)") "State of Interest", reks%rstate
 
     if (reks%tReadMO) then
-      write (stdOut, "(A,':',T30,A)") "Initial Guess", "Read Eigenvec.bin file"
+      write(stdOut, "(A,':',T30,A)") "Initial Guess", "Read Eigenvec.bin file"
     else
-      write (stdOut, "(A,':',T30,A)") "Initial Guess", "Diagonalise H0 matrix"
+      write(stdOut, "(A,':',T30,A)") "Initial Guess", "Diagonalise H0 matrix"
     end if
 
-    write (stdOut, "(A,':',T30,A)") "Newton-Raphson for FON opt", "Yes"
-    write (stdOut, "(A,':',T30,I14)") "NR max. Iterations", reks%FonMaxIter
+    write(stdOut, "(A,':',T30,A)") "Newton-Raphson for FON opt", "Yes"
+    write(stdOut, "(A,':',T30,I14)") "NR max. Iterations", reks%FonMaxIter
     if (reks%shift > epsilon(1.0_dp)) then
-      write (stdOut, "(A,':',T30,A)") "Level Shifting", "Yes"
+      write(stdOut, "(A,':',T30,A)") "Level Shifting", "Yes"
     else
-      write (stdOut, "(A,':',T30,A)") "Level Shifting", "No"
+      write(stdOut, "(A,':',T30,A)") "Level Shifting", "No"
     end if
-    write (stdOut, "(A,':',T30,F12.6)") "Shift Value", reks%shift
+    write(stdOut, "(A,':',T30,F12.6)") "Shift Value", reks%shift
 
     do iType = 1, nType
       if (iType == 1) then
-        write (strTmp, "(A,':')") "W Scale Factor"
+        write(strTmp, "(A,':')") "W Scale Factor"
       else
-        write (strTmp, "(A)") ""
+        write(strTmp, "(A)") ""
       end if
-      write (stdOut, "(A,T30,A3,'=',F12.6)") trim(strTmp), &
-          & speciesName(iType), reks%Tuning(iType)
+      write(stdOut, "(A,T30,A3,'=',F12.6)") trim(strTmp), speciesName(iType), reks%Tuning(iType)
     end do
 
     if (reks%tTDP) then
-      write (stdOut, "(A,':',T30,A)") "Transition Dipole", "Yes"
+      write(stdOut, "(A,':',T30,A)") "Transition Dipole", "Yes"
     else
-      write (stdOut, "(A,':',T30,A)") "Transition Dipole", "No"
+      write(stdOut, "(A,':',T30,A)") "Transition Dipole", "No"
     end if
 
     if (reks%tForces) then
 
       if (reks%Lstate > 0) then
-        write (stdOut, "(A,':',T30,A)") "Gradient of Microstate", "Yes"
-        write (stdOut, "(A,':',T30,I14)") "Index of Interest", reks%Lstate
+        write(stdOut, "(A,':',T30,A)") "Gradient of Microstate", "Yes"
+        write(stdOut, "(A,':',T30,I14)") "Index of Interest", reks%Lstate
       else
-        write (stdOut, "(A,':',T30,A)") "Gradient of Microstate", "No"
+        write(stdOut, "(A,':',T30,A)") "Gradient of Microstate", "No"
       end if
 
       if (reks%Efunction /= 1) then
         if (reks%Glevel == 1) then
-          write (stdOut, "(A,':',T30,A)") "CP-REKS Solver", "Preconditioned Conjugate-Gradient"
-          write (stdOut, "(A,':',T30,I14)") "CG max. Iterations", reks%CGmaxIter
-          write (stdOut, "(A,':',T30,E14.6)") "CG Tolerance", reks%Glimit
+          write(stdOut, "(A,':',T30,A)") "CP-REKS Solver", "Preconditioned Conjugate-Gradient"
+          write(stdOut, "(A,':',T30,I14)") "CG max. Iterations", reks%CGmaxIter
+          write(stdOut, "(A,':',T30,E14.6)") "CG Tolerance", reks%Glimit
           if (reks%tSaveMem) then
-            write (stdOut, "(A,':',T30,A)") "Memory for A and Hxc", "Save in Cache Memory"
+            write(stdOut, "(A,':',T30,A)") "Memory for A and Hxc", "Save in Cache Memory"
           else
-            write (stdOut, "(A,':',T30,A)") "Memory for A and Hxc", "Direct Updating Without Saving"
+            write(stdOut, "(A,':',T30,A)") "Memory for A and Hxc", "Direct Updating Without Saving"
           end if
-        else if (reks%Glevel == 2) then
-          write (stdOut, "(A,':',T30,A)") "CP-REKS Solver", "Conjugate-Gradient"
-          write (stdOut, "(A,':',T30,I14)") "CG max. Iterations", reks%CGmaxIter
-          write (stdOut, "(A,':',T30,E14.6)") "CG Tolerance", reks%Glimit
+        elseif (reks%Glevel == 2) then
+          write(stdOut, "(A,':',T30,A)") "CP-REKS Solver", "Conjugate-Gradient"
+          write(stdOut, "(A,':',T30,I14)") "CG max. Iterations", reks%CGmaxIter
+          write(stdOut, "(A,':',T30,E14.6)") "CG Tolerance", reks%Glimit
           if (reks%tSaveMem) then
-            write (stdOut, "(A,':',T30,A)") "Memory for A and Hxc", "Save in Cache Memory"
+            write(stdOut, "(A,':',T30,A)") "Memory for A and Hxc", "Save in Cache Memory"
           else
-            write (stdOut, "(A,':',T30,A)") "Memory for A and Hxc", "Direct Updating Without Saving"
+            write(stdOut, "(A,':',T30,A)") "Memory for A and Hxc", "Direct Updating Without Saving"
           end if
-        else if (reks%Glevel == 3) then
-          write (stdOut, "(A,':',T30,A)") "CP-REKS Solver", "Direct Matrix Multiplication"
+        elseif (reks%Glevel == 3) then
+          write(stdOut, "(A,':',T30,A)") "CP-REKS Solver", "Direct Matrix Multiplication"
         end if
         if (reks%tNAC) then
-          write (stdOut, "(A,':',T30,A)") "Non-Adiabatic Coupling", "Yes"
+          write(stdOut, "(A,':',T30,A)") "Non-Adiabatic Coupling", "Yes"
         end if
       end if
 
       if (reks%tRD) then
-        write (stdOut, "(A,':',T30,A)") "Relaxed Density for QM/MM", "Yes"
+        write(stdOut, "(A,':',T30,A)") "Relaxed Density for QM/MM", "Yes"
       end if
 
     end if
