@@ -102,11 +102,11 @@ rangesep/cluster/Thymine-T1-force              #? not WITH_MPI
 rangesep/cluster/cyclopropene_nb_restart       #? not WITH_MPI
 rangesep/cluster/C240_tn                       #? not WITH_MPI and LONG_TEST
 rangesep/cluster/Thymine-T1_onsite             #? not WITH_MPI
-rangesep/cluster/C4H6-Casida-S1-Force          #? WITH_ARPACK and (not WITH_MPI)
-rangesep/cluster/Benzene-Casida-S5-Force       #? WITH_ARPACK and (not WITH_MPI)
-rangesep/cluster/C4H6-TD-LC-Triplet            #? WITH_ARPACK and (not WITH_MPI)
-rangesep/cluster/Benzene-TD-LC-Spinpol         #? WITH_ARPACK and (not WITH_MPI)
-rangesep/cluster/Benzene-TD-LC-Spinpol-Iter    #? WITH_ARPACK and (not WITH_MPI)
+rangesep/cluster/C4H6-Casida-S1-Force          #? not WITH_MPI
+rangesep/cluster/Benzene-Casida-S5-Force       #? not WITH_MPI
+rangesep/cluster/C4H6-TD-LC-Triplet            #? not WITH_MPI
+rangesep/cluster/Benzene-TD-LC-Spinpol         #? not WITH_MPI
+rangesep/cluster/Benzene-TD-LC-Spinpol-Iter    #? not WITH_MPI
 
 rangesep/periodic/GaAs-gamma-matrix               #? MPI_PROCS <= 1
 rangesep/periodic/GaAs-gamma-neigh                #? MPI_PROCS <= 1
