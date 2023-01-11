@@ -8,7 +8,7 @@
 #:include 'common.fypp'
 
 !> Contains routines to calculate contributions to typical DFTB Hamiltonian parts using various
-!> generalisations of H_mu,nu = 0.5*S_mu,nu*(V_mu + V_nu)
+!> generalisations of H_{mu,nu} = 0.5 * S_{mu,nu} * (V_mu + V_nu)
 module dftbp_dftb_shift
   use dftbp_common_accuracy, only : dp
   use dftbp_type_commontypes, only : TOrbitals
@@ -21,24 +21,24 @@ module dftbp_dftb_shift
 
   !> add shifts to a given Hamiltonian
   interface addShift
-    module procedure add_shift_atom
-    module procedure add_shift_lshell
-    module procedure add_shift_block
+    module procedure addShift_atom
+    module procedure addShift_lshell
+    module procedure addShift_block
   end interface addShift
 
 
   !> Totals together shifts to get composites
   interface totalShift
-    module procedure addatom_shell
-    module procedure addshell_block
+    module procedure addAtom_shell
+    module procedure addShell_block
   end interface totalShift
 
 contains
 
 
   !> Regular atomic shift (potential is only dependent on number of atom)
-  subroutine add_shift_atom(ham,over,nNeighbour,iNeighbour,species,orb,iPair, nAtom,img2CentCell, &
-      & shift)
+  subroutine addShift_atom(ham, over, nNeighbour, iNeighbour, species, orb, iPair, nAtom,&
+      & img2CentCell, shift)
 
     !> The resulting Hamiltonian contribution.
     real(dp), intent(inout) :: ham(:,:)
@@ -103,11 +103,11 @@ contains
       end do
     end do
 
-  end subroutine add_shift_atom
+  end subroutine addShift_atom
 
 
   !> l-dependent shift (potential is dependent on number of atom and l-shell)
-  subroutine add_shift_lshell( ham,over,nNeighbour,iNeighbour,species,orb,iPair,nAtom,img2CentCell,&
+  subroutine addShift_lshell( ham,over,nNeighbour,iNeighbour,species,orb,iPair,nAtom,img2CentCell,&
       & shift )
 
     !> The resulting Hamiltonian contribution.
@@ -180,12 +180,12 @@ contains
       end do
     end do
 
-  end subroutine add_shift_lshell
+  end subroutine addShift_lshell
 
 
   !> shift depending on occupation-matrix like potentials. To use this for lm-dependent potentials,
   !> use a diagonal shift matrix
-  subroutine add_shift_block( ham,over,nNeighbour,iNeighbour,species,orb,iPair,nAtom,img2CentCell, &
+  subroutine addShift_block( ham,over,nNeighbour,iNeighbour,species,orb,iPair,nAtom,img2CentCell, &
       & shift )
 
     !> The resulting Hamiltonian contribution.
@@ -258,11 +258,11 @@ contains
       end do
     end do
 
-  end subroutine add_shift_block
+  end subroutine addShift_block
 
 
   !> Add a shift for atom resolved potetial to shell resolved potential
-  subroutine addatom_shell(shiftshell, atom, orb, species)
+  subroutine addAtom_shell(shiftshell, atom, orb, species)
 
     !> Shift to add at atomic shells
     real(dp), intent(inout) :: shiftshell(:,:,:)
@@ -294,11 +294,11 @@ contains
       end do
     end do
 
-  end subroutine addatom_shell
+  end subroutine addAtom_shell
 
 
   !> Add a shift for shell resolved potetial to block resolved potential
-  subroutine addshell_block(shiftblock, shell, orb, species)
+  subroutine addShell_block(shiftblock, shell, orb, species)
 
     !> block resolved shift
     real(dp), intent(inout) :: shiftblock(:,:,:,:)
@@ -336,7 +336,7 @@ contains
       end do
     end do
 
-  end subroutine addshell_block
+  end subroutine addShell_block
 
 
   !> Add on-site only atomic shift (potential is not only dependent on overlap, only the number of

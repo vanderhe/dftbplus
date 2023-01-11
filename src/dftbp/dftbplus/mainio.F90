@@ -86,7 +86,8 @@ module dftbp_dftbplus_mainio
   public :: writeEsp
   public :: writeCurrentGeometry, writeFinalDriverStatus
   public :: writeHSAndStop, writeHS
-  public :: printGeoStepInfo, printSccHeader, printSccInfo, printEnergies, printVolume
+  public :: printSccHeader, printElecConstrHeader
+  public :: printGeoStepInfo, printSccInfo, printElecConstrInfo, printEnergies, printVolume
   public :: printPressureAndFreeEnergy, printMaxForce, printMaxLatticeForce
   public :: printForceNorm, printLatticeForceNorm
   public :: printMdInfo, printBlankLine
@@ -4459,6 +4460,16 @@ contains
 
   end subroutine printSccHeader
 
+
+  !> Prints the line above the start of the electronic constraints cycle data
+  subroutine printElecConstrHeader()
+
+    write(stdOut, "(A6,A5,A18,A18)") repeat(" ", 6), "iConst", "  Total electronic",&
+        & "     max(dW/dVc)  "
+
+  end subroutine printElecConstrHeader
+
+
   !> Prints the line above the start of the REKS SCC cycle data
   subroutine printReksSccHeader(reks)
 
@@ -4476,9 +4487,11 @@ contains
 
   end subroutine printReksSccHeader
 
+
   subroutine printBlankLine()
     write(stdOut,*)
   end subroutine printBlankLine
+
 
   !> Prints info about scc convergence.
   subroutine printSccInfo(tDftbU, iSccIter, Eelec, diffElec, sccErrorQ)
@@ -4505,6 +4518,23 @@ contains
     end if
 
   end subroutine printSccInfo
+
+
+  !> Prints info about electronic constraint convergence.
+  subroutine printElecConstrInfo(iConstrIter, Eelec, dWdVcMax)
+
+    !> Iteration count
+    integer, intent(in) :: iConstrIter
+
+    !> Electronic energy
+    real(dp), intent(in) :: Eelec
+
+    !> Maximum derivative of energy functional with respect to Vc
+    real(dp), intent(in) :: dWdVcMax
+
+    write(stdOut, "(A,I5,E18.8,E18.8)") repeat(" ", 6), iConstrIter, Eelec, dWdVcMax
+
+  end subroutine printElecConstrInfo
 
 
   !> Prints info about scc convergence.
