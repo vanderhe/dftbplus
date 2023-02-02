@@ -282,9 +282,10 @@ contains
             & this%derivs, this%totalStress, this%cellVol)
       end if
     #:endif
-      tWriteCharges =  allocated(this%qInput) .and. tWriteRestart .and. this%tMulliken&
+      tWriteCharges = allocated(this%qInput) .and. tWriteRestart .and. this%tMulliken&
           & .and. this%tSccCalc .and. .not. this%tDerivs&
-          & .and. this%maxSccIter > 1 .and. this%deltaDftb%nDeterminant() == 1
+          & .and. this%maxSccIter > 1 .and. this%deltaDftb%nDeterminant() == 1&
+          & .and. this%tWriteCharges
       if (tWriteCharges) then
         call writeCharges(fCharges, this%tWriteChrgAscii, this%orb, this%qInput, this%qBlockIn,&
             & this%qiBlockIn, this%densityMatrix%deltaRhoIn, size(this%iAtInCentralRegion),&
@@ -1323,7 +1324,7 @@ contains
           tWriteSccRestart = env%tGlobalLead .and. needsSccRestartWriting(this%restartFreq,&
               & iGeoStep, iSccIter, this%minSccIter, this%maxSccIter, this%tMd, &
               & this%isGeoOpt .or. allocated(this%geoOpt),&
-              & this%tDerivs, tConverged, this%tReadChrg, tStopScc)
+              & this%tDerivs, tConverged, this%tReadChrg, tStopScc) .and. this%tWriteCharges
           if (tWriteSccRestart) then
             call writeCharges(fCharges, this%tWriteChrgAscii, this%orb, this%qInput, this%qBlockIn,&
                 & this%qiBlockIn, this%densityMatrix%deltaRhoIn, size(this%iAtInCentralRegion),&

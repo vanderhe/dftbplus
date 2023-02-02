@@ -3919,11 +3919,8 @@ contains
     call getChildValue(node, "WriteDetailedOut", ctrl%tWriteDetailedOut, tWriteDetailedOutDef)
 
     call getChildValue(node, "WriteAutotestTag", ctrl%tWriteTagged, .false.)
-    call getChildValue(node, "WriteDetailedXML", ctrl%tWriteDetailedXML, &
-        &.false.)
-    call getChildValue(node, "WriteResultsTag", ctrl%tWriteResultsTag, &
-        &.false.)
-
+    call getChildValue(node, "WriteDetailedXML", ctrl%tWriteDetailedXML, .false.)
+    call getChildValue(node, "WriteResultsTag", ctrl%tWriteResultsTag, .false.)
 
     if (.not.(ctrl%tMD.or.ctrl%isGeoOpt.or.allocated(ctrl%geoOpt))) then
       if (ctrl%tSCC) then
@@ -3954,7 +3951,11 @@ contains
     if (ctrl%tReadChrg) then
       call getChildValue(node, "ReadChargesAsText", ctrl%tReadChrgAscii, .false.)
     end if
-    call getChildValue(node, "WriteChargesAsText", ctrl%tWriteChrgAscii, .false.)
+
+    call getChildValue(node, "WriteCharges", ctrl%tWriteCharges, .true.)
+    if (ctrl%tWriteCharges) then
+      call getChildValue(node, "WriteChargesAsText", ctrl%tWriteChrgAscii, .false.)
+    end if
 
     ctrl%tSkipChrgChecksum = .false.
     if (.not. ctrl%tFixEf .and. ctrl%tReadChrg) then

@@ -794,6 +794,9 @@ module dftbp_dftbplus_initprogram
     !> Whether potential shifts are read from file
     logical :: tWriteShifts
 
+    !> Produce charges.bin
+    logical :: tWriteCharges
+
     !> Should charges written to disc be in ascii or binary format?
     logical :: tWriteChrgAscii
 
@@ -824,7 +827,7 @@ module dftbp_dftbplus_initprogram
     !> Frequency for saving restart info
     integer :: restartFreq
 
-    !> dispersion data and calculations
+    !> Dispersion data and calculations
     class(TDispersionIface), allocatable :: dispersion
 
     !> Solvation data and calculations
@@ -1893,12 +1896,9 @@ contains
     else
       this%tCasidaForces = .false.
     end if
-    if (this%tSccCalc) then
-      this%forceType = input%ctrl%forceType
-    else
-      if (input%ctrl%forceType /= forceTypes%orig) then
-        call error("Invalid force evaluation method for non-SCC calculations.")
-      end if
+    this%forceType = input%ctrl%forceType
+    if (.not. this%tSccCalc .and. input%ctrl%forceType /= forceTypes%orig) then
+      call error("Invalid force evaluation method for non-SCC calculations.")
     end if
     if (this%forceType == forceTypes%dynamicT0 .and. this%tempElec > minTemp) then
        call error("This ForceEvaluation method requires the electron temperature to be zero")
@@ -2784,6 +2784,7 @@ contains
     this%tWriteAutotest = env%tGlobalLead .and. input%ctrl%tWriteTagged
     this%tWriteDetailedXML = env%tGlobalLead .and. input%ctrl%tWriteDetailedXML
     this%tWriteResultsTag = env%tGlobalLead .and. input%ctrl%tWriteResultsTag
+    this%tWriteCharges = env%tGlobalLead .and. input%ctrl%tWriteCharges
     this%tWriteDetailedOut = env%tGlobalLead .and. input%ctrl%tWriteDetailedOut .and.&
         & .not. this%tRestartNoSC
     this%tWriteBandDat = input%ctrl%tWriteBandDat .and. env%tGlobalLead&
@@ -4786,7 +4787,6 @@ contains
 
     !> Environment
     type(TEnvironment), intent(inout) :: env
-
 
     call TTaggedWriter_init(this%taggedWriter)
 
