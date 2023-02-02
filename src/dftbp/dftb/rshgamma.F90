@@ -12,11 +12,13 @@
 module dftbp_dftb_rshgamma
 
   use dftbp_common_accuracy, only : dp, tolSameDist, MinHubDiff
+  use dftbp_math_simplealgebra, only : cross3
   use dftbp_io_message, only : error
 
   implicit none
   private
 
+  public :: getCoulombTruncationCutoff
   public :: getCamAnalyticalGammaValue_workhorse
   public :: getHfAnalyticalGammaValue_workhorse, getdHfAnalyticalGammaValue_workhorse
   public :: getLrAnalyticalGammaValue_workhorse, getdLrAnalyticalGammaValue_workhorse
@@ -24,6 +26,133 @@ module dftbp_dftb_rshgamma
 
 
 contains
+
+  !> Workhorse for calculating the general CAM gamma integral.
+  function getCoulombTruncationCutoff(latVecs, nK) result(cutoff)
+
+    !> Real-space lattice vectors of unit cell
+    real(dp), intent(in) :: latVecs(:,:)
+
+    !> Number of k-points along each direction
+    integer, intent(in), optional :: nK(:)
+
+    !> Coulomb truncation cutoff
+    real(dp) :: cutoff
+
+    !! Actual number of k-points along each direction
+    integer :: nK_(3)
+
+    !! Real-space Born-von Karman supercell
+    real(dp) :: bvkLatVecs(3, 3)
+
+    !! Diagonals of triclinic cell
+    real(dp) :: diag1(3), diag2(3), diag3(3)
+
+    !! Normal vectors of three planes of the cell
+    real(dp) :: n1(3), n2(3), n3(3)
+
+    !! Point of intersection in absolute coordinates
+    real(dp) :: intersect(3)
+
+    !! Distances of sphere origin to cell planes
+    real(dp) :: distances(3)
+
+    !! Origin dummy
+    real(dp) :: origin(3)
+
+    !! Auxiliary variable
+    integer :: ii
+
+    @:ASSERT(size(latVecs, dim=1) == 3)
+    @:ASSERT(size(latVecs, dim=2) == 3)
+
+    origin(:) = 0.0_dp
+
+    if (present(nK)) then
+      @:ASSERT(size(nK) == 3)
+      nK_(:) = nK
+    else
+      nK_(:) = 1
+    end if
+
+    do ii = 1, 3
+      bvkLatVecs(:, ii) = nK_ * latVecs(:, ii)
+    end do
+
+    diag1(:) = bvkLatVecs(:, 1) + bvkLatVecs(:, 2) + bvkLatVecs(:, 3)
+    diag2(:) = bvkLatVecs(:, 1) - bvkLatVecs(:, 2) + bvkLatVecs(:, 3)
+    diag3(:) = bvkLatVecs(:, 2) - bvkLatVecs(:, 1) + bvkLatVecs(:, 3)
+
+    intersect = getDiagIntersectionPoint(bvkLatVecs(:, 2), bvkLatVecs(:, 2) + diag2, origin,&
+        & origin + diag1)
+
+    ! calculate normal vectors of three planes
+    n1 = cross3(bvkLatVecs(:, 1), bvkLatVecs(:, 2))
+    n1 = n1 / norm2(n1)
+
+    n2 = cross3(bvkLatVecs(:, 3), bvkLatVecs(:, 1))
+    n2 = n2 / norm2(n2)
+
+    n3 = cross3(bvkLatVecs(:, 2), bvkLatVecs(:, 3))
+    n3 = n3 / norm2(n3)
+
+    distances(1) = abs(dot_product(intersect, n1))
+    distances(2) = abs(dot_product(intersect, n2))
+    distances(3) = abs(dot_product(intersect, n3))
+
+    cutoff = minval(distances)
+
+  contains
+
+    !> Returns intersection point of two diagonals in a triclinic cell.
+    function getDiagIntersectionPoint(startDiag1, endDiag1, startDiag2, endDiag2)&
+        & result(intersect1)
+
+      !> Start and end point of first diagonal
+      real(dp), intent(in) :: startDiag1(:), endDiag1(:)
+
+      !> Start and end point of second diagonal
+      real(dp), intent(in) :: startDiag2(:), endDiag2(:)
+
+      !> Points of intersection in absolute coordinates
+      real(dp) :: intersect1(3), intersect2(3)
+
+      !! Deviation between to calculated intersection points
+      real(dp) :: deviation
+
+      !! Parameters of diagonal lines
+      real(dp) :: tt, ss
+
+      ! calculate parameters of diagonal lines
+      tt = ((startDiag2(1) - startDiag1(1)) * (startDiag2(2) - endDiag2(2))&
+          & - (startDiag2(2) - startDiag1(2)) * (startDiag2(1) - endDiag2(1)))&
+          & / ((startDiag2(2) - endDiag2(2)) * (endDiag1(1) - startDiag1(1))&
+          & - (startDiag2(1) - endDiag2(1)) * (endDiag1(2) - startDiag1(2)))
+      ss = ((endDiag1(2) - startDiag1(2)) * (startDiag2(1) - startDiag1(1))&
+          & - (endDiag1(1) - startDiag1(1)) * (startDiag2(2) - startDiag1(2)))&
+          & / ((endDiag1(2) - startDiag1(2)) * (startDiag2(1) - endDiag2(1))&
+          & - (endDiag1(1) - startDiag1(1)) * (startDiag2(2) - endDiag2(2)))
+
+      ! check if third eq. also satisfied (3 equations but 2 variables)
+      if ((tt * (endDiag1(3) - startDiag1(3)) + ss * (startDiag2(3) - endDiag2(3)))&
+          & - (startDiag2(3) - startDiag1(3)) < 1.0e-10_dp) then
+        if ((abs(tt) >= 0.0_dp .and. abs(tt) <= 1.0_dp)&
+            & .and. (abs(ss) >= 0.0_dp .and. abs(ss) <= 1.0_dp)) then
+          intersect1 = startDiag1 + tt * (endDiag1 - startDiag1)
+          intersect2 = startDiag2 + ss * (endDiag2 - startDiag2)
+          deviation = norm2(intersect2 - intersect1)
+          if (deviation > 1.0e-10_dp) then
+            call error("Error while calculating Coulomb truncation cutoff for given cell geometry.")
+          end if
+        else
+          call error("Error while calculating Coulomb truncation cutoff for given cell geometry.")
+        end if
+      end if
+
+    end function getDiagIntersectionPoint
+
+  end function getCoulombTruncationCutoff
+
 
   !> Workhorse for calculating the general CAM gamma integral.
   function getCamAnalyticalGammaValue_workhorse(hubbu1, hubbu2, omega, camAlpha, camBeta, dist)&

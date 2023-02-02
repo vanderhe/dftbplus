@@ -342,6 +342,7 @@ contains
 
     end do
 
+    ! Optimizers set up to minimize, therefore sign change in total energy and gradients
     call next(this%pVcOpt, -(energy + deltaW), -dWdVc, this%Vc, tConverged)
 
     dWdVcMax = maxval(dWdVc)

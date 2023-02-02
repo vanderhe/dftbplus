@@ -759,6 +759,8 @@ contains
     ! Auxiliary dipole storage
     real(dp), allocatable :: dipoleTmp(:)
 
+    dWdVcMax = 0.0_dp
+
     if (this%tDipole) then
       allocate(dipoleTmp(3))
     end if
