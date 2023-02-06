@@ -49,6 +49,7 @@ module dftbp_dftbplus_inputdata
   private
   public :: TControl, TSlater, TInputData, TParallelOpts
   public :: TBlacsOpts
+  public :: TCmInp
   public :: TRangeSepInp
   public :: init, destruct
   public :: TNEGFInfo
@@ -94,6 +95,18 @@ module dftbp_dftbplus_inputdata
     logical :: isOldLS
 
   end type TLbfgsInput
+
+
+  !> Coulomb matrix input
+  type TCmInp
+
+    !> Choice of gamma function type (full, truncated)
+    integer :: gammaType
+
+    !> Coulomb truncation cutoff
+    real(dp), allocatable :: gammaCutoff
+
+  end type TCmInp
 
 
   !> Range separation input
@@ -512,6 +525,9 @@ module dftbp_dftbplus_inputdata
 
     !> Geometry optimizer input
     type(TGeoOptInput), allocatable :: geoOpt
+
+    !> Coulomb matrix input
+    type(TCmInp), allocatable :: cmInp
 
     !> Range separated input
     type(TRangeSepInp), allocatable :: rangeSepInp

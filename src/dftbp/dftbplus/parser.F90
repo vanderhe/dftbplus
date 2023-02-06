@@ -36,7 +36,8 @@ module dftbp_dftbplus_parser
   use dftbp_dftb_slakoeqgrid, only : skEqGridNew, skEqGridOld, TSlakoEqGrid, init
   use dftbp_dftbplus_forcetypes, only : forceTypes
   use dftbp_dftbplus_inputconversion, only : transformpdosregioninfo
-  use dftbp_dftbplus_inputdata, only :TInputData, TControl, TSlater, TBlacsOpts, TRangeSepInp
+  use dftbp_dftbplus_inputdata, only :TInputData, TControl, TSlater, TBlacsOpts, TRangeSepInp,&
+      & TCmInp
   use dftbp_dftbplus_oldcompat, only : convertOldHSD
   use dftbp_dftbplus_specieslist, only : readSpeciesList
   use dftbp_elecsolvers_elecsolvers, only : electronicSolverTypes
@@ -65,6 +66,7 @@ module dftbp_dftbplus_parser
   use dftbp_mixer_mixer, only : mixerTypes
   use dftbp_dftb_nonscc, only : diffTypes
   use dftbp_reks_reks, only : reksTypes
+  use dftbp_dftb_shortgamma, only : shortGammaTypes
   use dftbp_solvation_solvparser, only : readSolvation, readCM5
   use dftbp_timedep_linresptypes, only : linRespSolverTypes
   use dftbp_timedep_timeprop, only : TElecDynamicsInp, pertTypes, tdSpinTypes, envTypes
@@ -1455,6 +1457,8 @@ contains
     else
       skInterMeth = skEqGridNew
     end if
+
+    call parseCoulombMatrix(node, ctrl%cmInp)
 
     call parseRangeSeparated(node, ctrl%rangeSepInp)
 
@@ -7660,6 +7664,56 @@ contains
     read(string,*,iostat=err) x
     is = (err == 0)
   end function is_numeric
+
+
+  !> Parses Coulomb matrix input.
+  subroutine parseCoulombMatrix(node, input)
+
+    !> Node to parse
+    type(fnode), intent(in), pointer :: node
+
+    !> Coulomb matrix data structure to fill
+    type(TCmInp), intent(inout), allocatable :: input
+
+    !! auxiliary node pointers
+    type(fnode), pointer :: cmChild, cmValue, child1, child2
+
+    !! Temporary string buffers
+    type(string) :: buffer, modifier
+
+    !! Temporary string buffer, that stores the gamma function type
+    type(string) :: strBuffer
+
+    allocate(input)
+
+    call getChild(node, "CoulombMatrix", child=cmChild, requested=.false.)
+
+    if (associated(cmChild)) then
+
+      ! parse gamma function type (full or truncated)
+      call getChildValue(node, "CoulombMatrix", cmValue, "Full", child=cmChild)
+      call getNodeName(cmValue, buffer)
+
+      select case(tolower(char(buffer)))
+      case ("full")
+        input%gammaType = shortGammaTypes%full
+      case ("truncated")
+        input%gammaType = shortGammaTypes%truncated
+      case default
+        call getNodeHSdName(cmValue, buffer)
+        call detailedError(cmChild, "Invalid Gamma function type '" // char(strBuffer) // "'")
+      end select
+
+      if (input%gammaType == shortGammaTypes%truncated) then
+        allocate(input%gammaCutoff)
+        call getChild(cmValue, "CoulombCutoff", child=child1, modifier=modifier)
+        call getChildValue(child1, "", input%gammaCutoff, modifier=modifier, child=child2)
+        call convertUnitHsd(char(modifier), lengthUnits, child2, input%gammaCutoff)
+      end if
+
+    end if
+
+  end subroutine
 
 
   !> Parse range separation input

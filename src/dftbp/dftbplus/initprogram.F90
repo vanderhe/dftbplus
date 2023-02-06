@@ -5996,6 +5996,8 @@ contains
     end if
     shortGammaInp%hubbU = uniqHubbU
 
+    if (allocated(ctrl%cmInp%gammaCutoff)) shortGammaInp%gammaCutoff = ctrl%cmInp%gammaCutoff
+
   end subroutine initShortGammaInput_
 
 

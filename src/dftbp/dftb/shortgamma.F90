@@ -24,6 +24,7 @@ module dftbp_dftb_shortgamma
 
   private
   public :: TShortGammaInput, TShortGamma, TShortGamma_init, TShortGammaDamp
+  public :: shortGammaTypes
 
 
   !> Contains damping details
@@ -50,6 +51,9 @@ module dftbp_dftb_shortgamma
     !> Optional damping
     type(TShortGammaDamp), allocatable :: damping
 
+    ! Coulomb truncation cutoff
+    real(dp), allocatable :: gammaCutoff
+
   end type TShortGammaInput
 
 
@@ -71,6 +75,9 @@ module dftbp_dftb_shortgamma
 
     ! Cutoff for short range interaction. Shape [mHubbU, mHubbU, nSpecies, nSpecies]
     real(dp), allocatable :: shortCutoffs_(:,:,:,:)
+
+    ! Coulomb truncation cutoff
+    real(dp), allocatable :: gammaCutoff_
 
     ! Number of neighbours. Shape: [mHubbU, mHubbU, nSpecies, nAtom]
     integer, allocatable :: nNeigh_(:,:,:,:)
@@ -110,6 +117,21 @@ module dftbp_dftb_shortgamma
   end type TShortGamma
 
 
+  !> Enumerator for gamma function types.
+  type :: TShortGammaTypesEnum
+
+    !> Full, unaltered gamma function (full)
+    integer :: full = 0
+
+    !> Truncated gamma function with hard cutoff (truncated)
+    integer :: truncated = 1
+
+  end type TShortGammaTypesEnum
+
+  !> Container for enumerated range separation gamma function types
+  type(TShortGammaTypesEnum), parameter :: shortGammaTypes = TShortGammaTypesEnum()
+
+
 contains
 
 
@@ -128,6 +150,8 @@ contains
     this%nSpecies_ = size(orb%nOrbSpecies)
     this%nAtom_ = size(orb%nOrbAtom)
     this%mShell_ = orb%mShell
+
+    if (allocated(input%gammaCutoff)) this%gammaCutoff_ = input%gammaCutoff
 
     call move_alloc(input%hubbU, this%hubbU_)
     allocate(this%shortCutOffs_(this%hubbU_%mHubbU, this%hubbU_%mHubbU, this%nSpecies_,&
@@ -189,7 +213,7 @@ contains
 
     call updateNrOfNeighbours_(this%shortCutoffs_, species, this%hubbU_, neighList, this%nNeigh_)
     call updateShortGammaValues_(coords, species, neighList, this%nNeigh_, this%hubbU_,&
-        & this%damping_, this%h5Correction_, this%shortGamma_)
+        & this%damping_, this%h5Correction_, this%gammaCutoff_, this%shortGamma_)
 
   end subroutine updateCoords
 
@@ -325,7 +349,8 @@ contains
         iAt2f = img2CentCell(iAt2)
         iSp2 = species(iAt2f)
         dist = sqrt(sum((coords(:,iAt1) - coords(:,iAt2))**2))
-        gammamat(iAt2f, iAt1) = gammamat(iAt2f, iAt1) - expGamma(dist, hubbU(iSp2), hubbU(iSp1))
+        gammamat(iAt2f, iAt1) = gammamat(iAt2f, iAt1) - expGamma(dist, hubbU(iSp2), hubbU(iSp1),&
+            & cutoff=this%gammaCutoff_)
       end do
     end do
 
@@ -373,9 +398,9 @@ contains
               if (this%damping_%isDamped(iSp1) .or. this%damping_%isDamped(iSp2)) then
                 tmpGammaPrime = expGammaDampedPrime(rab, u2, u1, this%damping_%exponent)
               else
-                tmpGammaPrime = expGammaPrime(rab, u2, u1)
+                tmpGammaPrime = expGammaPrime(rab, u2, u1, cutoff=this%gammaCutoff_)
                 if (allocated(this%h5Correction_)) then
-                  tmpGamma = expGamma(rab, u2, u1)
+                  tmpGamma = expGamma(rab, u2, u1, cutoff=this%gammaCutoff_)
                   call this%h5Correction_%scaleShortGammaDeriv(tmpGamma, tmpGammaPrime, iSp1, iSp2,&
                       & rab)
                 end if
@@ -447,9 +472,9 @@ contains
               if (this%damping_%isDamped(iSp1) .or. this%damping_%isDamped(iSp2)) then
                 tmpGammaPrime = expGammaDampedPrime(rab, u2, u1, this%damping_%exponent)
               else
-                tmpGammaPrime = expGammaPrime(rab, u2, u1)
+                tmpGammaPrime = expGammaPrime(rab, u2, u1, cutoff=this%gammaCutoff_)
                 if (allocated(this%h5Correction_)) then
-                  tmpGamma = expGamma(rab, u2, u1)
+                  tmpGamma = expGamma(rab, u2, u1, cutoff=this%gammaCutoff_)
                   call this%h5Correction_%scaleShortGammaDeriv(tmpGamma, tmpGammaPrime, iSp1, iSp2,&
                       & rab)
                 end if
@@ -597,9 +622,9 @@ contains
               if (this%damping_%isDamped(iSp1) .or. this%damping_%isDamped(iSp2)) then
                 tmpGammaPrime = expGammaDampedPrime(rab, u2, u1, this%damping_%exponent)
               else
-                tmpGammaPrime = expGammaPrime(rab, u2, u1)
+                tmpGammaPrime = expGammaPrime(rab, u2, u1, cutoff=this%gammaCutoff_)
                 if (allocated(this%h5Correction_)) then
-                  tmpGamma = expGamma(rab, u2, u1)
+                  tmpGamma = expGamma(rab, u2, u1, cutoff=this%gammaCutoff_)
                   call this%h5Correction_%scaleShortGammaDeriv(tmpGamma, tmpGammaPrime, iSp1, iSp2,&
                       & rab)
                 end if
@@ -675,7 +700,7 @@ contains
 
   ! Set up the storage and internal values for the short range part of Gamma.
   subroutine updateShortGammaValues_(coords, species, neighList, nNeigh, hubb, damping,&
-      & h5Correction, shortGamma)
+      & h5Correction, cutoff, shortGamma)
     real(dp), intent(in) :: coords(:,:)
     integer, intent(in) :: species(:)
     type(TNeighbourList), intent(in) :: neighList
@@ -683,6 +708,10 @@ contains
     type(TUniqueHubbard), intent(in) :: hubb
     type(TShortGammaDamp), intent(in) :: damping
     type(TH5Correction), intent(in), optional :: h5Correction
+
+    !> Coulomb truncation cutoff
+    real(dp), intent(in), optional :: cutoff
+
     real(dp), allocatable, intent(inout) :: shortGamma(:,:,:,:)
 
     integer :: nAtom
@@ -714,7 +743,7 @@ contains
               if (damping%isDamped(iSp1) .or. damping%isDamped(iSp2)) then
                 shortGamma(iU2 ,iU1, iNeigh, iAt1) = expGammaDamped(rab, u2, u1, damping%exponent)
               else
-                shortGamma(iU2, iU1, iNeigh, iAt1) = expGamma(rab, u2, u1)
+                shortGamma(iU2, iU1, iNeigh, iAt1) = expGamma(rab, u2, u1, cutoff=cutoff)
                 if (present(h5Correction)) then
                   call h5Correction%scaleShortGamma(shortGamma(iU2 ,iU1, iNeigh, iAt1), iSp1, iSp2,&
                       & rab)

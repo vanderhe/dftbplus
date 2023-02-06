@@ -95,7 +95,7 @@ contains
 
 
   !> Determines the value of the short range contribution to gamma with the exponential form
-  function expGamma(rab,Ua,Ub)
+  function expGamma(rab,Ua,Ub, cutoff)
 
     !> separation of sites a and b
     real(dp), intent(in) :: rab
@@ -106,11 +106,21 @@ contains
     !> Hubbard U for site b
     real(dp), intent(in) :: Ub
 
+    !> Coulomb truncation cutoff
+    real(dp), intent(in), optional :: cutoff
+
     !> contribution
     real(dp) :: expGamma
 
     real(dp) :: tauA, tauB, tauMean
     character(len=100) :: errorString
+
+    if (present(cutoff)) then
+      if (rab >= cutoff) then
+        expGamma = 0.0_dp
+        return
+      end if
+    end if
 
     if (rab < 0.0_dp) then
       write(errorString, "('Failure in short-range gamma, r_ab negative :', f12.6)") rab
@@ -154,7 +164,7 @@ contains
 
   !> Determines the value of the derivative of the short range contribution to gamma with the
   !> exponential form
-  function expGammaPrime(rab,Ua,Ub)
+  function expGammaPrime(rab,Ua,Ub, cutoff)
 
     !> separation of sites a and b
     real(dp), intent(in) :: rab
@@ -165,11 +175,21 @@ contains
     !> Hubbard U for site b
     real(dp), intent(in) :: Ub
 
+    !> Coulomb truncation cutoff
+    real(dp), intent(in), optional :: cutoff
+
     !> returned contribution
     real(dp) :: expGammaPrime
 
     real(dp) :: tauA, tauB, tauMean
     character(lc) :: errorString
+
+    if (present(cutoff)) then
+      if (rab >= cutoff) then
+        expGammaPrime = 0.0_dp
+        return
+      end if
+    end if
 
     if (rab < 0.0_dp) then
       write(errorString, "('Failure in short-range gamma, r_ab negative :', f12.6)") rab
