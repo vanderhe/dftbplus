@@ -61,6 +61,7 @@ module dftbp_dftbplus_initprogram
   use dftbp_dftb_spin, only: Spin_getOrbitalEquiv, ud2qm, qm2ud
   use dftbp_dftb_thirdorder, only : TThirdOrderInp, TThirdOrder, ThirdOrder_init
   use dftbp_dftb_uniquehubbard, only : TUniqueHubbard, TUniqueHubbard_init
+  use dftbp_dftb_elecconstraints, only : TElecConstraint, TElecConstraint_init
   use dftbp_dftbplus_elstattypes, only : elstatTypes
   use dftbp_dftbplus_forcetypes, only : forceTypes
   use dftbp_dftbplus_inputdata, only : TParallelOpts, TInputData, TRangeSepInp, TControl, TBlacsOpts
@@ -372,7 +373,7 @@ module dftbp_dftbplus_initprogram
     !> Choice of electron distribution function, defaults to Fermi
     integer :: iDistribFn = fillingTypes%Fermi
 
-    !> atomic kinetic temperature
+    !> Atomic kinetic temperature
     real(dp) :: tempAtom
 
     !> MD stepsize
@@ -384,7 +385,7 @@ module dftbp_dftbplus_initprogram
     !> Minimal number of SCC iterations
     integer :: minSccIter
 
-    !> is this a spin polarized calculation?
+    !> Is this a spin polarized calculation?
     logical :: tSpin
 
     !> Number of spin components, 1 is unpolarised, 2 is polarised, 4 is noncolinear / spin-orbit
@@ -405,7 +406,7 @@ module dftbp_dftbplus_initprogram
     !> Is there a complex hamiltonian contribution in real space
     logical :: tImHam
 
-    !> is this a two component calculation (spin orbit or non-collinear spin)
+    !> Is this a two component calculation (spin orbit or non-collinear spin)
     logical :: t2Component
 
     !> Common Fermi level across spin channels
@@ -415,10 +416,10 @@ module dftbp_dftbplus_initprogram
     !> Geometry optimisation needed?
     logical :: isGeoOpt
 
-    !> optimise coordinates inside unit cell (periodic)?
+    !> Optimise coordinates inside unit cell (periodic)?
     logical :: tCoordOpt
 
-    !> optimise lattice constants?
+    !> Optimise lattice constants?
     logical :: tLatOpt
 
     !> Fix angles between lattice vectors when optimising?
@@ -825,6 +826,9 @@ module dftbp_dftbplus_initprogram
 
     !> Write cavity information as cosmo file
     logical :: tWriteCosmoFile
+
+    !> Structure holding electronic constraints
+    type(TElecConstraint), allocatable :: elecConstrain
 
     !> Library interface handler
     type(TTBLite), allocatable :: tblite
@@ -2218,6 +2222,11 @@ contains
       this%cutOff%mCutOff = max(this%cutOff%mCutOff, this%halogenXCorrection%getRCutOff())
     end if
 
+    if (allocated(input%ctrl%elecConstrainInp)) then
+      allocate(this%elecConstrain)
+      call TElecConstraint_init(this%elecConstrain, input%ctrl%elecConstrainInp, this%orb)
+    end if
+
     this%tDipole = this%tMulliken
     if (this%tDipole) then
       block
@@ -2227,14 +2236,14 @@ contains
           call warning("Dipole printed for a charged system : origin dependent quantity")
           isDipoleDefined = .false.
         end if
-        if (this%tPeriodic.or.this%tHelical) then
+        if (this%tPeriodic .or. this%tHelical) then
           call warning("Dipole printed for extended system : value printed is not well defined")
           isDipoleDefined = .false.
         end if
         if (.not.isDipoleDefined) then
-          write(this%dipoleMessage, "(A)")"Warning: dipole moment is not defined absolutely!"
+          write(this%dipoleMessage, "(A)") "Warning: dipole moment is not defined absolutely!"
         else
-          write(this%dipoleMessage, "(A)")""
+          write(this%dipoleMessage, "(A)") ""
         end if
       end block
     end if

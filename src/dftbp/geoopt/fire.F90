@@ -167,20 +167,19 @@ contains
 
 
   !> Reset the integrator state
-  subroutine reset(this, x0)
+  subroutine reset(this, xx)
 
     !> Instance
     class(TFire), intent(inout) :: this
 
     !> Coordinates
-    real(dp), intent(in) :: x0(:)
+    real(dp), intent(in) :: xx(:)
 
     this%iter = 0
     this%resetStep = 0
     this%a = this%a_start
     this%dt = this%dt_init
     this%velocity(:) = 0.0_dp
-    this%x(:) = x0
 
   end subroutine reset
 

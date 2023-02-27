@@ -5,6 +5,8 @@
 !  See the LICENSE file for terms of usage and distribution.                                       !
 !--------------------------------------------------------------------------------------------------!
 
+#:include 'common.fypp'
+
 !> Implementation of a rational function optimization procedure.
 !>
 !> The optimization problem is solved by determining the lowest eigensolution of the
@@ -57,6 +59,9 @@ module dftbp_geoopt_rationalfunc
     !> Calculate displacement from gradient
     procedure :: step
 
+    !> Reset optimizer
+    procedure :: reset
+
   end type TRationalFunc
 
 contains
@@ -79,7 +84,7 @@ contains
     this%nvar = nVar
     this%diagLimit = input%diagLimit
 
-    nvar1  = this%nvar+1
+    nvar1 = this%nvar+1
     npvar = this%nvar*nvar1/2
     npvar1 = nvar1*(1+nvar1)/2
     allocate(this%gLast(nVar), source=0.0_dp)
@@ -128,6 +133,33 @@ contains
     this%gLast(:) = grad
 
   end subroutine step
+
+
+  !> Reset optimizer
+  subroutine reset(this, xx)
+
+    !> Instance of geometry optimization driver
+    class(TRationalFunc), intent(inout) :: this
+
+    !> Coordinates
+    real(dp), intent(in) :: xx(:)
+
+    integer :: ii, nvar1, npvar, npvar1
+
+    nvar1 = this%nvar + 1
+    npvar = this%nvar * nvar1 / 2
+    npvar1 = nvar1 * (1 + nvar1) / 2
+
+    this%gLast(:) = 0.0_dp
+    this%hess(:) = 0.0_dp
+    this%aaug(:) = 0.0_dp
+    this%uaug(:) = 0.0_dp
+
+    do ii = 1, this%nvar
+      this%hess(ii * (1 + ii) / 2) = 1.0_dp
+    end do
+
+  end subroutine reset
 
 
   !> Davidson iterative eigenvalue solver, solves for the first (lowest) eigenvalue only
