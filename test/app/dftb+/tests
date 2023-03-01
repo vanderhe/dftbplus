@@ -5,7 +5,10 @@
 #:include 'common.fypp'
 #:set LONG_TEST = not defined('TRAVIS')
 
+elecconstraints/dftb/H2O               #? MPI_PROCS <= 1
 elecconstraints/dftb/H2O_scc           #? MPI_PROCS <= 1
+elecconstraints/dftb/Si8_scc           #? MPI_PROCS <= 1
+elecconstraints/dftb/Si8_spin          #? MPI_PROCS <= 1
 
 extpot/CH4_gross                       #? MPI_PROCS <= 1
 extpot/CH4_net                         #? MPI_PROCS <= 1

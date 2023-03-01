@@ -8,8 +8,7 @@ Geometry = GenFormat {
 
 Hamiltonian = DFTB {
 
-  SCC = Yes
-  SCCTolerance = 1.0e-010
+  SCC = No
 
   MaxAngularMomentum = {
     O = "p"
@@ -23,7 +22,8 @@ Hamiltonian = DFTB {
   SlaterKosterFiles = Type2FileNames {
     Separator = "-"
     Suffix = ".skf"
-    Prefix = "slakos/origin/mio-1-1/"
+    # Prefix = "slakos/origin/mio-1-1/"
+    Prefix = "/home/user/dftbplus_cam/external/slakos/origin/mio-1-1/"
   }
 
   StateConstraints {
