@@ -180,6 +180,7 @@ contains
     this%a = this%a_start
     this%dt = this%dt_init
     this%velocity(:) = 0.0_dp
+    if (allocated(this%x)) this%x(:) = xx
 
   end subroutine reset
 
