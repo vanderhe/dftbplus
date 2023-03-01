@@ -12,11 +12,20 @@ module dftbp_dftb_elecconstraints
   use dftbp_common_accuracy, only : dp
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_typegeometry, only : TGeometry
-  use dftbp_extlibs_xmlf90, only : fnode, string, char, getLength, getItem1, fnodeList
+  use dftbp_extlibs_xmlf90, only : fnode, string, char, getLength, getNodeName, getItem1, fnodeList
   use dftbp_type_wrappedintr, only : TWrappedInt1, TWrappedReal1, TWrappedReal2
   use dftbp_geoopt_package, only : TOptimizer, TOptimizerInput, createOptimizer
-  use dftbp_io_hsdutils, only : getChildValue, getChildren, getSelectedAtomIndices
+  use dftbp_io_hsdutils, only : detailedError, getChildValue, getChildren, getSelectedAtomIndices
+  use dftbp_io_hsdutils2, only : convertUnitHsd
+  use dftbp_io_message, only : error
+  use dftbp_common_unitconversion, only : timeUnits
   use dftbp_dftbplus_input_geoopt, only : readOptimizerInput
+  use dftbp_geoopt_geoopt, only : TGeoOpt, geoOptTypes, next, reset, init
+  use dftbp_geoopt_steepdesc, only : TSteepDesc
+  use dftbp_geoopt_conjgrad, only : TConjGrad
+  use dftbp_geoopt_fire, only : TFire, TFire_init
+  use dftbp_geoopt_gdiis, only : TDIIS
+  use dftbp_geoopt_lbfgs, only : TLbfgs, TLbfgs_init
   use dftbp_common_globalenv, only : stdOut
   implicit none
 
@@ -45,6 +54,21 @@ module dftbp_dftb_elecconstraints
     !> Number of iterations for enforcing constraint
     integer :: nConstrIter
 
+    !> Optimisation algorithm
+    integer :: iConstrOpt
+
+    !> Alpha factor to introduce variation into the space
+    real(dp) :: diisAlpha
+
+    !> Generations in the history
+    integer :: diisGens
+
+    !> Number of stored steps
+    integer :: lbfgsMemory
+
+    !> Timestep
+    real(dp) :: fireTimeStep
+
   end type TElecConstraintInput
 
 
@@ -68,7 +92,7 @@ module dftbp_dftb_elecconstraints
     type(TWrappedReal2), allocatable :: wAtSpin(:)
 
     !> General optimiser
-    class(TOptimizer), allocatable :: potOpt
+    type(TGeoOpt), allocatable :: potOpt
 
     !> Derivative tolerance for constraint
     real(dp) :: constrTol
@@ -103,13 +127,34 @@ contains
     !> True, if this is a spin polarized calculation
     logical, intent(in) :: tSpinPol
 
-    type(fnode), pointer :: val, child, child2, child3
+    type(fnode), pointer :: val, child, child2, child3, field
     type(fnodeList), pointer :: children
-    type(string) :: buffer
+    type(string) :: buffer, modifier
     integer :: iConstr, nConstr
 
-    call getChildValue(node, "Optimiser", child, "Rational")
-    call readOptimizerInput(child, input%optimiser)
+    call getChildValue(node, "Optimiser", child, "lbfgs", child=child2)
+    call getNodeName(child, buffer)
+
+    select case(char(buffer))
+    case("steepestdescent")
+      input%iConstrOpt = geoOptTypes%steepestDesc
+    case("conjugategradient")
+      input%iConstrOpt = geoOptTypes%conjugateGrad
+    case("gdiis")
+      input%iConstrOpt = geoOptTypes%diis
+      call getChildValue(child, "Alpha", input%diisAlpha, 1.0e-01_dp)
+      call getChildValue(child, "Generations", input%diisGens, 8)
+    case("lbfgs")
+      input%iConstrOpt = geoOptTypes%lbfgs
+      call getChildValue(child, "Memory", input%lbfgsMemory, 20)
+    case("fire")
+      input%iConstrOpt = geoOptTypes%fire
+      call getChildValue(child, "TimeStep", input%fireTimeStep, 1.0_dp, modifier=modifier,&
+          & child=field)
+      call convertUnitHsd(char(modifier), timeUnits, field, input%fireTimeStep)
+    case default
+      call detailedError(child, "Unknown driver '" // char(buffer) // "'")
+    end select
 
     call getChildValue(node, "ConstrTolerance", input%constrTol, 1.0e-08_dp)
     call getChildValue(node, "MaxConstrIterations", input%nConstrIter, 200)
@@ -151,10 +196,22 @@ contains
     type(TElecConstraint), intent(out) :: this
 
     !> Input data structure
-    type(TElecConstraintInput), intent(inout) :: input
+    type(TElecConstraintInput), intent(in) :: input
 
     !> Data type for atomic orbital information
     type(TOrbitals), intent(in) :: orb
+
+    !> Conjugate gradient driver
+    type(TConjGrad), allocatable :: pConjGrad
+
+    !> gradient DIIS driver
+    type(TDIIS), allocatable :: pDIIS
+
+    !> lBFGS driver for geometry optimisation
+    type(TLbfgs), allocatable :: pLbfgs
+
+    !> FIRE driver for geometry optimisation
+    type(TFire), allocatable :: pFire
 
     integer :: iConstr, nConstr, ii, jj, iAt, nOrb, nSpin
 
@@ -164,7 +221,29 @@ contains
     ! should enable optional initialization of Vc from input
     this%Vc(:) = 0.0_dp
 
-    call createOptimizer(input%optimiser, nConstr, this%potOpt)
+    allocate(this%potOpt)
+    select case(input%iConstrOpt)
+    case(geoOptTypes%steepestDesc)
+      call error("Steepest descent not yet implemented for electronic constrains.")
+    case(geoOptTypes%conjugateGrad)
+      allocate(pConjGrad)
+      call init(pConjGrad, nConstr, input%constrTol, 0.2_dp)
+      call init(this%potOpt, pConjGrad)
+    case(geoOptTypes%diis)
+      allocate(pDIIS)
+      call init(pDIIS, nConstr, input%constrTol, input%diisAlpha, input%diisGens)
+      call init(this%potOpt, pDIIS)
+    case(geoOptTypes%lbfgs)
+      allocate(pLbfgs)
+      call TLbfgs_init(pLbfgs, nConstr, input%constrTol, 1.0e-08_dp, 1.0e-01_dp, input%lbfgsMemory,&
+          & .true., .false., .true.)
+      call init(this%potOpt, pLbfgs)
+    case (geoOptTypes%fire)
+      allocate(pFire)
+      call TFire_init(pFire, nConstr, input%constrTol, input%fireTimeStep)
+      call init(this%potOpt, pFire)
+    end select
+    call reset(this%potOpt, this%Vc)
 
     this%nConstrIter = input%nConstrIter
     this%constrTol = input%constrTol
@@ -262,8 +341,7 @@ contains
     end do
 
     ! Optimizers set up to minimize, therefore sign change in total energy and gradients
-    call this%potOpt%step(-(energy + deltaW), -dWdVc, potDisplace)
-    this%Vc(:) = this%Vc + potDisplace
+    call next(this%potOpt, -(energy + deltaW), -dWdVc, this%Vc, tConverged)
 
     dWdVcMax = maxval(abs(dWdVc))
 

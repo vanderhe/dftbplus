@@ -1357,7 +1357,7 @@ contains
 
           if (tConstrConverged) then
             if (allocated(this%elecConstrain)) then
-              call this%elecConstrain%potOpt%reset(this%elecConstrain%Vc)
+              call reset(this%elecConstrain%potOpt, this%elecConstrain%Vc)
             end if
             exit lpConstrInner
           end if
