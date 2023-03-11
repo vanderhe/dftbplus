@@ -61,7 +61,7 @@ module dftbp_dftbplus_initprogram
   use dftbp_dftb_spin, only: Spin_getOrbitalEquiv, ud2qm, qm2ud
   use dftbp_dftb_thirdorder, only : TThirdOrderInp, TThirdOrder, ThirdOrder_init
   use dftbp_dftb_uniquehubbard, only : TUniqueHubbard, TUniqueHubbard_init
-  use dftbp_dftb_elecconstraints, only : TElecConstraint, TElecConstraint_init
+  use dftbp_dftb_elecconstraints, only : TElecConstraint, TElecConstraint_init, TElecConstraintInput
   use dftbp_dftbplus_elstattypes, only : elstatTypes
   use dftbp_dftbplus_forcetypes, only : forceTypes
   use dftbp_dftbplus_inputdata, only : TParallelOpts, TInputData, TRangeSepInp, TControl, TBlacsOpts
@@ -1137,6 +1137,7 @@ module dftbp_dftbplus_initprogram
     procedure :: allocateDenseMatrices
     procedure :: getDenseDescCommon
     procedure :: ensureRangeSeparatedReqs
+    procedure :: ensureConstrainedDftbReqs
     procedure :: initRangeSeparated
     procedure :: initPlumed
 
@@ -2223,6 +2224,7 @@ contains
     end if
 
     if (allocated(input%ctrl%elecConstrainInp)) then
+      call this%ensureConstrainedDftbReqs(input%ctrl%elecConstrainInp, input%ctrl%tShellResolved)
       allocate(this%elecConstrain)
       call TElecConstraint_init(this%elecConstrain, input%ctrl%elecConstrainInp, this%orb)
     end if
@@ -5227,6 +5229,65 @@ contains
     end if
 
   end function getMinSccIters
+
+
+  !> Stop if any setting incompatible with the constrained DFTB formalism is found.
+  subroutine ensureConstrainedDftbReqs(this, elecConstrainInp, tShellResolved)
+
+    !> Instance
+    class(TDftbPlusMain), intent(inout) :: this
+
+    !> Input parameters for electronic constraints
+    type(TElecConstraintInput), intent(in) :: elecConstrainInp
+
+    !> True, if this is a shell resolved calculation
+    logical, intent(in) :: tShellResolved
+
+    if (withMpi) then
+      call error("Constrained DFTB calculations do not yet support MPI yet.")
+    end if
+
+    if (tShellResolved) then
+      call error("Constrained DFTB calculations do not yet support shell-resolved SCC.")
+    end if
+
+    if (this%nSpin > 2) then
+      call error("Constrained DFTB calculations do not yet support non-colinear spin.")
+    end if
+
+    if (this%tSpinOrbit) then
+      call error("Constrained DFTB calculations do not yet support spin-orbit coupling.")
+    end if
+
+    if (this%isXlbomd) then
+      call error("Constrained DFTB calculations do not yet support XLBOMD.")
+    end if
+
+    if (allocated(this%reks)) then
+      call error("Constrained DFTB calculations do not yet support REKS.")
+    end if
+
+    if (allocated(this%dftbU)) then
+      call error("Constrained DFTB calculations do not yet support DFTB+U.")
+    end if
+
+    if (this%deltaDftb%isNonAufbau) then
+      call error("Constrained DFTB calculations do not yet support delta-DFTB.")
+    end if
+
+    if (allocated(this%electronDynamics)) then
+      call error("Constrained DFTB calculations do not yet support electron dynamics.")
+    end if
+
+    if (this%hamiltonianType == hamiltonianTypes%xTB) then
+      call error("Constrained DFTB calculations do not yet support the xTB Hamiltonian.")
+    end if
+
+  #:if WITH_TRANSPORT
+    call error("Constrained DFTB calculations do not yet support electron transport.")
+  #:endif
+
+  end subroutine ensureConstrainedDftbReqs
 
 
   !> Stop if any range separated incompatible setting is found

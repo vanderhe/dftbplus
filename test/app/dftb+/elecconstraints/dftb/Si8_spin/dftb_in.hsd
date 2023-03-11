@@ -48,9 +48,9 @@ Hamiltonian = DFTB {
         Population = 5.0
       }
     }
-    Optimiser = ConjugateGradient {}
+    Optimiser = FIRE {}
     ConstrTolerance = 1.0e-10
-    MaxConstrIterations = 30
+    MaxConstrIterations = 300
   }
 
 }

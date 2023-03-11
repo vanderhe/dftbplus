@@ -479,7 +479,7 @@ module dftbp_dftbplus_inputdata
     class(TSolvationInp), allocatable :: solvInp
 
     !> Electronic constraints
-    class(TElecConstraintInput), allocatable :: elecConstrainInp
+    type(TElecConstraintInput), allocatable :: elecConstrainInp
 
     !> Rescaling of electric fields (applied or dipole) if the system is solvated
     logical :: isSolvatedFieldRescaled = .false.
