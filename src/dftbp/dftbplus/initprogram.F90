@@ -2224,7 +2224,7 @@ contains
     end if
 
     if (allocated(input%ctrl%elecConstrainInp)) then
-      call this%ensureConstrainedDftbReqs(input%ctrl%elecConstrainInp, input%ctrl%tShellResolved)
+      call this%ensureConstrainedDftbReqs(input%ctrl%elecConstrainInp)
       allocate(this%elecConstrain)
       call TElecConstraint_init(this%elecConstrain, input%ctrl%elecConstrainInp, this%orb)
     end if
@@ -5232,32 +5232,13 @@ contains
 
 
   !> Stop if any setting incompatible with the constrained DFTB formalism is found.
-  subroutine ensureConstrainedDftbReqs(this, elecConstrainInp, tShellResolved)
+  subroutine ensureConstrainedDftbReqs(this, elecConstrainInp)
 
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
 
     !> Input parameters for electronic constraints
     type(TElecConstraintInput), intent(in) :: elecConstrainInp
-
-    !> True, if this is a shell resolved calculation
-    logical, intent(in) :: tShellResolved
-
-    if (withMpi) then
-      call error("Constrained DFTB calculations do not yet support MPI yet.")
-    end if
-
-    if (tShellResolved) then
-      call error("Constrained DFTB calculations do not yet support shell-resolved SCC.")
-    end if
-
-    if (this%nSpin > 2) then
-      call error("Constrained DFTB calculations do not yet support non-colinear spin.")
-    end if
-
-    if (this%tSpinOrbit) then
-      call error("Constrained DFTB calculations do not yet support spin-orbit coupling.")
-    end if
 
     if (this%isXlbomd) then
       call error("Constrained DFTB calculations do not yet support XLBOMD.")
@@ -5267,20 +5248,12 @@ contains
       call error("Constrained DFTB calculations do not yet support REKS.")
     end if
 
-    if (allocated(this%dftbU)) then
-      call error("Constrained DFTB calculations do not yet support DFTB+U.")
-    end if
-
     if (this%deltaDftb%isNonAufbau) then
       call error("Constrained DFTB calculations do not yet support delta-DFTB.")
     end if
 
     if (allocated(this%electronDynamics)) then
       call error("Constrained DFTB calculations do not yet support electron dynamics.")
-    end if
-
-    if (this%hamiltonianType == hamiltonianTypes%xTB) then
-      call error("Constrained DFTB calculations do not yet support the xTB Hamiltonian.")
     end if
 
   #:if WITH_TRANSPORT

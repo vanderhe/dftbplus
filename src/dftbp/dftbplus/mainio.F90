@@ -4447,8 +4447,8 @@ contains
   !> Prints the line above the start of the electronic constraints cycle data
   subroutine printElecConstrHeader()
 
-    write(stdOut, "(A6,A5,A18,A18)") repeat(" ", 6), "iConst", "  Total electronic",&
-        & "     max(dW/dVc)  "
+    write(stdOut, "(A6,A5,3A18)") repeat(" ", 6), "iConst", "  Total electronic",&
+        & "     max(dW/dVc)  ", "     dW           "
 
   end subroutine printElecConstrHeader
 
@@ -4472,7 +4472,7 @@ contains
 
 
   subroutine printBlankLine()
-    write(stdOut,*)
+    write(stdOut, *)
   end subroutine printBlankLine
 
 
@@ -4504,7 +4504,7 @@ contains
 
 
   !> Prints info about electronic constraint convergence.
-  subroutine printElecConstrInfo(iConstrIter, Eelec, dWdVcMax)
+  subroutine printElecConstrInfo(iConstrIter, Eelec, deltaW, dWdVcMax)
 
     !> Iteration count
     integer, intent(in) :: iConstrIter
@@ -4512,10 +4512,13 @@ contains
     !> Electronic energy
     real(dp), intent(in) :: Eelec
 
+    !> Contribution to free energy functional from constraint(s)
+    real(dp), intent(in) :: deltaW
+
     !> Maximum derivative of energy functional with respect to Vc
     real(dp), intent(in) :: dWdVcMax
 
-    write(stdOut, "(A,I5,E18.8,E18.8)") repeat(" ", 6), iConstrIter, Eelec, dWdVcMax
+    write(stdOut, "(A,I5,3E18.8)") repeat(" ", 6), iConstrIter, Eelec, deltaW, dWdVcMax
 
   end subroutine printElecConstrInfo
 

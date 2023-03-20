@@ -304,7 +304,7 @@ contains
 
 
   !> Applies electronic constraints to system.
-  subroutine propagateConstraints(this, qq, energy, tConverged, dWdVcMax)
+  subroutine propagateConstraints(this, qq, energy, deltaW, dWdVcMax, tConverged)
 
     !> Class instance
     class(TElecConstraint), intent(inout) :: this
@@ -315,14 +315,14 @@ contains
     !> Energy
     real(dp), intent(in) :: energy
 
-    !> Gradient convergence achieved
-    logical, intent(out) :: tConverged
+    !> Contribution to free energy functional from constraint(s)
+    real(dp), intent(out) :: deltaW
 
     !> Maximum derivative of energy functional with respect to Vc
     real(dp), intent(out) :: dWdVcMax
 
-    !> Contribution to free energy functional from constraint(s)
-    real(dp) :: deltaW
+    !> Gradient convergence achieved
+    logical, intent(out) :: tConverged
 
     !! Derivative of energy functional with respect to Vc
     real(dp), allocatable :: dWdVc(:)

@@ -1013,6 +1013,9 @@ contains
     ! Number of constraint iterations
     integer :: nConstrIter
 
+    !> Contribution to free energy functional from constraint(s)
+    real(dp) :: deltaW
+
     !> Maximum derivative of energy functional with respect to Vc
     real(dp) :: dWdVcMax
 
@@ -1157,6 +1160,7 @@ contains
     call env%globalTimer%startTimer(globalTimers%scc)
 
     if (allocated(this%elecConstrain)) then
+      deltaW = 0.0_dp
       dWdVcMax = 0.0_dp
     end if
 
@@ -1345,14 +1349,15 @@ contains
             end if
             call sumEnergies(this%dftbEnergy(this%deltaDftb%iDeterminant))
             call this%elecConstrain%propagateConstraints(this%qOutput,&
-                & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, tConstrConverged, dWdVcMax)
+                & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, deltaW, dWdVcMax,&
+                & tConstrConverged)
           else
             tConstrConverged = .true.
           end if
 
           if (allocated(this%elecConstrain)) then
             call printElecConstrInfo(iConstrIter,&
-                & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, dWdVcMax)
+                & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, deltaW, dWdVcMax)
           end if
 
           if (tConstrConverged) then
