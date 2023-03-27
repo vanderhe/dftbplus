@@ -349,7 +349,7 @@ contains
 
     ! Optimizers set up to minimize, therefore sign change in total energy and gradients
     ! call next(this%potOpt, -(energy + deltaW), -dWdVc, this%Vc, tConverged)
-    call this%potOpt%step(-(energy + deltaW), -dWdVc, potDisplace)
+    call this%potOpt%step(energy + deltaW, -dWdVc, potDisplace)
     this%Vc(:) = this%Vc + potDisplace
 
     dWdVcMax = maxval(abs(dWdVc))

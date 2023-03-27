@@ -1274,6 +1274,10 @@ contains
         if (allocated(this%elecConstrain)) then
           nConstrIter = this%elecConstrain%getMaxIter()
           call printElecConstrHeader()
+          if (allocated(this%elecConstrain)) then
+            ! call reset(this%elecConstrain%potOpt, this%elecConstrain%Vc)
+            call this%elecConstrain%potOpt%reset(this%elecConstrain%Vc)
+          end if
         else
           nConstrIter = 1
         end if
@@ -1343,10 +1347,6 @@ contains
               & this%qNetAtom, this%potential%intOnSiteAtom, this%potential%extOnSiteAtom)
 
           if (allocated(this%elecConstrain)) then
-            if (this%electronicSolver%elecChemPotAvailable) then
-              this%dftbEnergy(this%deltaDftb%iDeterminant)%NEf = sum(this%Ef&
-                  & * sum(sum(this%qOutput(:,:size(this%iAtInCentralRegion),:), dim=1), dim=1))
-            end if
             call sumEnergies(this%dftbEnergy(this%deltaDftb%iDeterminant))
             call this%elecConstrain%propagateConstraints(this%qOutput,&
                 & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, deltaW, dWdVcMax,&
@@ -1361,10 +1361,6 @@ contains
           end if
 
           if (tConstrConverged) then
-            if (allocated(this%elecConstrain)) then
-              ! call reset(this%elecConstrain%potOpt, this%elecConstrain%Vc)
-              call this%elecConstrain%potOpt%reset(this%elecConstrain%Vc)
-            end if
             exit lpConstrInner
           end if
 
