@@ -323,13 +323,13 @@ contains
 
 
   !> Returns the Hamiltonian for the given scc iteration
-  subroutine getSccHamiltonian(env, H0, ints, nNeighbourSK, neighbourList, species, orb, iSparseStart,&
-      & img2CentCell, potential, isREKS, ham, iHam)
+  subroutine getSccHamiltonian(env, H0, ints, nNeighbourSK, neighbourList, species, orb,&
+      & iSparseStart, img2CentCell, potential, isREKS, ham, iHam)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
 
-    !> non-SCC hamiltonian (sparse)
+    !> Non-SCC hamiltonian (sparse)
     real(dp), intent(in) :: H0(:)
 
     !> Integral container
@@ -338,35 +338,35 @@ contains
     !> Number of atomic neighbours
     integer, intent(in) :: nNeighbourSK(:)
 
-    !> list of atomic neighbours
+    !> List of atomic neighbours
     type(TNeighbourList), intent(in) :: neighbourList
 
-    !> species of atoms
+    !> Species of atoms
     integer, intent(in) :: species(:)
 
-    !> atomic orbital information
+    !> Atomic orbital information
     type(TOrbitals), intent(in) :: orb
 
     !> Index for atomic blocks in sparse data
     integer, intent(in) :: iSparseStart(:,:)
 
-    !> image atoms to central cell atoms
+    !> Image atoms to central cell atoms
     integer, intent(in) :: img2CentCell(:)
 
-    !> potential acting on sustem
+    !> Potential acting on system
     type(TPotentials), intent(in) :: potential
 
     !> Is this DFTB/SSR formalism
     logical, intent(in) :: isREKS
 
-    !> resulting hamitonian (sparse)
+    !> Resulting hamitonian (sparse)
     real(dp), intent(inout) :: ham(:,:)
 
-    !> imaginary part of hamiltonian (if required, signalled by being allocated)
+    !> Imaginary part of hamiltonian (if required, signalled by being allocated)
     real(dp), allocatable, intent(inout) :: iHam(:,:)
 
     integer :: nAtom
-    real(dp), allocatable :: dipoleAtom(:, :)
+    real(dp), allocatable :: dipoleAtom(:,:)
 
     nAtom = size(orb%nOrbAtom)
 
@@ -393,7 +393,7 @@ contains
     if (allocated(potential%dipoleAtom)) then
       dipoleAtom = potential%dipoleAtom
       if (allocated(potential%extDipoleAtom)) then
-        dipoleAtom(:, :) = dipoleAtom + potential%extDipoleAtom
+        dipoleAtom(:,:) = dipoleAtom + potential%extDipoleAtom
       end if
       call addAtomicMultipoleShift(ham, ints%dipoleBra, ints%dipoleKet, nNeighbourSK, &
           & neighbourList%iNeighbour, species, orb, iSparseStart, nAtom, img2CentCell, &
@@ -413,6 +413,5 @@ contains
     end if
 
   end subroutine getSccHamiltonian
-
 
 end module dftbp_dftb_hamiltonian

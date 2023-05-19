@@ -21,6 +21,7 @@ module dftbp_dftbplus_mainio
   use dftbp_common_file, only : TFileDescr, openFile, closeFile
   use dftbp_common_globalenv, only : stdOut, destructGlobalEnv, abortProgram
   use dftbp_common_status, only : TStatus
+  use dftbp_dftb_densitymatrix, onLy : TDensityMatrix
   use dftbp_dftb_determinants, only : TDftbDeterminants
   use dftbp_dftb_dispersions, only : TDispersionIface
   use dftbp_dftb_elstatpot, only : TElStatPotentials
@@ -86,7 +87,8 @@ module dftbp_dftbplus_mainio
   public :: writeEsp
   public :: writeCurrentGeometry, writeFinalDriverStatus
   public :: writeHSAndStop, writeHS
-  public :: printGeoStepInfo, printSccHeader, printSccInfo, printEnergies, printVolume
+  public :: printSccHeader
+  public :: printGeoStepInfo, printSccInfo, printEnergies, printVolume
   public :: printPressureAndFreeEnergy, printMaxForce, printMaxLatticeForce
   public :: printForceNorm, printLatticeForceNorm
   public :: printMdInfo, printBlankLine
@@ -3208,7 +3210,7 @@ contains
   subroutine writeDetailedOut3(fd, qInput, qOutput, energy, species, tDFTBU, tPrintMulliken, Ef,&
       & pressure, cellVol, tAtomicEnergy, dispersion, isExtField, tPeriodic, nSpin, tSpin,&
       & tSpinOrbit, tScc, tOnSite, iAtInCentralRegion, electronicSolver, tHalogenX,&
-      & tRangeSep, t3rd, tSolv)
+      & tHybridXc, t3rd, tSolv)
 
     !> File ID
     integer, intent(in) :: fd
@@ -3277,7 +3279,7 @@ contains
     logical, intent(in) :: tHalogenX
 
     !> Is this a range separation calculation?
-    logical, intent(in) :: tRangeSep
+    logical, intent(in) :: tHybridXc
 
     !> Is this a 3rd order scc calculation?
     logical, intent(in) :: t3rd
@@ -3347,7 +3349,7 @@ contains
       if (t3rd) then
         write(fd, format2U) 'Energy 3rd', energy%e3rd, 'H', energy%e3rd * Hartree__eV, 'eV'
       end if
-      if (tRangeSep) then
+      if (tHybridXc) then
         write(fd, format2U) 'Energy Fock', energy%Efock, 'H', energy%Efock * Hartree__eV, 'eV'
       end if
       if (tDFTBU) then
@@ -4053,8 +4055,8 @@ contains
 
 
   !> Write out charges.
-  subroutine writeCharges(fCharges, tWriteAscii, orb, qInput, qBlockIn, qiBlockIn, deltaRhoIn,&
-      & nAtInCentralRegion, multipoles)
+  subroutine writeCharges(fCharges, tWriteAscii, orb, qInput, qBlockIn, qiBlockIn, densityMatrix,&
+      & tRealHS, nAtInCentralRegion, coeffsAndShifts, multipoles)
 
     !> File name for charges to be written to
     character(*), intent(in) :: fCharges
@@ -4074,22 +4076,30 @@ contains
     !> Imaginary part of block populations if present
     real(dp), intent(in), allocatable :: qiBlockIn(:,:,:,:)
 
-    !> Full density matrix with on-diagonal adjustment
-    real(dp), intent(in), allocatable :: deltaRhoIn(:)
+    !> Holds real and complex delta density matrices
+    type(TDensityMatrix), intent(in) :: densityMatrix
+
+    !> True, if overlap and Hamiltonian are real-valued
+    logical, intent(in) :: tRealHS
 
     !> Number of atoms in central region (atoms outside this will have charges suplied from
     !> elsewhere)
     integer, intent(in) :: nAtInCentralRegion
 
+    !> Coefficients of the lattice vectors in the linear combination for the super lattice vectors
+    !! (should be integer values) and shift of the grid along the three small reciprocal lattice
+    !! vectors (between 0.0 and 1.0)
+    real(dp), intent(in), optional :: coeffsAndShifts(:,:)
+
     !> Atomic multipoles, if relevant
     type(TMultipole), intent(in), optional :: multipoles
 
-    call writeQToFile(qInput, fCharges, tWriteAscii, orb, qBlockIn, qiBlockIn, deltaRhoIn,&
-        & nAtInCentralRegion, multipoles)
+    call writeQToFile(qInput, fCharges, tWriteAscii, orb, qBlockIn, qiBlockIn, densityMatrix,&
+        & tRealHS, nAtInCentralRegion, coeffsAndShifts=coeffsAndShifts, multipoles=multipoles)
     if (tWriteAscii) then
-      write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges)//'.dat'
+      write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges) // '.dat'
     else
-      write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges)//'.bin'
+      write(stdOut, "(A,A)") '>> Charges saved for restart in ', trim(fCharges) // '.bin'
     end if
 
   end subroutine writeCharges
@@ -4442,6 +4452,7 @@ contains
 
   end subroutine printSccHeader
 
+
   !> Prints the line above the start of the REKS SCC cycle data
   subroutine printReksSccHeader(reks)
 
@@ -4459,9 +4470,11 @@ contains
 
   end subroutine printReksSccHeader
 
+
   subroutine printBlankLine()
     write(stdOut,*)
   end subroutine printBlankLine
+
 
   !> Prints info about scc convergence.
   subroutine printSccInfo(tDftbU, iSccIter, Eelec, diffElec, sccErrorQ)
@@ -5409,7 +5422,7 @@ contains
       & tCoordOpt, tLatOpt, iLatGeoStep, iSccIter, energy, diffElec, sccErrorQ,&
       & indMovedAtom, coord0Out, q0, qOutput, orb, species, tPrintMulliken, pressure,&
       & cellVol, tAtomicEnergy, dispersion, tPeriodic, tScc, invLatVec, kPoints,&
-      & iAtInCentralRegion, electronicSolver, reks, t3rd, isRangeSep, qNetAtom)
+      & iAtInCentralRegion, electronicSolver, reks, t3rd, isHybridXc, qNetAtom)
 
     !> File ID
     integer, intent(in) :: fd
@@ -5502,7 +5515,7 @@ contains
     logical, intent(in) :: t3rd
 
     !> Whether to run a range separated calculation
-    logical, intent(in) :: isRangeSep
+    logical, intent(in) :: isHybridXc
 
     !> Onsite mulliken population per atom
     real(dp), intent(in), optional :: qNetAtom(:)
@@ -5683,7 +5696,7 @@ contains
       if (t3rd) then
         write (fd,format2U) 'Energy 3rd', energy%e3rd, 'H', energy%e3rd*Hartree__eV, 'eV'
       end if
-      if (isRangeSep) then
+      if (isHybridXc) then
         write(fd, format2U) 'Energy Fock', energy%Efock, 'H', energy%Efock * Hartree__eV, 'eV'
       end if
     end if
