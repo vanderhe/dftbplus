@@ -23,6 +23,7 @@ module dftbp_dftbplus_mainio
   use dftbp_common_status, only : TStatus
   use dftbp_dftb_determinants, only : TDftbDeterminants
   use dftbp_dftb_dispersions, only : TDispersionIface
+  use dftbp_dftb_elecconstraints, only: TElecConstraint
   use dftbp_dftb_elstatpot, only : TElStatPotentials
   use dftbp_dftb_energytypes, only : TEnergies
   use dftbp_dftb_extfields, only : TEField
@@ -4523,7 +4524,10 @@ contains
 
 
   !> Prints info about electronic constraint convergence.
-  subroutine printElecConstrInfo(iConstrIter, Eelec, deltaW, dWdVcMax)
+  subroutine printElecConstrInfo(elecConstrain, iConstrIter, Eelec)
+
+    !> Represents electronic contraints
+    type(TElecConstraint), intent(in) :: elecConstrain
 
     !> Iteration count
     integer, intent(in) :: iConstrIter
@@ -4531,13 +4535,19 @@ contains
     !> Electronic energy
     real(dp), intent(in) :: Eelec
 
-    !> Contribution to free energy functional from constraint(s)
-    real(dp), intent(in) :: deltaW
+    !> Total contribution to free energy functional from constraint(s)
+    real(dp) :: deltaWTotal
 
     !> Maximum derivative of energy functional with respect to Vc
-    real(dp), intent(in) :: dWdVcMax
+    real(dp) :: dWdVcMax
 
-    write(stdOut, "(A,I5,3E18.8)") repeat(" ", 6), iConstrIter, Eelec, deltaW, dWdVcMax
+    ! Sum up all free energy contributions
+    deltaWTotal = elecConstrain%getFreeEnergy()
+
+    ! Get maximum derivative of energy functional with respect to Vc
+    dWdVcMax = elecConstrain%getMaxEnergyDerivWrtVc()
+
+    write(stdOut, "(A,I5,3E18.8)") repeat(" ", 6), iConstrIter, Eelec, deltaWTotal, dWdVcMax
 
   end subroutine printElecConstrInfo
 

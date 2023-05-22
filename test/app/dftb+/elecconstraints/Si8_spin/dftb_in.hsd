@@ -41,7 +41,7 @@ Hamiltonian = DFTB {
     Si = {-0.0144}
   }
 
-  StateConstraints = {
+  ElectronicConstraints = {
     Regions {
       Atoms {
         Domain = 8

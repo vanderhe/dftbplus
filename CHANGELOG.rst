@@ -15,7 +15,7 @@ Added
 
 - Hellmann-Feynman testing for the xTB hamiltonian dipoles
 
-- State constraints on arbitrary fragments, targeting the electronic ground
+- Electronic constraints on arbitrary fragments, targeting the electronic ground
   state by determining a self-consistent constraint potential
   (restricted to Mulliken populations at the moment)
 

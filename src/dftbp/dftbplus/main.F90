@@ -991,10 +991,10 @@ contains
     ! Loop variables
     integer :: iSccIter
 
-    ! energy in previous scc cycles
+    ! Energy in previous scc cycles
     real(dp) :: Eold
 
-    ! whether scc converged
+    ! Whether scc converged
     logical :: tConverged
 
     ! Whether scc restart info should be written in current iteration
@@ -1011,12 +1011,6 @@ contains
 
     ! Number of constraint iterations
     integer :: nConstrIter
-
-    !> Contribution to free energy functional from constraint(s)
-    real(dp) :: deltaW
-
-    !> Maximum derivative of energy functional with respect to Vc
-    real(dp) :: dWdVcMax
 
     ! Whether constraints are converged
     logical :: tConstrConverged
@@ -1157,11 +1151,6 @@ contains
     call env%globalTimer%stopTimer(globalTimers%preSccInit)
 
     call env%globalTimer%startTimer(globalTimers%scc)
-
-    if (allocated(this%elecConstrain)) then
-      deltaW = 0.0_dp
-      dWdVcMax = 0.0_dp
-    end if
 
     REKS_SCC: if (allocated(this%reks)) then
 
@@ -1347,15 +1336,14 @@ contains
           if (allocated(this%elecConstrain)) then
             call sumEnergies(this%dftbEnergy(this%deltaDftb%iDeterminant))
             call this%elecConstrain%propagateConstraints(this%qOutput,&
-                & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, deltaW, dWdVcMax,&
-                & tConstrConverged)
+                & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, tConstrConverged)
           else
             tConstrConverged = .true.
           end if
 
           if (allocated(this%elecConstrain)) then
-            call printElecConstrInfo(iConstrIter,&
-                & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, deltaW, dWdVcMax)
+            call printElecConstrInfo(this%elecConstrain, iConstrIter,&
+                & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec)
           end if
 
           if (tConstrConverged) exit lpConstrInner
@@ -1377,9 +1365,6 @@ contains
         call sccLoopWriting(this, iGeoStep, iLatGeoStep, iSccIter, diffElec, sccErrorQ)
 
         if (tConverged .or. tStopScc) exit lpSCC
-        ! if (allocated(this%elecConstrain)) then
-        !   if (.not. tConstrConverged .and. this%elecConstrain%isConstrConvRequired) exit lpSCC
-        ! end if
 
       end do lpSCC
 

@@ -1709,7 +1709,7 @@ contains
     end if
 
     ! Electronic constraints
-    call getChildValue(node, "StateConstraints", value1, "", child=child, allowEmptyValue=.true.,&
+    call getChildValue(node, "ElectronicConstraints", value1, "", child=child, allowEmptyValue=.true.,&
         & dummyValue=.true., list=.true.)
     if (associated(value1)) then
       allocate(ctrl%elecConstrainInp)
