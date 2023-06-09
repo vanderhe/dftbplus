@@ -9,16 +9,162 @@
 
 !> Constraints on the electronic ground state
 module dftbp_dftb_elecconstraints
-  use dftbp_common_accuracy, only : dp
+  use dftbp_common_accuracy, only : dp, sc
   use dftbp_math_angmomentum, only : getLOperators
   use dftbp_type_commontypes, only : TOrbitals
+  use dftbp_type_densedescr, only : TDenseDescr
+  use dftbp_type_orbitals, only : orbitalNames, getShellNames
+  use dftbp_math_bisect, only : bisection
+  use dftbp_io_charmanip, only : i2c
   implicit none
 
   private
+
   public :: constrainQ, constrainS, constrainL, constrainJ, constrainMj
+  public :: printHighestAO
 
 
 contains
+
+
+  !> Prints atom index, angular and magnetic quantum number of occupied AO with highest energy.
+  subroutine printHighestAO(HSqrReal, orb, denseDesc, iAtInCentralRegion, species, speciesName, qq)
+
+    !> Square (unpacked) Hamiltonian of certain spin channel
+    real(dp), intent(in) :: HSqrReal(:,:)
+
+    !> Orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> Dense matrix descriptor
+    type(TDenseDescr), intent(in) :: denseDesc
+
+    !> List of atoms in the central cell (or device region if transport)
+    integer, intent(in) :: iAtInCentralRegion(:)
+
+    !> Species of atoms
+    integer, intent(in) :: species(:)
+
+    !> Name of each species
+    character(*), intent(in) :: speciesName(:)
+
+    !> Mulliken orbital charges on output (mOrb, nAtom, nSpin)
+    real(dp), intent(in) :: qq(:,:,:)
+
+    character(sc), allocatable :: shellNamesTmp(:)
+
+    !! Dense matrix descriptor indices
+    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
+
+    !! Stores start/end index and number of orbitals of square matrices
+    integer :: desc(descLen)
+
+    !! Number of orbitals in square matrices
+    integer :: nOrb
+
+    integer :: ll, iAt
+    integer :: ii, iSp, iSh, iBlockStart, iBlockEnd, iDiag
+    real(dp) :: occ, energy
+    real(dp), allocatable :: hamBlock(:,:)
+    character(len=:), allocatable :: fmt
+
+    print "(/,A)", '############### AO Analysis ###############'
+
+    ! Check if we are dealing with distributed matrices
+    @:ASSERT(size(HSqrReal, dim=1) == size(HSqrReal, dim=2))
+
+    nOrb = size(HSqrReal, dim=1)
+
+    do ii = 1, size(iAtInCentralRegion)
+      iAt = iAtInCentralRegion(ii)
+      desc = getDescriptor(iAt, denseDesc%iAtomStart)
+      iSp = species(iAt)
+      call getShellNames(iSp, orb, shellNamesTmp)
+      do iSh = 1, orb%nShell(iSp)
+        ll = orb%angShell(iSh, iSp)
+        occ = sum(qq(orb%posShell(iSh, iSp):orb%posShell(iSh + 1, iSp) - 1, iAt, 1))
+        if (occ > 1.0_dp) then
+          iBlockStart = desc(iStart) + orb%posShell(iSh, iSp) - 1
+          iBlockEnd = desc(iStart) + orb%posShell(iSh + 1, iSp) - 2
+          hamBlock = HSqrReal(iBlockStart:iBlockEnd, iBlockStart:iBlockEnd)
+          energy = 0.0_dp
+          do iDiag = 1, size(hamBlock, dim=1)
+            energy = energy + hamBlock(iDiag, iDiag)
+          end do
+          energy = energy / size(hamBlock, dim=1)
+          print "(A,I0,4A,A,2E26.16)", "iAtom, species, shell, occupation, energy: ", iAt, ", ",&
+              & trim(speciesName(iSp)), ", ", trim(shellNamesTmp(ll + 1)), ", ", occ, energy
+          fmt = "(" // i2c(size(hamBlock, dim=1)) // "F16.10)"
+          ! print fmt, transpose(hamBlock)
+        end if
+      end do
+      deallocate(shellNamesTmp)
+    end do
+
+    ! diagMax = minval(HSqrReal)
+
+    ! do iOrb = 1, nOrb
+    !   call bisection(iAt, denseDesc%iAtomStart, iOrb)
+    !   iOrbStart = denseDesc%iAtomStart(iAt)
+    !   iOrbOnAtom = iOrb - iOrbStart + 1
+
+    !   diag = HSqrReal(iOrb, iOrb)
+    !   ! occ = qq(orb%posShell(iSh, iSp):orb%posShell(iSh + 1, iSp) - 1, iAt, 1)
+    !   occ = 1.0_dp
+
+    !   if (occ > 1.0e-08_dp) then
+    !     if (diag > diagMax) then
+    !       diagMax = diag
+    !       iOrbMax = iOrb
+    !     end if
+    !   end if
+    ! end do
+
+    ! ! get atom index from orbital index
+    ! call bisection(iAtMax, denseDesc%iAtomStart, iOrbMax)
+    ! print *, iAtMax, iOrbMax
+
+    ! ! get species index from atom index
+    ! iSpMax = species(iAtMax)
+    ! print *, orb%iShellOrb(:, iSpMax)
+    ! call getShellNames(iSpMax, orb, shellNamesTmp)
+
+    ! ! first orbital in global indexing on atom
+    ! iOrbStart = denseDesc%iAtomStart(iAtMax)
+
+    ! ! orbital index of related to the associated atom
+    ! iOrbOnAtom = iOrbMax - iOrbStart + 1
+
+    ! ll = orb%iShellOrb(iOrbOnAtom, iSpMax) - 1
+    ! mm = iOrbOnAtom - orb%posShell(ll + 1, iSpMax) - ll
+
+    ! print "(A,E20.12,A,/)", "Found highest (occupied) AO at: ", diagMax, " Ha"
+    ! print "(A,I0,5A)", "Orbital-index/-type: ", iOrbMax, " (", trim(shellNamesTmp(ll + 1)),&
+    !     & "_", trim(orbitalNames(mm, ll)), ")"
+    ! print "(3A,I0,A)", "Atom-type/-index: ", trim(speciesName(iSpMax)), " (", iAtMax, ")"
+    ! print "(A,E20.12)", "Occupation: ", qq(iOrbOnAtom, iAtMax, 1)
+
+    print "(A,/)", '###############     END     ###############'
+
+  contains
+
+    !> Finds location of relevant atomic block indices in a dense matrix.
+    pure function getDescriptor(iAt, iSquare) result(desc)
+
+      !> Relevant atom
+      integer, intent(in) :: iAt
+
+      !> Indexing array for start of atom orbitals
+      integer, intent(in) :: iSquare(:)
+
+      !> Resulting location ranges
+      integer :: desc(3)
+
+      desc(:) = [iSquare(iAt), iSquare(iAt + 1) - 1, iSquare(iAt + 1) - iSquare(iAt)]
+
+    end function getDescriptor
+
+  end subroutine printHighestAO
 
 
   !> Quadratic constraint on atomic charge

@@ -917,6 +917,12 @@ module dftbp_dftbplus_initprogram
     !> Square dense hamiltonian storage
     real(dp), allocatable :: HSqrReal(:,:)
 
+    !> Square dense hamiltonian storage (copy that hasn't been overwritten)
+    real(dp), allocatable :: HSqrRealLast(:,:,:)
+
+    !> Square dense hamiltonian storage (copy that hasn't been overwritten)
+    real(dp), allocatable :: HSqrRealLastFull(:,:,:)
+
     !> Square dense overlap storage
     real(dp), allocatable :: SSqrReal(:,:)
 
@@ -5447,6 +5453,16 @@ contains
 
     !> Parameters for the range separated calculation
     type(THybridXcInp), intent(in) :: hybridXcInp
+
+    if (.not. (this%tPeriodic .and. this%tRealHS)) then
+      call error("This special-purpose medification of DFTB+ should only be used for Gamma-only&
+          & calculations.")
+    end if
+
+    if (this%nSpin > 1) then
+      call error("This special-purpose medification of DFTB+ should only be used for&
+          & spin-restricted calculations.")
+    end if
 
     if (withMpi .and. (.not. this%tPeriodic) .and. (hybridXcInp%hybridXcAlg&
         & /= hybridXcAlgo%matrixBased)) then
