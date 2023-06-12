@@ -48,6 +48,12 @@ module dftbp_dftb_hybridxc
 
 #:if WITH_SCALAPACK
   public :: getFullFromDistributed, scatterFullToDistributed
+
+  !> Collects full matrix from distributed contributions.
+  interface getFullFromDistributed
+    module procedure getFullFromDistributed_2d
+    module procedure getFullFromDistributed_3d
+  end interface getFullFromDistributed
 #:endif
 
 
@@ -4691,7 +4697,63 @@ contains
 #:if WITH_SCALAPACK
 
   !> Collects full local matrix from distributed, global contributions.
-  subroutine getFullFromDistributed(env, denseDesc, orb, parallelKS, species0, global, local)
+  subroutine getFullFromDistributed_2d(env, denseDesc, orb, parallelKS, species0, global, local)
+
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
+
+    !> Dense matrix descriptor
+    type(TDenseDescr), intent(in) :: denseDesc
+
+    !> Information about the orbitals in the system
+    type(TOrbitals), intent(in) :: orb
+
+    !> K-points and spins to process
+    type(TParallelKS), intent(in) :: parallelKS
+
+    !> Species of the atoms
+    integer, intent(in) :: species0(:)
+
+    !> Global distributed matrix
+    real(dp), intent(in) :: global(:,:)
+
+    !> Local square matrix
+    real(dp), intent(out) :: local(:,:)
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    !! Spin and composite index
+    integer :: iSpin, iKS
+
+    !! Auxiliary variables
+    integer :: iSp1, iSp2, iAt1, iAt2, nOrbSp1, nOrbSp2, iOrbStart1, iOrbStart2, iOrbEnd1, iOrbEnd2
+
+    nAtom0 = size(species0, dim=1)
+    local(:,:) = 0.0_dp
+
+    do iAt1 = 1, nAtom0
+      iSp1 = species0(iAt1)
+      nOrbSp1 = orb%nOrbSpecies(iSp1)
+      iOrbStart1 = denseDesc%iAtomStart(iAt1)
+      iOrbEnd1 = denseDesc%iAtomStart(iAt1 + 1) - 1
+      do iAt2 = 1, nAtom0
+        iSp2 = species0(iAt2)
+        nOrbSp2 = orb%nOrbSpecies(iSp2)
+        iOrbStart2 = denseDesc%iAtomStart(iAt2)
+        iOrbEnd2 = denseDesc%iAtomStart(iAt2 + 1) - 1
+        call scalafx_addg2l(env%blacs%orbitalGrid, denseDesc%blacsOrbSqr, iOrbStart2, iOrbStart1,&
+            & global, local(iOrbStart2:iOrbEnd2, iOrbStart1:iOrbEnd1))
+      end do
+    end do
+
+    call mpifx_allreduceip(env%mpi%globalComm, local, MPI_SUM)
+
+  end subroutine getFullFromDistributed_2d
+
+
+  !> Collects full local matrix from distributed, global contributions.
+  subroutine getFullFromDistributed_3d(env, denseDesc, orb, parallelKS, species0, global, local)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -4746,7 +4808,7 @@ contains
 
     call mpifx_allreduceip(env%mpi%globalComm, local, MPI_SUM)
 
-  end subroutine getFullFromDistributed
+  end subroutine getFullFromDistributed_3d
 
 
   !> Scatters full, local square matrix to distributed, global matrices.

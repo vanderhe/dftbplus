@@ -30,8 +30,7 @@ contains
 
 
   !> Prints atom index, angular and magnetic quantum number of occupied AO with highest energy.
-  subroutine printHighestAO(HSqrReal, eigvecs, SSqr, orb, denseDesc, iAtInCentralRegion, species0,&
-      & speciesName, qq)
+  subroutine printHighestAO(HSqrReal, eigvecs, SSqr, orb, denseDesc, species0, speciesName, filling)
 
     !> Square (unpacked) Hamiltonian of certain spin channel
     real(dp), intent(in) :: HSqrReal(:,:)
@@ -48,17 +47,17 @@ contains
     !> Dense matrix descriptor
     type(TDenseDescr), intent(in) :: denseDesc
 
-    !> List of atoms in the central cell (or device region if transport)
-    integer, intent(in) :: iAtInCentralRegion(:)
-
     !> Species of atoms
     integer, intent(in) :: species0(:)
 
     !> Name of each species
     character(*), intent(in) :: speciesName(:)
 
-    !> Mulliken orbital charges on output (mOrb, nAtom, nSpin)
-    real(dp), intent(in) :: qq(:,:,:)
+    !> Fillings of the states
+    real(dp), intent(in) :: filling(:,:,:)
+
+    !! Index of highest occupied kanonical orbital
+    integer :: iHoko
 
     character(sc), allocatable :: shellNamesTmp(:)
 
@@ -68,21 +67,27 @@ contains
     !! Stores start/end index and number of orbitals of square matrices
     integer :: desc(descLen)
 
-    integer :: ll, iAtMax, iHoko, nOrb, iOrbStart, iOrbMax, iSpMax, iOrbOnAtom, mm
-    integer :: iSh, iBlockStart, iBlockEnd, degeneracy, iDiag
+    integer :: ll, iAtMax, nOrb, iOrbStart, iOrbMax, iSpMax, iOrbOnAtom, mm
+    integer :: iSh, iBlockStart, iBlockEnd, degeneracy, iDiag, iState
     integer, allocatable :: magQN(:)
-    real(dp) :: energy, probMax, diagMax
+    real(dp) :: probMax, diagMax
     real(dp), allocatable :: hamBlock(:,:)
     character(len=:), allocatable :: fmt
     real(dp), allocatable :: prob(:)
+
+    ! determine HOKO
+    lpStates: do iState = size(filling, dim=1), 1, -1
+      if (filling(iState, 1, 1) > 1.0e-06_dp) then
+        iHoko = iState
+        exit lpStates
+      end if
+    end do lpStates
 
     write(stdOut, "(/,A)") '################AO-Analysis################'
 
     ! Check if we are dealing with distributed matrices
     @:ASSERT(size(HSqrReal, dim=1) == size(HSqrReal, dim=2))
 
-    ! highest occupied kanonical orbital
-    iHoko = 16
     nOrb = size(eigvecs, dim=1)
 
     allocate(prob(nOrb), source=0.0_dp)
@@ -90,7 +95,7 @@ contains
 
     ! |<\Psi_iHoko|\Phi_\alpha>|^2
     prob(:) = prob * eigvecs(:, iHoko, 1)
-    ! print "(F10.6)", prob
+    write(stdOut, "(F10.6)") prob
 
     iOrbMax = maxloc(prob, dim=1)
     probMax = prob(iOrbMax)
@@ -128,6 +133,7 @@ contains
     end do
     magQN = magQN(1:degeneracy)
 
+    write(stdOut, "(A,I0)") "Analysis performed for HOKO: ", iHoko
     write(stdOut, "(A,E20.12,/)") "Highest projection found: ", probMax
     write(stdOut, "(A,I0,5A)") "Global orbital index/type: ", iOrbMax,&
         & " (", trim(shellNamesTmp(ll + 1)), "_", trim(orbitalNames(mm, ll)), ")"
@@ -140,75 +146,6 @@ contains
     write(stdOut, fmt) "Magnetic QNs: ", magQN
     write(stdOut, "(A,I0)") "degeneracy: ", degeneracy
     write(stdOut, "(A,1E24.14,A)") "energy: ", diagMax, " Ha"
-
-    ! diagMax = minval(HSqrReal)
-
-    ! do iOrb = 1, nOrb
-    !   call bisection(iAt, denseDesc%iAtomStart, iOrb)
-    !   iOrbStart = denseDesc%iAtomStart(iAt)
-    !   iOrbOnAtom = iOrb - iOrbStart + 1
-
-    !   diag = HSqrReal(iOrb, iOrb)
-    !   ! occ = qq(orb%posShell(iSh, iSp):orb%posShell(iSh + 1, iSp) - 1, iAt, 1)
-    !   occ = 1.0_dp
-
-    !   if (occ > 1.0e-08_dp) then
-    !     if (diag > diagMax) then
-    !       diagMax = diag
-    !       iOrbMax = iOrb
-    !     end if
-    !   end if
-    ! end do
-
-    ! ! get atom index from orbital index
-    ! call bisection(iAtMax, denseDesc%iAtomStart, iOrbMax)
-    ! print *, iAtMax, iOrbMax
-
-    ! ! get species index from atom index
-    ! iSpMax = species(iAtMax)
-    ! print *, orb%iShellOrb(:, iSpMax)
-    ! call getShellNames(iSpMax, orb, shellNamesTmp)
-
-    ! ! first orbital in global indexing on atom
-    ! iOrbStart = denseDesc%iAtomStart(iAtMax)
-
-    ! ! orbital index of related to the associated atom
-    ! iOrbOnAtom = iOrbMax - iOrbStart + 1
-
-    ! ll = orb%iShellOrb(iOrbOnAtom, iSpMax) - 1
-    ! mm = iOrbOnAtom - orb%posShell(ll + 1, iSpMax) - ll
-
-    ! print "(A,E20.12,A,/)", "Found highest (occupied) AO at: ", diagMax, " Ha"
-    ! print "(A,I0,5A)", "Orbital-index/-type: ", iOrbMax, " (", trim(shellNamesTmp(ll + 1)),&
-    !     & "_", trim(orbitalNames(mm, ll)), ")"
-    ! print "(3A,I0,A)", "Atom-type/-index: ", trim(speciesName(iSpMax)), " (", iAtMax, ")"
-    ! print "(A,E20.12)", "Occupation: ", qq(iOrbOnAtom, iAtMax, 1)
-
-    ! do ii = 1, size(iAtInCentralRegion)
-    !   iAt = iAtInCentralRegion(ii)
-    !   desc = getDescriptor(iAt, denseDesc%iAtomStart)
-    !   iSp = species0(iAt)
-    !   call getShellNames(iSp, orb, shellNamesTmp)
-    !   do iSh = 1, orb%nShell(iSp)
-    !     ll = orb%angShell(iSh, iSp)
-    !     occ = sum(qq(orb%posShell(iSh, iSp):orb%posShell(iSh + 1, iSp) - 1, iAt, 1))
-    !     if (occ > 1.0_dp) then
-    !       iBlockStart = desc(iStart) + orb%posShell(iSh, iSp) - 1
-    !       iBlockEnd = desc(iStart) + orb%posShell(iSh + 1, iSp) - 2
-    !       hamBlock = HSqrReal(iBlockStart:iBlockEnd, iBlockStart:iBlockEnd)
-    !       energy = 0.0_dp
-    !       do iDiag = 1, size(hamBlock, dim=1)
-    !         energy = energy + hamBlock(iDiag, iDiag)
-    !       end do
-    !       energy = energy / size(hamBlock, dim=1)
-    !       write(stdOut, "(A,I0,4A,A,2E26.16)") "iAtom, species, shell, occupation, energy: ", iAt,&
-    !           & ", ", trim(speciesName(iSp)), ", ", trim(shellNamesTmp(ll + 1)), ", ", occ, energy
-    !       fmt = "(" // i2c(size(hamBlock, dim=1)) // "F16.10)"
-    !       ! write(stdOut, fmt) transpose(hamBlock)
-    !     end if
-    !   end do
-    !   deallocate(shellNamesTmp)
-    ! end do
 
     write(stdOut, "(A,/)") '####################END####################'
 

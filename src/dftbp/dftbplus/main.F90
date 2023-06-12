@@ -1428,6 +1428,7 @@ contains
         call sccLoopWriting(this, iGeoStep, iLatGeoStep, iSccIter, diffElec, sccErrorQ)
 
         if (tConverged .or. tStopScc) then
+          allocate(this%eigvecsRealFull(this%nOrb, this%nOrb, 1))
           allocate(this%HSqrRealLastFull(this%nOrb, this%nOrb, 1))
           allocate(SSqrRealFull(this%nOrb, this%nOrb), source=0.0_dp)
         #:if WITH_SCALAPACK
@@ -1435,18 +1436,20 @@ contains
               & this%nNeighbourSK, this%iSparseStart, this%img2CentCell, this%denseDesc,&
               & this%SSqrReal)
           call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
+              & this%species0, this%eigvecsReal, this%eigvecsRealFull)
+          call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
               & this%species0, this%HSqrRealLast, this%HSqrRealLastFull)
           call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
               & this%species0, this%SSqrReal, SSqrRealFull)
         #:else
           this%HSqrRealLastFull(:,:,:) = this%HSqrRealLast
+          this%eigvecsRealFull(:,:,:) = this%eigvecsReal
           call unpackHS(this%SSqrReal, this%ints%overlap, this%neighbourList%iNeighbour,&
               & this%nNeighbourSK, this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell)
           SSqrRealFull(:,:) = this%SSqrReal
         #:endif
-          call printHighestAO(this%HSqrRealLastFull(:,:, 1), this%eigvecsReal, SSqrRealFull,&
-              & this%orb, this%denseDesc, this%iAtInCentralRegion, this%species0, this%speciesName,&
-              & this%qOutput)
+          call printHighestAO(this%HSqrRealLastFull(:,:, 1), this%eigvecsRealFull, SSqrRealFull,&
+              & this%orb, this%denseDesc, this%species0, this%speciesName, this%filling)
           exit lpSCC
         end if
 

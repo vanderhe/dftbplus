@@ -929,6 +929,9 @@ module dftbp_dftbplus_initprogram
     !> Real eigenvectors
     real(dp), allocatable :: eigvecsReal(:,:,:)
 
+    !> Real eigenvectors (global)
+    real(dp), allocatable :: eigvecsRealFull(:,:,:)
+
     !> Eigenvalues
     real(dp), allocatable :: eigen(:,:,:)
 
