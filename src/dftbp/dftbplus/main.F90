@@ -1428,13 +1428,13 @@ contains
         if (tConverged .or. tStopScc) then
           allocate(this%HSqrRealLastFull(this%nOrb, this%nOrb, 1))
         #:if WITH_SCALAPACK
-          call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS, this%species,&
-              & this%HSqrRealLast, this%HSqrRealLastFull)
+          call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
+              & this%species0, this%HSqrRealLast, this%HSqrRealLastFull)
         #:else
           this%HSqrRealLastFull(:,:,:) = this%HSqrRealLast
         #:endif
           call printHighestAO(this%HSqrRealLastFull(:,:, 1), this%orb, this%denseDesc,&
-              & this%iAtInCentralRegion, this%species, this%speciesName, this%qOutput)
+              & this%iAtInCentralRegion, this%species0, this%speciesName, this%qOutput)
           exit lpSCC
         end if
 
@@ -3169,6 +3169,8 @@ contains
         call hybridXc%addCamHamiltonian_real(env, denseDesc, SSqrReal, deltaRhoIn(:,:, iKS),&
             & HSqrReal)
       end if
+
+      HSqrRealLast(:,:, 1) = HSqrReal
 
       call diagDenseMtxBlacs(electronicSolver, 1, 'V', denseDesc%blacsOrbSqr, HSqrReal, SSqrReal,&
           & eigen(:,iSpin), eigvecsReal(:,:,iKS), errStatus)

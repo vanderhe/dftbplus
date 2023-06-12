@@ -10,6 +10,7 @@
 !> Constraints on the electronic ground state
 module dftbp_dftb_elecconstraints
   use dftbp_common_accuracy, only : dp, sc
+  use dftbp_common_globalenv, only : stdOut
   use dftbp_math_angmomentum, only : getLOperators
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_densedescr, only : TDenseDescr
@@ -28,7 +29,7 @@ contains
 
 
   !> Prints atom index, angular and magnetic quantum number of occupied AO with highest energy.
-  subroutine printHighestAO(HSqrReal, orb, denseDesc, iAtInCentralRegion, species, speciesName, qq)
+  subroutine printHighestAO(HSqrReal, orb, denseDesc, iAtInCentralRegion, species0, speciesName, qq)
 
     !> Square (unpacked) Hamiltonian of certain spin channel
     real(dp), intent(in) :: HSqrReal(:,:)
@@ -43,7 +44,7 @@ contains
     integer, intent(in) :: iAtInCentralRegion(:)
 
     !> Species of atoms
-    integer, intent(in) :: species(:)
+    integer, intent(in) :: species0(:)
 
     !> Name of each species
     character(*), intent(in) :: speciesName(:)
@@ -59,26 +60,21 @@ contains
     !! Stores start/end index and number of orbitals of square matrices
     integer :: desc(descLen)
 
-    !! Number of orbitals in square matrices
-    integer :: nOrb
-
     integer :: ll, iAt
     integer :: ii, iSp, iSh, iBlockStart, iBlockEnd, iDiag
     real(dp) :: occ, energy
     real(dp), allocatable :: hamBlock(:,:)
     character(len=:), allocatable :: fmt
 
-    print "(/,A)", '############### AO Analysis ###############'
+    write(stdOut, "(/,A)") '############### AO Analysis ###############'
 
     ! Check if we are dealing with distributed matrices
     @:ASSERT(size(HSqrReal, dim=1) == size(HSqrReal, dim=2))
 
-    nOrb = size(HSqrReal, dim=1)
-
     do ii = 1, size(iAtInCentralRegion)
       iAt = iAtInCentralRegion(ii)
       desc = getDescriptor(iAt, denseDesc%iAtomStart)
-      iSp = species(iAt)
+      iSp = species0(iAt)
       call getShellNames(iSp, orb, shellNamesTmp)
       do iSh = 1, orb%nShell(iSp)
         ll = orb%angShell(iSh, iSp)
@@ -92,59 +88,16 @@ contains
             energy = energy + hamBlock(iDiag, iDiag)
           end do
           energy = energy / size(hamBlock, dim=1)
-          print "(A,I0,4A,A,2E26.16)", "iAtom, species, shell, occupation, energy: ", iAt, ", ",&
-              & trim(speciesName(iSp)), ", ", trim(shellNamesTmp(ll + 1)), ", ", occ, energy
+          write(stdOut, "(A,I0,4A,A,2E26.16)") "iAtom, species, shell, occupation, energy: ", iAt,&
+              & ", ", trim(speciesName(iSp)), ", ", trim(shellNamesTmp(ll + 1)), ", ", occ, energy
           fmt = "(" // i2c(size(hamBlock, dim=1)) // "F16.10)"
-          ! print fmt, transpose(hamBlock)
+          ! write(stdOut, fmt) transpose(hamBlock)
         end if
       end do
       deallocate(shellNamesTmp)
     end do
 
-    ! diagMax = minval(HSqrReal)
-
-    ! do iOrb = 1, nOrb
-    !   call bisection(iAt, denseDesc%iAtomStart, iOrb)
-    !   iOrbStart = denseDesc%iAtomStart(iAt)
-    !   iOrbOnAtom = iOrb - iOrbStart + 1
-
-    !   diag = HSqrReal(iOrb, iOrb)
-    !   ! occ = qq(orb%posShell(iSh, iSp):orb%posShell(iSh + 1, iSp) - 1, iAt, 1)
-    !   occ = 1.0_dp
-
-    !   if (occ > 1.0e-08_dp) then
-    !     if (diag > diagMax) then
-    !       diagMax = diag
-    !       iOrbMax = iOrb
-    !     end if
-    !   end if
-    ! end do
-
-    ! ! get atom index from orbital index
-    ! call bisection(iAtMax, denseDesc%iAtomStart, iOrbMax)
-    ! print *, iAtMax, iOrbMax
-
-    ! ! get species index from atom index
-    ! iSpMax = species(iAtMax)
-    ! print *, orb%iShellOrb(:, iSpMax)
-    ! call getShellNames(iSpMax, orb, shellNamesTmp)
-
-    ! ! first orbital in global indexing on atom
-    ! iOrbStart = denseDesc%iAtomStart(iAtMax)
-
-    ! ! orbital index of related to the associated atom
-    ! iOrbOnAtom = iOrbMax - iOrbStart + 1
-
-    ! ll = orb%iShellOrb(iOrbOnAtom, iSpMax) - 1
-    ! mm = iOrbOnAtom - orb%posShell(ll + 1, iSpMax) - ll
-
-    ! print "(A,E20.12,A,/)", "Found highest (occupied) AO at: ", diagMax, " Ha"
-    ! print "(A,I0,5A)", "Orbital-index/-type: ", iOrbMax, " (", trim(shellNamesTmp(ll + 1)),&
-    !     & "_", trim(orbitalNames(mm, ll)), ")"
-    ! print "(3A,I0,A)", "Atom-type/-index: ", trim(speciesName(iSpMax)), " (", iAtMax, ")"
-    ! print "(A,E20.12)", "Occupation: ", qq(iOrbOnAtom, iAtMax, 1)
-
-    print "(A,/)", '###############     END     ###############'
+    write(stdOut, "(A,/)") '###############     END     ###############'
 
   contains
 
