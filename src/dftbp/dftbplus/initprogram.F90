@@ -65,6 +65,7 @@ module dftbp_dftbplus_initprogram
   use dftbp_dftb_spin, only: Spin_getOrbitalEquiv, ud2qm, qm2ud
   use dftbp_dftb_thirdorder, only : TThirdOrderInp, TThirdOrder, ThirdOrder_init
   use dftbp_dftb_uniquehubbard, only : TUniqueHubbard, TUniqueHubbard_init
+  use dftbp_dftb_elecconstraints, only : TElecConstraint, TElecConstraint_init, TElecConstraintInput
   use dftbp_dftbplus_elstattypes, only : elstatTypes
   use dftbp_dftbplus_forcetypes, only : forceTypes
   use dftbp_dftbplus_inputdata, only : TParallelOpts, TInputData, THybridXcInp, TControl, TBlacsOpts
@@ -782,6 +783,9 @@ module dftbp_dftbplus_initprogram
     !> Hybrid xc-functional data
     class(THybridXcFunc), allocatable :: hybridXc
 
+    !> Whether constraints are imposed on electronic ground state
+    logical :: isElecconstr
+
     !> Holds real and complex delta density matrices and pointers
     type(TDensityMatrix) :: densityMatrix
 
@@ -847,6 +851,9 @@ module dftbp_dftbplus_initprogram
 
     !> Write cavity information as cosmo file
     logical :: tWriteCosmoFile
+
+    !> Structure holding electronic constraints
+    type(TElecConstraint), allocatable :: elecConstrain
 
     !> Library interface handler
     type(TTBLite), allocatable :: tblite
@@ -997,6 +1004,9 @@ module dftbp_dftbplus_initprogram
 
     !> Contains (iK, iS) tuples to be processed in parallel by various processor groups
     type(TParallelKS) :: parallelKS
+
+    !> True, if electron dynamics input block is present
+    logical :: isElecDyn
 
     !> Electron dynamics
     type(TElecDynamics), allocatable :: electronDynamics
@@ -1167,6 +1177,7 @@ module dftbp_dftbplus_initprogram
     procedure :: allocateDenseMatrices
     procedure :: getDenseDescCommon
     procedure :: ensureHybridXcReqs
+    procedure :: ensureConstrainedDftbReqs
     procedure :: reallocateHybridXc
     procedure :: initPlumed
 
@@ -1352,6 +1363,9 @@ contains
     this%tDualSpinOrbit = input%ctrl%tDualSpinOrbit
     this%t2Component = input%ctrl%t2Component
     this%isHybridXc = allocated(input%ctrl%hybridXcInp)
+    this%isXlbomd = allocated(input%ctrl%xlbomd)
+    this%isElecconstr = allocated(input%ctrl%elecConstrainInp)
+    this%isElecDyn = allocated(input%ctrl%elecDynInp)
 
     if (this%t2Component) then
       this%nSpin = 4
@@ -1509,7 +1523,7 @@ contains
       call error("SCC iterations must be larger than 0")
     end if
     if (this%tSccCalc) then
-      if (allocated(input%ctrl%elecDynInp)) then
+      if (this%isElecDyn) then
         if (input%ctrl%elecDynInp%tReadRestart .and. .not.input%ctrl%elecDynInp%tPopulations) then
           this%maxSccIter = 0
           this%isSccConvRequired = .false.
@@ -1912,7 +1926,7 @@ contains
      end if
 
      tRequireDerivator = this%tForces
-     if (.not. tRequireDerivator .and. allocated(input%ctrl%elecDynInp)) then
+     if (.not. tRequireDerivator .and. this%isElecDyn) then
        tRequireDerivator = input%ctrl%elecDynInp%tIons
      end if
      if (tRequireDerivator) then
@@ -1992,6 +2006,9 @@ contains
       end if
       if (this%isHybridXc) then
         call error("Range separated calculations do not yet work with transport calculations")
+      end if
+      if (this%isElecconstr) then
+        call error("Constrained DFTB calculations do not yet support electron transport.")
       end if
     end if
   #:endif
@@ -2276,6 +2293,12 @@ contains
       this%cutOff%mCutOff = max(this%cutOff%mCutOff, this%halogenXCorrection%getRCutOff())
     end if
 
+    if (allocated(input%ctrl%elecConstrainInp)) then
+      call this%ensureConstrainedDftbReqs(input%ctrl%elecConstrainInp)
+      allocate(this%elecConstrain)
+      call TElecConstraint_init(this%elecConstrain, input%ctrl%elecConstrainInp, this%orb, this%species0)
+    end if
+
     this%tDipole = this%tMulliken
     if (this%tDipole) then
       block
@@ -2285,7 +2308,7 @@ contains
           call warning("Dipole printed for a charged system : origin dependent quantity")
           isDipoleDefined = .false.
         end if
-        if (this%tPeriodic.or.this%tHelical) then
+        if (this%tPeriodic .or. this%tHelical) then
           call warning("Dipole printed for extended system : value printed is not well defined")
           isDipoleDefined = .false.
         end if
@@ -2616,7 +2639,6 @@ contains
     call this%initPlumed(env, input%ctrl%tPlumed, this%tMD, this%plumedCalc)
 
     ! Check for extended Born-Oppenheimer MD
-    this%isXlbomd = allocated(input%ctrl%xlbomd)
     if (this%isXlbomd) then
       if (input%ctrl%iThermostat /= 0) then
         call error("XLBOMD does not work with thermostats yet")
@@ -3741,7 +3763,7 @@ contains
     if (this%deltaDftb%isNonAufbau .and. allocated(this%ppRPA)) then
       call error("Delta DFTB incompatible with ppRPA")
     end if
-    if (this%deltaDftb%isNonAufbau .and. allocated(input%ctrl%elecDynInp)) then
+    if (this%deltaDftb%isNonAufbau .and. this%isElecDyn) then
       call error("Delta DFTB incompatible with electron dynamics")
     end if
     if (this%deltaDftb%isNonAufbau .and. this%tFixEf) then
@@ -3810,7 +3832,7 @@ contains
     end if
 
     ! Electron dynamics stuff
-    if (allocated(input%ctrl%elecDynInp)) then
+    if (this%isElecDyn) then
 
       if (this%t2Component) then
         call error("Electron dynamics is not compatibile with this spinor Hamiltonian")
@@ -5443,6 +5465,34 @@ contains
     end if
 
   end function getMinSccIters
+
+
+  !> Stop if any setting incompatible with the constrained DFTB formalism is found.
+  subroutine ensureConstrainedDftbReqs(this, elecConstrainInp)
+
+    !> Instance
+    class(TDftbPlusMain), intent(inout) :: this
+
+    !> Input parameters for electronic constraints
+    type(TElecConstraintInput), intent(in) :: elecConstrainInp
+
+    if (this%isXlbomd) then
+      call error("Constrained DFTB calculations do not yet support XLBOMD.")
+    end if
+
+    if (allocated(this%reks)) then
+      call error("Constrained DFTB calculations do not yet support REKS.")
+    end if
+
+    if (this%deltaDftb%isNonAufbau) then
+      call error("Constrained DFTB calculations do not yet support delta-DFTB.")
+    end if
+
+    if (this%isElecDyn) then
+      call error("Constrained DFTB calculations do not yet support electron dynamics.")
+    end if
+
+  end subroutine ensureConstrainedDftbReqs
 
 
   !> Stop if any hybrid xc-functional incompatible setting is found.
