@@ -751,7 +751,7 @@ contains
 
     if (allocated(this%elecConstrain)) then
       constrShift(:,:,:,:) = 0.0_dp
-      call this%elecConstrain%getConstrainShift(constrShift)
+      call this%elecConstrain%getConstrainShift(this%orb, this%species0, constrShift)
       this%potential%intBlock = this%potential%intBlock + constrShift
     end if
 
@@ -1335,7 +1335,7 @@ contains
 
           if (allocated(this%elecConstrain)) then
             call sumEnergies(this%dftbEnergy(this%deltaDftb%iDeterminant))
-            call this%elecConstrain%propagateConstraints(this%qOutput,&
+            call this%elecConstrain%propagateConstraints(this%orb, this%species0, this%qOutput,&
                 & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, tConstrConverged)
           else
             tConstrConverged = .true.

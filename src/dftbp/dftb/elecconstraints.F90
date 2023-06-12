@@ -11,13 +11,15 @@
 module dftbp_dftb_elecconstraints
   use dftbp_common_accuracy, only : dp
   use dftbp_type_commontypes, only : TOrbitals
+  use dftbp_io_message, only : error
   use dftbp_type_typegeometry, only : TGeometry
   use dftbp_extlibs_xmlf90, only : fnode, string, char, getLength, getItem1, fnodeList
   use dftbp_type_wrappedintr, only : TWrappedInt1, TWrappedReal1, TWrappedReal2
   use dftbp_geoopt_package, only : TOptimizer, TOptimizerInput, createOptimizer
-  use dftbp_io_hsdutils, only : getChildValue, getChildren, getSelectedAtomIndices
+  use dftbp_io_hsdutils, only : detailedError, getChildValue, getChildren, getSelectedAtomIndices
   use dftbp_dftbplus_input_geoopt, only : readOptimizerInput
   use dftbp_extlibs_xmlf90, only : destroyNodeList
+  use dftbp_type_linkedlist, only : len, TListInt, init, asArray, destruct
   implicit none
 
   private
@@ -36,6 +38,12 @@ module dftbp_dftb_elecconstraints
 
     !> Constraint targets for atom groups
     real(dp), allocatable :: atomNc(:)
+
+    !> Constraint targets for atom groups
+    integer, allocatable :: atomAngQN(:)
+
+    !> Magnetic quantum numbers for each shell
+    type(TWrappedInt1), allocatable :: atomMagQN(:)
 
     !> Direction of constraint in (q,m) space
     type(TWrappedReal1), allocatable :: atomSpinDir(:)
@@ -57,6 +65,12 @@ module dftbp_dftb_elecconstraints
 
     !> Value of the constraint
     real(dp), allocatable :: Nc(:)
+
+    !> Shell of constraints
+    integer, allocatable :: angQN(:)
+
+    !> Magnetic quantum numbers for each shell
+    type(TWrappedInt1), allocatable :: magQN(:)
 
     !> Potential
     real(dp), allocatable :: Vc(:)
@@ -120,6 +134,9 @@ contains
     !> True, if this is a spin polarized calculation
     logical, intent(in) :: isSpinPol
 
+    !! List of integers to parse MagQN configuration
+    type(TListInt) :: integerList
+
     type(fnode), pointer :: val, child1, child2, child3
     type(fnodeList), pointer :: children
     type(string) :: buffer
@@ -136,19 +153,37 @@ contains
         & dummyValue=.true., list=.true.)
 
     ! Read specification for regions of atoms
-    call getChildren(child1, "Atoms", children)
+    call getChildren(child1, "Atom", children)
     nConstr = getLength(children)
+
+    if (nConstr > 1) then
+      call error("This modified version of DFTB+ only supports a single constraint.")
+    end if
 
     allocate(input%atomGrp(nConstr))
     allocate(input%atomNc(nConstr))
+    allocate(input%atomAngQN(nConstr))
+    allocate(input%atomMagQN(nConstr))
     allocate(input%atomSpinDir(nConstr))
 
     do iConstr = 1, nConstr
       call getItem1(children, iConstr, child2)
-      call getChildValue(child2, "Domain", buffer, child=child3, multiple=.true.)
+      call getChildValue(child2, "Index", buffer, child=child3, multiple=.true.)
       call getSelectedAtomIndices(child3, char(buffer), geo%speciesNames, geo%species,&
           & input%atomGrp(iConstr)%data)
+      if (size(input%atomGrp(iConstr)%data) /= 1) then
+        call detailedError(child3, "This modified version of DFTB+ only supports constraints on a&
+            & single atom.")
+      end if
       call getChildValue(child2, "Population", input%atomNc(iConstr))
+      call getChildValue(child2, "AngQN", input%atomAngQN(iConstr))
+
+      call init(integerList)
+      call getChildValue(child2, 'MagQN', integerList)
+      allocate(input%atomMagQN(iConstr)%data(len(integerList)))
+      call asArray(integerList, input%atomMagQN(iConstr)%data)
+      call destruct(integerList)
+
       ! Functionality currently restricted to charges
       if (isSpinPol) then
         input%atomSpinDir(iConstr)%data = [1.0_dp, 0.0_dp]
@@ -163,7 +198,7 @@ contains
 
 
   !> Initialises the constraints structure.
-  subroutine TElecConstraint_init(this, input, orb)
+  subroutine TElecConstraint_init(this, input, orb, species0)
 
     !> Constrain structure instance
     type(TElecConstraint), intent(out) :: this
@@ -173,6 +208,9 @@ contains
 
     !> Data type for atomic orbital information
     type(TOrbitals), intent(in) :: orb
+
+    !> Chemical species of atoms
+    integer, intent(in) :: species0(:)
 
     integer :: iConstr, nConstr, ii, jj, iAt, nOrb, nSpin
 
@@ -189,7 +227,21 @@ contains
     this%nConstrIter = input%nConstrIter
     this%isConstrConvRequired = input%isConstrConvRequired
     this%constrTol = input%constrTol
-    this%Nc = input%AtomNc
+    this%Nc = input%atomNc
+
+    ! consistency checks
+    if (input%atomAngQN(1) < 0 .or. input%atomAngQN(1)&
+      & > orb%nShell(species0(input%atomGrp(1)%data(1))) - 1) then
+      call error("Invalid angular qn specified.")
+    end if
+
+    if (any(input%atomMagQN(1)%data < -input%atomAngQN(1))&
+        & .or. any(input%atomMagQN(1)%data > input%atomAngQN(1))) then
+      call error("Invalid magnetic qn specified.")
+    end if
+
+    this%angQN = input%atomAngQN
+    this%magQN = input%atomMagQN
 
     allocate(this%wAt(nConstr))
     allocate(this%wAtOrb(nConstr))
@@ -265,10 +317,16 @@ contains
 
 
   !> Applies electronic constraints to system.
-  subroutine propagateConstraints(this, qq, energy, tConverged)
+  subroutine propagateConstraints(this, orb, species0, qq, energy, tConverged)
 
     !> Class instance
     class(TElecConstraint), intent(inout) :: this
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> Chemical species of atoms
+    integer, intent(in) :: species0(:)
 
     !> Mulliken populations
     real(dp), intent(in) :: qq(:,:,:)
@@ -293,9 +351,9 @@ contains
     nConstr = size(this%wAt)
 
     do iConstr = 1, nConstr
-      call getConstrainEnergyAndPotQ(this%Vc(iConstr), this%Nc(iConstr), this%wAt(iConstr)%data,&
-          & this%wAtOrb(iConstr)%data, this%wAtSpin(iConstr)%data, qq, this%deltaW(iConstr),&
-          & this%dWdVc(iConstr))
+      call getConstrainEnergyAndPotQ(orb, species0, this%Vc(iConstr), this%Nc(iConstr),&
+          & this%wAt(iConstr)%data(1), this%angQN(1), this%magQN(iConstr)%data, qq,&
+          & this%deltaW(iConstr), this%dWdVc(iConstr))
     end do
 
     ! Sum up all free energy contributions
@@ -315,7 +373,13 @@ contains
 
 
   !> Calculate artificial potential to realize constraint on atomic charge.
-  subroutine getConstrainEnergyAndPotQ(Vc, Nc, wAt, wOrb, wSp, qq, deltaW, dWdV)
+  subroutine getConstrainEnergyAndPotQ(orb, species, Vc, Nc, conAt, ll, mm, qq, deltaW, dWdV)
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> Chemical species of atoms
+    integer, intent(in) :: species(:)
 
     !> Potential / Lagrange multiplier
     real(dp), intent(in) :: Vc
@@ -323,14 +387,14 @@ contains
     !> Target population
     real(dp), intent(in) :: Nc
 
-    !> Atom(s) involved in current constrain
-    integer, intent(in) :: wAt(:)
+    !> Atom to be constrained
+    integer, intent(in) :: conAt
 
-    !> Orbital(s) involved in current constrain
-    integer, intent(in) :: wOrb(:)
+    !> Angular momentum of shell to be constrained
+    integer, intent(in) :: ll
 
-    !> Spin(s) involved in current constrain
-    real(dp), intent(in) :: wSp(:,:)
+    !> Magnetic momentum to be constrained
+    integer, intent(in) :: mm(:)
 
     !> Mulliken populations
     real(dp), intent(in) :: qq(:,:,:)
@@ -341,24 +405,16 @@ contains
     !> Derivative of free energy with respect to potential
     real(dp), intent(out) :: dWdV
 
-    ! Number of spin channels to be constrained
-    integer :: nSpin
-
-    ! Index of spin channel
-    integer :: iSpin
-
-    ! Index of atomic orbital
-    integer :: iW
-
     ! Present population
     real(dp) :: wn
 
-    nSpin = size(wSp, dim=2)
+    integer :: iMag, kk
+
     wn = 0.0_dp
-    do iSpin = 1, nSpin
-      do iW = 1, size(wAt)
-        wn = wn + wSp(iW, iSpin) * qq(wOrb(iW), wAt(iW), iSpin)
-      end do
+
+    do iMag = 1, size(mm, dim=1)
+      kk = ll + mm(iMag)
+      wn = wn + qq(orb%posShell(ll + 1, species(conAt)) + kk, conAt, 1)
     end do
 
     dWdV = wn - Nc
@@ -368,10 +424,16 @@ contains
 
 
   !> Get total shift of all constraints.
-  subroutine getConstrainShift(this, shift)
+  subroutine getConstrainShift(this, orb, species, shift)
 
     !> Class instance
     class(TElecConstraint), intent(inout) :: this
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> Chemical species of atoms
+    integer, intent(in) :: species(:)
 
     !> Total shift of all constraints
     real(dp), intent(out) :: shift(:,:,:,:)
@@ -382,47 +444,43 @@ contains
     nConstr = size(this%wAt)
 
     do iConstr = 1, nConstr
-      call getConstrainShiftQ(shift, this%Vc(iConstr), this%wAt(iConstr)%data,&
-          & this%wAtOrb(iConstr)%data, this%wAtSpin(iConstr)%data)
+      call getConstrainShiftQ(shift, orb, species, this%Vc(iConstr), this%wAt(iConstr)%data(1),&
+          & this%angQN(1), this%magQN(iConstr)%data)
     end do
 
   end subroutine getConstrainShift
 
 
   !> Get shift for atomic charge constraint.
-  subroutine getConstrainShiftQ(shift, Vc, wAt, wOrb, wSp)
+  subroutine getConstrainShiftQ(shift, orb, species, Vc, conAt, ll, mm)
 
     !> Shift to which contribution is appended
     real(dp), intent(inout) :: shift(:,:,:,:)
 
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> Chemical species of atoms
+    integer, intent(in) :: species(:)
+
     !> Potential / Lagrange multiplier
     real(dp), intent(in) :: Vc
 
-    !> Atom(s) involved in current constrain
-    integer, intent(in) :: wAt(:)
+    !> Atom to be constrained
+    integer, intent(in) :: conAt
 
-    !> Orbital(s) involved in current constrain
-    integer, intent(in) :: wOrb(:)
+    !> Angular momentum of shell to be constrained
+    integer, intent(in) :: ll
 
-    !> Spin(s) involved in current constrain
-    real(dp), intent(in) :: wSp(:,:)
+    !> Magnetic momentum to be constrained
+    integer, intent(in) :: mm(:)
 
-    ! Number of spin channels to be constrained
-    integer :: nSpin
+    integer :: iMag, kk, iOrb
 
-    ! Index of spin channel
-    integer :: iSpin
-
-    ! Index of atomic orbital
-    integer :: iW
-
-    nSpin = size(wSp, dim=2)
-
-    do iSpin = 1, nSpin
-      do iW = 1, size(wAt)
-        shift(wOrb(iW), wOrb(iW), wAt(iW), iSpin) = shift(wOrb(iW), wOrb(iW), wAt(iW), iSpin)&
-            & + Vc * wSp(iW, iSpin)
-      end do
+    do iMag = 1, size(mm, dim=1)
+      kk = ll + mm(iMag)
+      iOrb = orb%posShell(ll + 1, species(conAt)) + kk
+      shift(iOrb, iOrb, conAt, 1) = shift(iOrb, iOrb, conAt, 1) + Vc
     end do
 
   end subroutine getConstrainShiftQ
