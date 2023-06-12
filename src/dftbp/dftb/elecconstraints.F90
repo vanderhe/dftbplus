@@ -193,7 +193,7 @@ contains
 
     ! |<\Psi_iHoko|\Phi_\alpha>|^2
     prob(:) = prob * eigvecs(:, iHoko, 1)
-    write(stdOut, "(F10.6)") prob
+    ! write(stdOut, "(F10.6)") prob
 
     iOrbMax = maxloc(prob, dim=1)
     probMax = prob(iOrbMax)

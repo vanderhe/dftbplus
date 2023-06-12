@@ -467,6 +467,7 @@ module dftbp_dftbplus_inputdata
     integer :: restartFreq  = 20
     logical :: tWriteDetailedXML = .false.
     logical :: tWriteResultsTag = .false.
+    logical :: tAoAnalysis = .false.
     logical :: tWriteDetailedOut = .true.
     logical :: tWriteBandDat = .true.
     logical :: oldSKInter = .false.

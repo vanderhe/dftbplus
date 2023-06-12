@@ -5220,6 +5220,8 @@ contains
 
     end if
 
+    call getChildValue(node, "AoAnalysis", ctrl%tAoAnalysis, .false.)
+
 
   #:if WITH_TRANSPORT
     call getChild(node, "TunnelingAndDOS", child, requested=.false.)

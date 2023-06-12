@@ -1105,13 +1105,12 @@ contains
     ! Auxiliary dipole storage
     real(dp), allocatable :: dipoleTmp(:)
 
-    ! Iterates over (iK, iS) composite index
-    integer :: iKS
-
     real(dp), allocatable :: SSqrRealFull(:,:)
 
-    allocate(this%HSqrRealLast(size(this%HSqrReal, dim=1), size(this%HSqrReal, dim=2), 1))
-    this%HSqrRealLast(:,:,:) = 0.0_dp
+    if (this%tAoAnalysis) then
+      allocate(this%HSqrRealLast(size(this%HSqrReal, dim=1), size(this%HSqrReal, dim=2), 1))
+      this%HSqrRealLast(:,:,:) = 0.0_dp
+    end if
 
     if (this%tDipole) then
       allocate(dipoleTmp(3))
@@ -1412,10 +1411,10 @@ contains
               & this%tFixEf, this%tMulliken, this%iDistribFn, this%tempElec, this%nEl,&
               & this%parallelKS, this%Ef, this%mu, this%dftbEnergy(this%deltaDftb%iDeterminant),&
               & this%hybridXc, this%eigen, this%filling, this%rhoPrim, this%xi, this%orbitalL,&
-              & this%HSqrReal, this%HSqrRealLast, this%SSqrReal, this%eigvecsReal, this%iRhoPrim,&
-              & this%HSqrCplx, this%SSqrCplx, this%SSqrCplxKpts, this%eigvecsCplx, this%rhoSqrReal,&
-              & this%densityMatrix, this%nNeighbourCam, this%nNeighbourCamSym, this%speciesName,&
-              & this%deltaDftb, errStatus)
+              & this%HSqrReal, this%HSqrRealLast, this%tAoAnalysis, this%SSqrReal,&
+              & this%eigvecsReal, this%iRhoPrim, this%HSqrCplx, this%SSqrCplx, this%SSqrCplxKpts,&
+              & this%eigvecsCplx, this%rhoSqrReal, this%densityMatrix, this%nNeighbourCam,&
+              & this%nNeighbourCamSym, this%speciesName, this%deltaDftb, errStatus)
           if (errStatus%hasError()) call error(errStatus%message)
 
           if (this%tWriteBandDat .and. this%deltaDftb%nDeterminant() == 1) then
@@ -1448,7 +1447,7 @@ contains
 
           if (allocated(this%elecConstrain)) then
             call sumEnergies(this%dftbEnergy(this%deltaDftb%iDeterminant))
-            call this%elecConstrain%propagateConstraints(this%qOutput,&
+            call this%elecConstrain%propagateConstraints(this%orb, this%species0, this%qOutput,&
                 & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, tConstrConverged)
           else
             tConstrConverged = .true.
@@ -1478,28 +1477,31 @@ contains
         call sccLoopWriting(this, iGeoStep, iLatGeoStep, iSccIter, diffElec, sccErrorQ)
 
         if (tConverged .or. tStopScc) then
-          allocate(this%eigvecsRealFull(this%nOrb, this%nOrb, 1))
-          allocate(this%HSqrRealLastFull(this%nOrb, this%nOrb, 1))
-          allocate(SSqrRealFull(this%nOrb, this%nOrb), source=0.0_dp)
-        #:if WITH_SCALAPACK
-          call unpackHSRealBlacs(env%blacs, this%ints%overlap, this%neighbourList%iNeighbour,&
-              & this%nNeighbourSK, this%iSparseStart, this%img2CentCell, this%denseDesc,&
-              & this%SSqrReal)
-          call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
-              & this%species0, this%eigvecsReal, this%eigvecsRealFull)
-          call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
-              & this%species0, this%HSqrRealLast, this%HSqrRealLastFull)
-          call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
-              & this%species0, this%SSqrReal, SSqrRealFull)
-        #:else
-          this%HSqrRealLastFull(:,:,:) = this%HSqrRealLast
-          this%eigvecsRealFull(:,:,:) = this%eigvecsReal
-          call unpackHS(this%SSqrReal, this%ints%overlap, this%neighbourList%iNeighbour,&
-              & this%nNeighbourSK, this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell)
-          SSqrRealFull(:,:) = this%SSqrReal
-        #:endif
-          call printHighestAO(this%HSqrRealLastFull(:,:, 1), this%eigvecsRealFull, SSqrRealFull,&
-              & this%orb, this%denseDesc, this%species0, this%speciesName, this%filling)
+          if (this%tAoAnalysis) then
+            allocate(this%eigvecsRealFull(this%nOrb, this%nOrb, 1))
+            allocate(this%HSqrRealLastFull(this%nOrb, this%nOrb, 1))
+            allocate(SSqrRealFull(this%nOrb, this%nOrb), source=0.0_dp)
+          #:if WITH_SCALAPACK
+            call unpackHSRealBlacs(env%blacs, this%ints%overlap, this%neighbourList%iNeighbour,&
+                & this%nNeighbourSK, this%iSparseStart, this%img2CentCell, this%denseDesc,&
+                & this%SSqrReal)
+            call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
+                & this%species0, this%eigvecsReal, this%eigvecsRealFull)
+            call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
+                & this%species0, this%HSqrRealLast, this%HSqrRealLastFull)
+            call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
+                & this%species0, this%SSqrReal, SSqrRealFull)
+          #:else
+            this%HSqrRealLastFull(:,:,:) = this%HSqrRealLast
+            this%eigvecsRealFull(:,:,:) = this%eigvecsReal
+            call unpackHS(this%SSqrReal, this%ints%overlap, this%neighbourList%iNeighbour,&
+                & this%nNeighbourSK, this%denseDesc%iAtomStart, this%iSparseStart,&
+                & this%img2CentCell)
+            SSqrRealFull(:,:) = this%SSqrReal
+          #:endif
+            call printHighestAO(this%HSqrRealLastFull(:,:, 1), this%eigvecsRealFull, SSqrRealFull,&
+                & this%orb, this%denseDesc, this%species0, this%speciesName, this%filling)
+          end if
           exit lpSCC
         end if
 
@@ -2659,9 +2661,9 @@ contains
       & tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p, tPeriodic,&
       & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
       & iDistribFn, tempElec, nEl, parallelKS, Ef, mu, energy, hybridXc, eigen, filling, rhoPrim,&
-      & xi, orbitalL, HSqrReal, HSqrRealLast, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx,&
-      & SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym,&
-      & speciesName, deltaDftb, errStatus)
+      & xi, orbitalL, HSqrReal, HSqrRealLast, tAoAnalysis, SSqrReal, eigvecsReal, iRhoPrim,&
+      & HSqrCplx, SSqrCplx, SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam,&
+      & nNeighbourCamSym, speciesName, deltaDftb, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2799,7 +2801,9 @@ contains
     real(dp), intent(inout), allocatable :: HSqrReal(:,:)
 
     !> dense real hamiltonian storage
-    real(dp), intent(out) :: HSqrRealLast(:,:,:)
+    real(dp), intent(inout), allocatable :: HSqrRealLast(:,:,:)
+
+    logical, intent(in) :: tAoAnalysis
 
     !> dense real overlap storage
     real(dp), intent(inout), allocatable :: SSqrReal(:,:)
@@ -2870,9 +2874,9 @@ contains
           & tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p, tPeriodic,&
           & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
           & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, hybridXc, eigen, filling, rhoPrim,&
-          & xi, orbitalL, HSqrReal, HSqrRealLast, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx,&
-          & SSqrCplx, SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam,&
-          & nNeighbourCamSym, speciesName, deltaDftb, errStatus)
+          & xi, orbitalL, HSqrReal, HSqrRealLast, tAoAnalysis, SSqrReal, eigvecsReal, iRhoPrim,&
+          & HSqrCplx, SSqrCplx, SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix,&
+          & nNeighbourCam, nNeighbourCamSym, speciesName, deltaDftb, errStatus)
       @:PROPAGATE_ERROR(errStatus)
 
     case(electronicSolverTypes%omm, electronicSolverTypes%pexsi, electronicSolverTypes%ntpoly,&
@@ -2898,9 +2902,9 @@ contains
       & tHelical, coord, species, electronicSolver, rCellVecs, latVecs, recVecs2p, tPeriodic,&
       & tRealHS, tSpinSharedEf, tSpinOrbit, tDualSpinOrbit, tFillKSep, tFixEf, tMulliken,&
       & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, hybridXc, eigen, filling, rhoPrim, xi,&
-      & orbitalL, HSqrReal, HSqrRealLast, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx, SSqrCplx,&
-      & SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam, nNeighbourCamSym,&
-      & speciesName, deltaDftb, errStatus)
+      & orbitalL, HSqrReal, HSqrRealLast, tAoAnalysis, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx,&
+      & SSqrCplx, SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam,&
+      & nNeighbourCamSym, speciesName, deltaDftb, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3029,7 +3033,9 @@ contains
     real(dp), intent(inout), allocatable :: HSqrReal(:,:)
 
     !> dense real hamiltonian storage (copy that hasn't been overwritten)
-    real(dp), intent(out) :: HSqrRealLast(:,:,:)
+    real(dp), intent(inout), allocatable :: HSqrRealLast(:,:,:)
+
+    logical, intent(in) :: tAoAnalysis
 
     !> dense real overlap storage
     real(dp), intent(inout), allocatable :: SSqrReal(:,:)
@@ -3079,8 +3085,8 @@ contains
         call buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, tPeriodic, tHelical,&
             & coord, electronicSolver, parallelKS, hybridXc, densityMatrix%deltaRhoIn,&
-            & nNeighbourCam, nNeighbourCamSym, speciesName, HSqrReal, HSqrRealLast, SSqrReal,&
-            & eigVecsReal, eigen(:,1,:), errStatus)
+            & nNeighbourCam, nNeighbourCamSym, speciesName, HSqrReal, HSqrRealLast, tAoAnalysis,&
+            & SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
         @:PROPAGATE_ERROR(errStatus)
       else
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
@@ -3133,8 +3139,8 @@ contains
   subroutine buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
       & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, tPeriodic, tHelical,&
       & coord, electronicSolver, parallelKS, hybridXc, deltaRhoIn, nNeighbourCam,&
-      & nNeighbourCamSym, speciesName, HSqrReal, HSqrRealLast, SSqrReal, eigvecsReal, eigen,&
-      & errStatus)
+      & nNeighbourCamSym, speciesName, HSqrReal, HSqrRealLast, tAoAnalysis, SSqrReal, eigvecsReal,&
+      & eigen, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3200,7 +3206,9 @@ contains
     real(dp), intent(out) :: HSqrReal(:,:)
 
     !> dense hamiltonian matrix (copy that hasn't been overwritten)
-    real(dp), intent(out) :: HSqrRealLast(:,:,:)
+    real(dp), intent(inout), allocatable :: HSqrRealLast(:,:,:)
+
+    logical, intent(in) :: tAoAnalysis
 
     !> dense overlap matrix
     real(dp), intent(out) :: SSqrReal(:,:)
@@ -3243,7 +3251,9 @@ contains
             & HSqrReal)
       end if
 
-      HSqrRealLast(:,:, 1) = HSqrReal
+      if (tAoAnalysis) then
+        HSqrRealLast(:,:, 1) = HSqrReal
+      end if
 
       call diagDenseMtxBlacs(electronicSolver, 1, 'V', denseDesc%blacsOrbSqr, HSqrReal, SSqrReal,&
           & eigen(:,iSpin), eigvecsReal(:,:,iKS), errStatus)
@@ -3270,7 +3280,9 @@ contains
             & img2CentCell, tPeriodic, HSqrReal)
       end if
 
-      HSqrRealLast(:,:, 1) = HSqrReal
+      if (tAoAnalysis) then
+        HSqrRealLast(:,:, 1) = HSqrReal
+      end if
 
       ! Warning: SSqrReal gets overwritten here
       call diagDenseMtx(env, electronicSolver, 'V', HSqrReal, SSqrReal, eigen(:, iSpin),&

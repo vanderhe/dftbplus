@@ -819,6 +819,9 @@ module dftbp_dftbplus_initprogram
     !> Produce detailed.tag
     logical :: tWriteResultsTag
 
+    !> Perform AO analysis
+    logical :: tAoAnalysis
+
     !> Produce detailed.out
     logical :: tWriteDetailedOut
 
@@ -2831,6 +2834,7 @@ contains
     this%tWriteAutotest = env%tGlobalLead .and. input%ctrl%tWriteTagged
     this%tWriteDetailedXML = env%tGlobalLead .and. input%ctrl%tWriteDetailedXML
     this%tWriteResultsTag = env%tGlobalLead .and. input%ctrl%tWriteResultsTag
+    this%tAoAnalysis = env%tGlobalLead .and. input%ctrl%tAoAnalysis
     this%tWriteCharges = env%tGlobalLead .and. input%ctrl%tWriteCharges
     this%tWriteDetailedOut = env%tGlobalLead .and. input%ctrl%tWriteDetailedOut .and.&
         & .not. this%tRestartNoSC
@@ -5507,14 +5511,16 @@ contains
     !> Parameters for the range separated calculation
     type(THybridXcInp), intent(in) :: hybridXcInp
 
-    if (.not. (this%tPeriodic .and. this%tRealHS)) then
-      call error("This special-purpose medification of DFTB+ should only be used for Gamma-only&
-          & calculations.")
-    end if
+    if (this%tAoAnalysis) then
+      if (.not. (this%tPeriodic .and. this%tRealHS)) then
+        call error("This special-purpose modification of DFTB+ should only be used for Gamma-only&
+            & calculations.")
+      end if
 
-    if (this%nSpin > 1) then
-      call error("This special-purpose medification of DFTB+ should only be used for&
-          & spin-restricted calculations.")
+      if (this%nSpin > 1) then
+        call error("This special-purpose modification of DFTB+ should only be used for&
+            & spin-restricted calculations.")
+      end if
     end if
 
     if (withMpi .and. (.not. this%tPeriodic) .and. (hybridXcInp%hybridXcAlg&
