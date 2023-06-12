@@ -1087,6 +1087,8 @@ contains
     ! Iterates over (iK, iS) composite index
     integer :: iKS
 
+    real(dp), allocatable :: SSqrRealFull(:,:)
+
     allocate(this%HSqrRealLast(size(this%HSqrReal, dim=1), size(this%HSqrReal, dim=2), 1))
     this%HSqrRealLast(:,:,:) = 0.0_dp
 
@@ -1427,14 +1429,24 @@ contains
 
         if (tConverged .or. tStopScc) then
           allocate(this%HSqrRealLastFull(this%nOrb, this%nOrb, 1))
+          allocate(SSqrRealFull(this%nOrb, this%nOrb), source=0.0_dp)
         #:if WITH_SCALAPACK
+          call unpackHSRealBlacs(env%blacs, this%ints%overlap, this%neighbourList%iNeighbour,&
+              & this%nNeighbourSK, this%iSparseStart, this%img2CentCell, this%denseDesc,&
+              & this%SSqrReal)
           call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
               & this%species0, this%HSqrRealLast, this%HSqrRealLastFull)
+          call getFullFromDistributed(env, this%denseDesc, this%orb, this%parallelKS,&
+              & this%species0, this%SSqrReal, SSqrRealFull)
         #:else
           this%HSqrRealLastFull(:,:,:) = this%HSqrRealLast
+          call unpackHS(this%SSqrReal, this%ints%overlap, this%neighbourList%iNeighbour,&
+              & this%nNeighbourSK, this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell)
+          SSqrRealFull(:,:) = this%SSqrReal
         #:endif
-          call printHighestAO(this%HSqrRealLastFull(:,:, 1), this%orb, this%denseDesc,&
-              & this%iAtInCentralRegion, this%species0, this%speciesName, this%qOutput)
+          call printHighestAO(this%HSqrRealLastFull(:,:, 1), this%eigvecsReal, SSqrRealFull,&
+              & this%orb, this%denseDesc, this%iAtInCentralRegion, this%species0, this%speciesName,&
+              & this%qOutput)
           exit lpSCC
         end if
 

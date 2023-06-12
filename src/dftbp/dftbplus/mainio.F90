@@ -815,7 +815,7 @@ contains
 
 #:else
 
-    !> Writes complex eigenvectors in text form.
+  !> Writes complex eigenvectors in text form.
   subroutine writeCplxEigvecsTxtSerial(neighlist, nNeighbourSK, denseDesc, iPair, img2CentCell,&
       & iCellVec, cellVec, orb, species, speciesName, over, parallelKS, kPoints, eigvecs, SSqr,&
       & fileName)

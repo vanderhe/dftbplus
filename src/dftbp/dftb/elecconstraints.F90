@@ -17,6 +17,7 @@ module dftbp_dftb_elecconstraints
   use dftbp_type_orbitals, only : orbitalNames, getShellNames
   use dftbp_math_bisect, only : bisection
   use dftbp_io_charmanip, only : i2c
+  use dftbp_math_blasroutines, only : hemv
   implicit none
 
   private
@@ -29,10 +30,17 @@ contains
 
 
   !> Prints atom index, angular and magnetic quantum number of occupied AO with highest energy.
-  subroutine printHighestAO(HSqrReal, orb, denseDesc, iAtInCentralRegion, species0, speciesName, qq)
+  subroutine printHighestAO(HSqrReal, eigvecs, SSqr, orb, denseDesc, iAtInCentralRegion, species0,&
+      & speciesName, qq)
 
     !> Square (unpacked) Hamiltonian of certain spin channel
     real(dp), intent(in) :: HSqrReal(:,:)
+
+    !> Eigenvectors
+    real(dp), intent(in) :: eigvecs(:,:,:)
+
+    !> Square overlap
+    real(dp), intent(in) :: SSqr(:,:)
 
     !> Orbital information
     type(TOrbitals), intent(in) :: orb
@@ -60,44 +68,149 @@ contains
     !! Stores start/end index and number of orbitals of square matrices
     integer :: desc(descLen)
 
-    integer :: ll, iAt
-    integer :: ii, iSp, iSh, iBlockStart, iBlockEnd, iDiag
-    real(dp) :: occ, energy
+    integer :: ll, iAtMax, iHoko, nOrb, iOrbStart, iOrbMax, iSpMax, iOrbOnAtom, mm
+    integer :: iSh, iBlockStart, iBlockEnd, degeneracy, iDiag
+    integer, allocatable :: magQN(:)
+    real(dp) :: energy, probMax, diagMax
     real(dp), allocatable :: hamBlock(:,:)
     character(len=:), allocatable :: fmt
+    real(dp), allocatable :: prob(:)
 
-    write(stdOut, "(/,A)") '############### AO Analysis ###############'
+    write(stdOut, "(/,A)") '################AO-Analysis################'
 
     ! Check if we are dealing with distributed matrices
     @:ASSERT(size(HSqrReal, dim=1) == size(HSqrReal, dim=2))
 
-    do ii = 1, size(iAtInCentralRegion)
-      iAt = iAtInCentralRegion(ii)
-      desc = getDescriptor(iAt, denseDesc%iAtomStart)
-      iSp = species0(iAt)
-      call getShellNames(iSp, orb, shellNamesTmp)
-      do iSh = 1, orb%nShell(iSp)
-        ll = orb%angShell(iSh, iSp)
-        occ = sum(qq(orb%posShell(iSh, iSp):orb%posShell(iSh + 1, iSp) - 1, iAt, 1))
-        if (occ > 1.0_dp) then
-          iBlockStart = desc(iStart) + orb%posShell(iSh, iSp) - 1
-          iBlockEnd = desc(iStart) + orb%posShell(iSh + 1, iSp) - 2
-          hamBlock = HSqrReal(iBlockStart:iBlockEnd, iBlockStart:iBlockEnd)
-          energy = 0.0_dp
-          do iDiag = 1, size(hamBlock, dim=1)
-            energy = energy + hamBlock(iDiag, iDiag)
-          end do
-          energy = energy / size(hamBlock, dim=1)
-          write(stdOut, "(A,I0,4A,A,2E26.16)") "iAtom, species, shell, occupation, energy: ", iAt,&
-              & ", ", trim(speciesName(iSp)), ", ", trim(shellNamesTmp(ll + 1)), ", ", occ, energy
-          fmt = "(" // i2c(size(hamBlock, dim=1)) // "F16.10)"
-          ! write(stdOut, fmt) transpose(hamBlock)
-        end if
-      end do
-      deallocate(shellNamesTmp)
-    end do
+    ! highest occupied kanonical orbital
+    iHoko = 16
+    nOrb = size(eigvecs, dim=1)
 
-    write(stdOut, "(A,/)") '###############     END     ###############'
+    allocate(prob(nOrb), source=0.0_dp)
+    call hemv(prob, SSqr, eigvecs(:, iHoko, 1))
+
+    ! |<\Psi_iHoko|\Phi_\alpha>|^2
+    prob(:) = prob * eigvecs(:, iHoko, 1)
+    ! print "(F10.6)", prob
+
+    iOrbMax = maxloc(prob, dim=1)
+    probMax = prob(iOrbMax)
+    diagMax = HSqrReal(iOrbMax, iOrbMax)
+
+    ! get atom index from orbital index
+    call bisection(iAtMax, denseDesc%iAtomStart, iOrbMax)
+
+    ! get species index from atom index
+    iSpMax = species0(iAtMax)
+    call getShellNames(iSpMax, orb, shellNamesTmp)
+
+    ! first orbital in global indexing on atom
+    iOrbStart = denseDesc%iAtomStart(iAtMax)
+
+    ! orbital index of related to the associated atom
+    iOrbOnAtom = iOrbMax - iOrbStart + 1
+
+    ll = orb%iShellOrb(iOrbOnAtom, iSpMax) - 1
+    iSh = ll + 1
+    mm = iOrbOnAtom - orb%posShell(ll + 1, iSpMax) - ll
+
+    desc = getDescriptor(iAtMax, denseDesc%iAtomStart)
+    iBlockStart = desc(iStart) + orb%posShell(iSh, iSpMax) - 1
+    iBlockEnd = desc(iStart) + orb%posShell(iSh + 1, iSpMax) - 2
+    hamBlock = HSqrReal(iBlockStart:iBlockEnd, iBlockStart:iBlockEnd)
+
+    degeneracy = 0
+    allocate(magQN(size(hamBlock, dim=1)))
+    do iDiag = 1, size(hamBlock, dim=1)
+      if (abs(diagMax - hamBlock(iDiag, iDiag)) < 1e-08_dp) then
+        degeneracy = degeneracy + 1
+        magQN(degeneracy) = iDiag - 1 - ll
+      end if
+    end do
+    magQN = magQN(1:degeneracy)
+
+    write(stdOut, "(A,E20.12,/)") "Highest projection found: ", probMax
+    write(stdOut, "(A,I0,5A)") "Global orbital index/type: ", iOrbMax,&
+        & " (", trim(shellNamesTmp(ll + 1)), "_", trim(orbitalNames(mm, ll)), ")"
+    write(stdOut, "(3A,I0,A)") "Atom type/ global index: ", trim(speciesName(iSpMax)),&
+        & " (", iAtMax, ")"
+    write(stdOut, "(A)") "Hamiltonian block of full " // trim(shellNamesTmp(ll + 1)) // "-shell:"
+    fmt = "(" // i2c(size(hamBlock, dim=1)) // "F16.10)"
+    write(stdOut, fmt) transpose(hamBlock)
+    fmt = "(A," // i2c(size(magQN, dim=1)) // "I5)"
+    write(stdOut, fmt) "Magnetic QNs: ", magQN
+    write(stdOut, "(A,I0)") "degeneracy: ", degeneracy
+    write(stdOut, "(A,1E24.14,A)") "energy: ", diagMax, " Ha"
+
+    ! diagMax = minval(HSqrReal)
+
+    ! do iOrb = 1, nOrb
+    !   call bisection(iAt, denseDesc%iAtomStart, iOrb)
+    !   iOrbStart = denseDesc%iAtomStart(iAt)
+    !   iOrbOnAtom = iOrb - iOrbStart + 1
+
+    !   diag = HSqrReal(iOrb, iOrb)
+    !   ! occ = qq(orb%posShell(iSh, iSp):orb%posShell(iSh + 1, iSp) - 1, iAt, 1)
+    !   occ = 1.0_dp
+
+    !   if (occ > 1.0e-08_dp) then
+    !     if (diag > diagMax) then
+    !       diagMax = diag
+    !       iOrbMax = iOrb
+    !     end if
+    !   end if
+    ! end do
+
+    ! ! get atom index from orbital index
+    ! call bisection(iAtMax, denseDesc%iAtomStart, iOrbMax)
+    ! print *, iAtMax, iOrbMax
+
+    ! ! get species index from atom index
+    ! iSpMax = species(iAtMax)
+    ! print *, orb%iShellOrb(:, iSpMax)
+    ! call getShellNames(iSpMax, orb, shellNamesTmp)
+
+    ! ! first orbital in global indexing on atom
+    ! iOrbStart = denseDesc%iAtomStart(iAtMax)
+
+    ! ! orbital index of related to the associated atom
+    ! iOrbOnAtom = iOrbMax - iOrbStart + 1
+
+    ! ll = orb%iShellOrb(iOrbOnAtom, iSpMax) - 1
+    ! mm = iOrbOnAtom - orb%posShell(ll + 1, iSpMax) - ll
+
+    ! print "(A,E20.12,A,/)", "Found highest (occupied) AO at: ", diagMax, " Ha"
+    ! print "(A,I0,5A)", "Orbital-index/-type: ", iOrbMax, " (", trim(shellNamesTmp(ll + 1)),&
+    !     & "_", trim(orbitalNames(mm, ll)), ")"
+    ! print "(3A,I0,A)", "Atom-type/-index: ", trim(speciesName(iSpMax)), " (", iAtMax, ")"
+    ! print "(A,E20.12)", "Occupation: ", qq(iOrbOnAtom, iAtMax, 1)
+
+    ! do ii = 1, size(iAtInCentralRegion)
+    !   iAt = iAtInCentralRegion(ii)
+    !   desc = getDescriptor(iAt, denseDesc%iAtomStart)
+    !   iSp = species0(iAt)
+    !   call getShellNames(iSp, orb, shellNamesTmp)
+    !   do iSh = 1, orb%nShell(iSp)
+    !     ll = orb%angShell(iSh, iSp)
+    !     occ = sum(qq(orb%posShell(iSh, iSp):orb%posShell(iSh + 1, iSp) - 1, iAt, 1))
+    !     if (occ > 1.0_dp) then
+    !       iBlockStart = desc(iStart) + orb%posShell(iSh, iSp) - 1
+    !       iBlockEnd = desc(iStart) + orb%posShell(iSh + 1, iSp) - 2
+    !       hamBlock = HSqrReal(iBlockStart:iBlockEnd, iBlockStart:iBlockEnd)
+    !       energy = 0.0_dp
+    !       do iDiag = 1, size(hamBlock, dim=1)
+    !         energy = energy + hamBlock(iDiag, iDiag)
+    !       end do
+    !       energy = energy / size(hamBlock, dim=1)
+    !       write(stdOut, "(A,I0,4A,A,2E26.16)") "iAtom, species, shell, occupation, energy: ", iAt,&
+    !           & ", ", trim(speciesName(iSp)), ", ", trim(shellNamesTmp(ll + 1)), ", ", occ, energy
+    !       fmt = "(" // i2c(size(hamBlock, dim=1)) // "F16.10)"
+    !       ! write(stdOut, fmt) transpose(hamBlock)
+    !     end if
+    !   end do
+    !   deallocate(shellNamesTmp)
+    ! end do
+
+    write(stdOut, "(A,/)") '####################END####################'
 
   contains
 
