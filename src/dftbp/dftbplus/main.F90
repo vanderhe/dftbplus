@@ -1369,14 +1369,14 @@ contains
         if (allocated(this%elecConstrain)) then
           nConstrIter = this%elecConstrain%getMaxIter()
           call printElecConstrHeader()
-          if (allocated(this%elecConstrain)) then
-            call this%elecConstrain%potOpt%reset()
-          end if
+          if (allocated(this%elecConstrain)) call this%elecConstrain%potOpt%reset()
         else
           nConstrIter = 1
         end if
 
         lpConstrInner: do iConstrIter = 1, nConstrIter
+
+          this%tSccPropagated = iConstrIter == 1
 
           call processPotentials(env, this, iSccIter, .true., this%qInput, this%qBlockIn,&
               & this%qiBlockIn)
@@ -1414,7 +1414,8 @@ contains
               & this%HSqrReal, this%HSqrRealLast, this%tAoAnalysis, this%SSqrReal,&
               & this%eigvecsReal, this%iRhoPrim, this%HSqrCplx, this%SSqrCplx, this%SSqrCplxKpts,&
               & this%eigvecsCplx, this%rhoSqrReal, this%densityMatrix, this%nNeighbourCam,&
-              & this%nNeighbourCamSym, this%speciesName, this%deltaDftb, errStatus)
+              & this%nNeighbourCamSym, this%speciesName, this%tSccPropagated, this%deltaDftb,&
+              & errStatus)
           if (errStatus%hasError()) call error(errStatus%message)
 
           if (this%tWriteBandDat .and. this%deltaDftb%nDeterminant() == 1) then
@@ -2663,7 +2664,7 @@ contains
       & iDistribFn, tempElec, nEl, parallelKS, Ef, mu, energy, hybridXc, eigen, filling, rhoPrim,&
       & xi, orbitalL, HSqrReal, HSqrRealLast, tAoAnalysis, SSqrReal, eigvecsReal, iRhoPrim,&
       & HSqrCplx, SSqrCplx, SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam,&
-      & nNeighbourCamSym, speciesName, deltaDftb, errStatus)
+      & nNeighbourCamSym, speciesName, tSccPropagated, deltaDftb, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -2838,6 +2839,10 @@ contains
     !> Name of each species
     character(*), intent(in) :: speciesName(:)
 
+    !> True, if SCC has been propagated and quantities needs to be updated in the first constraint
+    !! micro-iteration
+    logical, intent(in) :: tSccPropagated
+
     !> Determinant derived type
     type(TDftbDeterminants), intent(inout) :: deltaDftb
 
@@ -2876,7 +2881,7 @@ contains
           & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, hybridXc, eigen, filling, rhoPrim,&
           & xi, orbitalL, HSqrReal, HSqrRealLast, tAoAnalysis, SSqrReal, eigvecsReal, iRhoPrim,&
           & HSqrCplx, SSqrCplx, SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix,&
-          & nNeighbourCam, nNeighbourCamSym, speciesName, deltaDftb, errStatus)
+          & nNeighbourCam, nNeighbourCamSym, speciesName, tSccPropagated, deltaDftb, errStatus)
       @:PROPAGATE_ERROR(errStatus)
 
     case(electronicSolverTypes%omm, electronicSolverTypes%pexsi, electronicSolverTypes%ntpoly,&
@@ -2904,7 +2909,7 @@ contains
       & iDistribFn, tempElec, nEl, parallelKS, Ef, energy, hybridXc, eigen, filling, rhoPrim, xi,&
       & orbitalL, HSqrReal, HSqrRealLast, tAoAnalysis, SSqrReal, eigvecsReal, iRhoPrim, HSqrCplx,&
       & SSqrCplx, SSqrCplxKpts, eigvecsCplx, rhoSqrReal, densityMatrix, nNeighbourCam,&
-      & nNeighbourCamSym, speciesName, deltaDftb, errStatus)
+      & nNeighbourCamSym, speciesName, tSccPropagated, deltaDftb, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3070,6 +3075,10 @@ contains
     !> Name of each species
     character(*), intent(in) :: speciesName(:)
 
+    !> True, if SCC has been propagated and quantities needs to be updated in the first constraint
+    !! micro-iteration
+    logical, intent(in) :: tSccPropagated
+
     !> Determinant derived type
     type(TDftbDeterminants), intent(inout) :: deltaDftb
 
@@ -3085,8 +3094,8 @@ contains
         call buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, tPeriodic, tHelical,&
             & coord, electronicSolver, parallelKS, hybridXc, densityMatrix%deltaRhoIn,&
-            & nNeighbourCam, nNeighbourCamSym, speciesName, HSqrReal, HSqrRealLast, tAoAnalysis,&
-            & SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
+            & nNeighbourCam, nNeighbourCamSym, speciesName, tSccPropagated, HSqrReal, HSqrRealLast,&
+            & tAoAnalysis, SSqrReal, eigVecsReal, eigen(:,1,:), errStatus)
         @:PROPAGATE_ERROR(errStatus)
       else
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
@@ -3139,8 +3148,8 @@ contains
   subroutine buildAndDiagDenseRealHam(env, denseDesc, ints, species, neighbourList,&
       & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, orb, tPeriodic, tHelical,&
       & coord, electronicSolver, parallelKS, hybridXc, deltaRhoIn, nNeighbourCam,&
-      & nNeighbourCamSym, speciesName, HSqrReal, HSqrRealLast, tAoAnalysis, SSqrReal, eigvecsReal,&
-      & eigen, errStatus)
+      & nNeighbourCamSym, speciesName, tSccPropagated, HSqrReal, HSqrRealLast, tAoAnalysis,&
+      & SSqrReal, eigvecsReal, eigen, errStatus)
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
@@ -3202,6 +3211,10 @@ contains
     !> Name of each species
     character(*), intent(in) :: speciesName(:)
 
+    !> True, if SCC has been propagated and quantities needs to be updated in the first constraint
+    !! micro-iteration
+    logical, intent(in) :: tSccPropagated
+
     !> dense hamiltonian matrix
     real(dp), intent(out) :: HSqrReal(:,:)
 
@@ -3246,7 +3259,7 @@ contains
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
       ! Add hybrid xc-functional contribution to Hamiltonian of current spin-channel
-      if (allocated(hybridXc)) then
+      if (allocated(hybridXc) .and. tSccPropagated) then
         call hybridXc%addCamHamiltonian_real(env, denseDesc, SSqrReal, deltaRhoIn(:,:, iKS),&
             & HSqrReal)
       end if
@@ -3274,7 +3287,7 @@ contains
       call env%globalTimer%stopTimer(globalTimers%sparseToDense)
 
       ! Add hybrid xc-functional contribution to Hamiltonian of current spin-channel
-      if (allocated(hybridXc)) then
+      if (allocated(hybridXc) .and. tSccPropagated) then
         call hybridXc%addCamHamiltonian_real(env, deltaRhoIn(:,:, iKS), SSqrReal, ints%overlap,&
             & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
             & img2CentCell, tPeriodic, HSqrReal)

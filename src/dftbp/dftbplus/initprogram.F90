@@ -858,6 +858,10 @@ module dftbp_dftbplus_initprogram
     !> Structure holding electronic constraints
     type(TElecConstraint), allocatable :: elecConstrain
 
+    !> True, if SCC has been propagated and quantities needs to be updated in the first constraint
+    !! micro-iteration
+    logical :: tSccPropagated
+
     !> Library interface handler
     type(TTBLite), allocatable :: tblite
 
