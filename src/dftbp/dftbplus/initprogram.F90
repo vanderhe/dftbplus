@@ -5910,7 +5910,6 @@ contains
 
     if (this%tRealHS) then
       ! Prevent for deleting charges read in from file
-      print *, 'nLocalKS', nLocalKS
       if (.not. allocated(this%densityMatrix%deltaRhoIn)) then
         allocate(this%densityMatrix%deltaRhoIn(nLocalRows, nLocalCols, nLocalKS))
         this%densityMatrix%deltaRhoIn(:,:,:) = 0.0_dp
