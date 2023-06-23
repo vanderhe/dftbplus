@@ -2838,7 +2838,7 @@ contains
     this%tWriteAutotest = env%tGlobalLead .and. input%ctrl%tWriteTagged
     this%tWriteDetailedXML = env%tGlobalLead .and. input%ctrl%tWriteDetailedXML
     this%tWriteResultsTag = env%tGlobalLead .and. input%ctrl%tWriteResultsTag
-    this%tAoAnalysis = env%tGlobalLead .and. input%ctrl%tAoAnalysis
+    this%tAoAnalysis = input%ctrl%tAoAnalysis
     this%tWriteCharges = env%tGlobalLead .and. input%ctrl%tWriteCharges
     this%tWriteDetailedOut = env%tGlobalLead .and. input%ctrl%tWriteDetailedOut .and.&
         & .not. this%tRestartNoSC
