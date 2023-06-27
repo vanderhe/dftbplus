@@ -1376,7 +1376,9 @@ contains
 
         lpConstrInner: do iConstrIter = 1, nConstrIter
 
-          this%tSccPropagated = iConstrIter == 1
+          ! this%tSccPropagated = iConstrIter == 1
+          ! Required for correct energy evaluation (slowdown not too bad)
+          this%tSccPropagated = .true.
 
           call processPotentials(env, this, iSccIter, .true., this%qInput, this%qBlockIn,&
               & this%qiBlockIn)
