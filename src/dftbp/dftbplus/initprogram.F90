@@ -109,7 +109,8 @@ module dftbp_dftbplus_initprogram
   use dftbp_md_velocityverlet, only : TVelocityVerlet, init
   use dftbp_md_xlbomd, only : TXLBOMD, Xlbomd_init
   use dftbp_mixer_andersonmixer, only : TAndersonMixer, init
-  use dftbp_mixer_broydenmixer, only : TBroydenMixer, init
+  use dftbp_mixer_broydenmixer, only : TBroydenMixer, init, TBroydenMixerCmplx,&
+      & TBroydenMixerCmplx_init
   use dftbp_mixer_diismixer, only : TDIISMixer, init
   use dftbp_mixer_mixer, only : TMixer, mixerTypes, init
   use dftbp_mixer_simplemixer, only : TSimpleMixer, init
@@ -630,6 +631,7 @@ module dftbp_dftbplus_initprogram
 
     !> Charge mixer
     type(TMixer), allocatable :: pChrgMixer
+    type(TBroydenMixerCmplx), allocatable :: pBroydenMixerCmplx
 
     !> MD Framework
     type(TMDCommon), allocatable :: pMDFrame
@@ -1809,6 +1811,10 @@ contains
         call init(pBroydenMixer, this%maxSccIter, mixParam, input%ctrl%broydenOmega0,&
             & input%ctrl%broydenMinWeight, input%ctrl%broydenMaxWeight, input%ctrl%broydenWeightFac)
         call init(this%pChrgMixer, pBroydenMixer)
+        allocate(this%pBroydenMixerCmplx)
+        call TBroydenMixerCmplx_init(this%pBroydenMixerCmplx, this%maxSccIter, mixParam,&
+            & input%ctrl%broydenOmega0, input%ctrl%broydenMinWeight, input%ctrl%broydenMaxWeight,&
+            & input%ctrl%broydenWeightFac)
       case(mixerTypes%diis)
         allocate(pDIISMixer)
         call init(pDIISMixer,nGeneration, mixParam, input%ctrl%tFromStart)

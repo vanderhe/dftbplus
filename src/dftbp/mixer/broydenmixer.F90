@@ -23,8 +23,10 @@ module dftbp_mixer_broydenmixer
   implicit none
 
   private
-  public :: TBroydenMixer
+  public :: TBroydenMixer, TBroydenMixerCmplx
   public :: init, reset, mix, getInverseJacobian
+  public :: TBroydenMixerCmplx_init, TBroydenMixerCmplx_reset
+  public :: TBroydenMixerCmplx_mix, TBroydenMixerCmplx_getInverseJacobian
 
 
   !> Contains the necessary data for a Broyden mixer.
