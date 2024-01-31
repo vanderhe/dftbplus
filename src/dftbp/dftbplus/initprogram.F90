@@ -112,8 +112,8 @@ module dftbp_dftbplus_initprogram
   use dftbp_mixer_broydenmixer, only : TBroydenMixer, init, TBroydenMixerCmplx,&
       & TBroydenMixerCmplx_init
   use dftbp_mixer_diismixer, only : TDIISMixer, init
-  use dftbp_mixer_mixer, only : TMixer, mixerTypes, init
-  use dftbp_mixer_simplemixer, only : TSimpleMixer, init
+  use dftbp_mixer_mixer, only : TMixer, TMixerCmplx, mixerTypes, init, TMixerCmplx_init
+  use dftbp_mixer_simplemixer, only : TSimpleMixer, TSimpleMixerCmplx, init, TSimpleMixerCmplx_init
   use dftbp_reks_reks, only : TReksInp, TReksCalc, reksTypes, REKS_init
   use dftbp_solvation_cm5, only : TChargeModel5, TChargeModel5_init
   use dftbp_solvation_fieldscaling, only : TScaleExtEField, init_TScaleExtEField
@@ -631,7 +631,7 @@ module dftbp_dftbplus_initprogram
 
     !> Charge mixer
     type(TMixer), allocatable :: pChrgMixer
-    type(TBroydenMixerCmplx), allocatable :: pBroydenMixerCmplx
+    type(TMixerCmplx), allocatable :: pChrgMixerCmplx
 
     !> MD Framework
     type(TMDCommon), allocatable :: pMDFrame
@@ -1208,12 +1208,14 @@ contains
 
     !> Simple mixer (if used)
     type(TSimpleMixer), allocatable :: pSimpleMixer
+    type(TSimpleMixerCmplx), allocatable :: pSimpleMixerCmplx
 
     !> Anderson mixer (if used)
     type(TAndersonMixer), allocatable :: pAndersonMixer
 
     !> Broyden mixer (if used)
     type(TBroydenMixer), allocatable :: pBroydenMixer
+    type(TBroydenMixerCmplx), allocatable :: pBroydenMixerCmplx
 
     !> DIIS mixer (if used)
     type(TDIISMixer), allocatable :: pDIISMixer
@@ -1787,10 +1789,28 @@ contains
     ! Initialize mixer
     ! (at the moment, the mixer does not need to know about the size of the vector to mix.)
     if (this%tSccCalc .and. .not. allocated(this%reks) .and. .not. this%tRestartNoSC) then
-      allocate(this%pChrgMixer)
       iMixer = input%ctrl%iMixSwitch
       nGeneration = input%ctrl%iGenerations
       mixParam = input%ctrl%almix
+      if ((.not. this%tRealHS) .and. (input%ctrl%hybridXcInp%hybridXcAlg&
+          & == hybridXcAlgo%matrixBased) .and. (this%isHybridXc)) then
+        allocate(this%pChrgMixerCmplx)
+        select case (iMixer)
+        case (mixerTypes%simple)
+          allocate(pSimplemixerCmplx)
+          call TSimpleMixerCmplx_init(pSimpleMixerCmplx, mixParam)
+          call TMixerCmplx_init(this%pChrgMixerCmplx, pSimpleMixerCmplx)
+        case (mixerTypes%broyden)
+          allocate(pBroydenMixerCmplx)
+          call TBroydenMixerCmplx_init(pBroydenMixerCmplx, this%maxSccIter, mixParam,&
+              & input%ctrl%broydenOmega0, input%ctrl%broydenMinWeight, input%ctrl%broydenMaxWeight,&
+              & input%ctrl%broydenWeightFac)
+          call TMixerCmplx_init(this%pChrgMixerCmplx, pBroydenMixerCmplx)
+        case default
+          call error("Unknown charge mixer type.")
+        end select
+      end if
+      allocate(this%pChrgMixer)
       select case (iMixer)
       case (mixerTypes%simple)
         allocate(pSimplemixer)
@@ -1811,10 +1831,6 @@ contains
         call init(pBroydenMixer, this%maxSccIter, mixParam, input%ctrl%broydenOmega0,&
             & input%ctrl%broydenMinWeight, input%ctrl%broydenMaxWeight, input%ctrl%broydenWeightFac)
         call init(this%pChrgMixer, pBroydenMixer)
-        allocate(this%pBroydenMixerCmplx)
-        call TBroydenMixerCmplx_init(this%pBroydenMixerCmplx, this%maxSccIter, mixParam,&
-            & input%ctrl%broydenOmega0, input%ctrl%broydenMinWeight, input%ctrl%broydenMaxWeight,&
-            & input%ctrl%broydenWeightFac)
       case(mixerTypes%diis)
         allocate(pDIISMixer)
         call init(pDIISMixer,nGeneration, mixParam, input%ctrl%tFromStart)

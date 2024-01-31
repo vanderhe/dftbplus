@@ -12,13 +12,18 @@ module dftbp_mixer_mixer
   use dftbp_common_accuracy, only : dp
   use dftbp_io_message, only : error
   use dftbp_mixer_andersonmixer, only : TAndersonMixer, mix, reset
-  use dftbp_mixer_broydenmixer, only : TBroydenMixer, mix, reset, getInverseJacobian
+  use dftbp_mixer_broydenmixer, only : TBroydenMixer, TBroydenMixerCmplx, mix,&
+      & TBroydenMixerCmplx_mix, reset, TBroydenMixerCmplx_reset, getInverseJacobian,&
+      & TBroydenMixerCmplx_getInverseJacobian
   use dftbp_mixer_diismixer, only : TDIISMixer, mix, reset
-  use dftbp_mixer_simplemixer, only : TSimpleMixer, mix, reset
+  use dftbp_mixer_simplemixer, only : TSimpleMixer, TSimpleMixerCmplx, TSimpleMixerCmplx_mix, mix,&
+      & reset, TSimpleMixerCmplx_reset
   implicit none
 
   private
-  public :: TMixer
+  public :: TMixer, TMixerCmplx
+  public :: TMixerCmplx_init, TMixerCmplx_reset, TMixerCmplx_mix
+  public :: TMixerCmplx_hasInverseJacobian, TMixerCmplx_getInverseJacobian
   public :: init, reset, mix
   public :: hasInverseJacobian, getInverseJacobian
   public :: mixerTypes
@@ -44,6 +49,22 @@ module dftbp_mixer_mixer
     type(TDIISMixer), allocatable :: pDIISMixer
 
   end type TMixer
+
+
+  !> Interface type for various mixers.
+  type TMixerCmplx
+    private
+
+    !> Numerical type of mixer 1,3
+    integer :: mixerType
+
+    !> Simple mixer instance
+    type(TSimpleMixerCmplx), allocatable :: pSimpleMixer
+
+    !> Broyden mixer instance
+    type(TBroydenMixerCmplx), allocatable :: pBroydenMixer
+
+  end type TMixerCmplx
 
 
   !> Initialises specific mixer in use
@@ -81,6 +102,21 @@ module dftbp_mixer_mixer
   end interface getInverseJacobian
 
 
+  !> Initialises specific mixer in use
+  interface TMixerCmplx_init
+    module procedure TMixerCmplx_initSimple
+    module procedure TMixerCmplx_initBroyden
+  end interface TMixerCmplx_init
+
+
+  !> Does the actual mixing
+  interface TMixerCmplx_mix
+    module procedure TMixerCmplx_mix1D
+    module procedure TMixerCmplx_mix3D
+    module procedure TMixerCmplx_mix6D
+  end interface TMixerCmplx_mix
+
+
   type :: TMixerTypesEnum
     integer :: simple = 1
     integer :: anderson = 2
@@ -107,6 +143,21 @@ contains
     call move_alloc(pSimple, this%pSimpleMixer)
 
   end subroutine TMixer_initSimple
+
+
+  !> Initializes a simple mixer.
+  subroutine TMixerCmplx_initSimple(this, pSimple)
+
+    !> Mixer instance
+    type(TMixerCmplx), intent(out) :: this
+
+    !> A valid simple mixer instance on exit.
+    type(TSimpleMixerCmplx), allocatable, intent(inout) :: pSimple
+
+    this%mixerType = mixerTypes%simple
+    call move_alloc(pSimple, this%pSimpleMixer)
+
+  end subroutine TMixerCmplx_initSimple
 
 
   !> Initializes an Anderson mixer.
@@ -137,6 +188,21 @@ contains
     call move_alloc(pBroyden, this%pBroydenMixer)
 
   end subroutine TMixer_initBroyden
+
+
+  !> Initializes a Broyden mixer
+  subroutine TMixerCmplx_initBroyden(this, pBroyden)
+
+    !> Mixer instance
+    type(TMixerCmplx), intent(out) :: this
+
+    !> A valid Broyden mixer instance on exit.
+    type(TBroydenMixerCmplx), allocatable, intent(inout) :: pBroyden
+
+    this%mixerType = mixerTypes%broyden
+    call move_alloc(pBroyden, this%pBroydenMixer)
+
+  end subroutine TMixerCmplx_initBroyden
 
 
   !> Initializes a DIIS mixer
@@ -177,6 +243,25 @@ contains
   end subroutine TMixer_reset
 
 
+  !> Resets the mixer
+  subroutine TMixerCmplx_reset(this, nElem)
+
+    !> Mixer instance.
+    type(TMixerCmplx), intent(inout) :: this
+
+    !> Size of the vectors to mix.
+    integer, intent(in) :: nElem
+
+    select case (this%mixerType)
+    case(mixerTypes%simple)
+      call TSimpleMixerCmplx_reset(this%pSimpleMixer, nElem)
+    case (mixerTypes%broyden)
+      call TBroydenMixerCmplx_reset(this%pBroydenMixer, nElem)
+    end select
+
+  end subroutine TMixerCmplx_reset
+
+
   !> Mixes two vectors.
   subroutine TMixer_mix1D(this, qInpRes, qDiff)
 
@@ -201,6 +286,28 @@ contains
     end select
 
   end subroutine TMixer_mix1D
+
+
+  !> Mixes two vectors.
+  subroutine TMixerCmplx_mix1D(this, qInpRes, qDiff)
+
+    !> Mixer instance
+    type(TMixerCmplx), intent(inout) :: this
+
+    !> Input vector on entry, result vector on exit
+    complex(dp), intent(inout) :: qInpRes(:)
+
+    !> Difference between input and output vectors (measure of lack of convergence)
+    complex(dp), intent(in) :: qDiff(:)
+
+    select case (this%mixerType)
+    case (mixerTypes%simple)
+      call TSimpleMixerCmplx_mix(this%pSimpleMixer, qInpRes, qDiff)
+    case (mixerTypes%broyden)
+      call TBroydenMixerCmplx_mix(this%pBroydenMixer, qInpRes, qDiff)
+    end select
+
+  end subroutine TMixerCmplx_mix1D
 
 
   !> Mixes two 3D matrices.
@@ -229,6 +336,32 @@ contains
   end subroutine TMixer_mix3D
 
 
+  !> Mixes two 3D matrices.
+  subroutine TMixerCmplx_mix3D(this, qInpResSqr, qDiffSqr)
+
+    !> Mixer instance.
+    type(TMixerCmplx), intent(inout) :: this
+
+    !> Input vector on entry, result vector on exit
+    complex(dp), intent(inout), contiguous, target :: qInpResSqr(:,:,:)
+
+    !> Difference between input and output vectors (measure of lack of convergence)
+    complex(dp), intent(in), contiguous, target :: qDiffSqr(:,:,:)
+
+    !! Difference between input and output vectors (1D pointer)
+    complex(dp), pointer :: qDiff(:)
+
+    !! Input vector on entry, result vector on exit (1D pointer)
+    complex(dp), pointer :: qInpRes(:)
+
+    qDiff(1:size(qDiffSqr)) => qDiffSqr
+    qInpRes(1:size(qInpResSqr)) => qInpResSqr
+
+    call TMixerCmplx_mix1D(this, qInpRes, qDiff)
+
+  end subroutine TMixerCmplx_mix3D
+
+
   !> Mixes two 6D matrices.
   subroutine TMixer_mix6D(this, qInpResSqr, qDiffSqr)
 
@@ -255,6 +388,32 @@ contains
   end subroutine TMixer_mix6D
 
 
+  !> Mixes two 6D matrices.
+  subroutine TMixerCmplx_mix6D(this, qInpResSqr, qDiffSqr)
+
+    !> Mixer instance.
+    type(TMixerCmplx), intent(inout) :: this
+
+    !> Input vector on entry, result vector on exit
+    complex(dp), intent(inout), contiguous, target :: qInpResSqr(:,:,:,:,:,:)
+
+    !> Difference between input and output vectors (measure of lack of convergence)
+    complex(dp), intent(in), contiguous, target :: qDiffSqr(:,:,:,:,:,:)
+
+    !! Difference between input and output vectors (1D pointer)
+    complex(dp), pointer :: qDiff(:)
+
+    !! Input vector on entry, result vector on exit (1D pointer)
+    complex(dp), pointer :: qInpRes(:)
+
+    qDiff(1:size(qDiffSqr)) => qDiffSqr
+    qInpRes(1:size(qInpResSqr)) => qInpResSqr
+
+    call TMixerCmplx_mix1D(this, qInpRes, qDiff)
+
+  end subroutine TMixerCmplx_mix6D
+
+
   !> Tells whether the mixer is able to provide the inverse Jacobian.
   function TMixer_hasInverseJacobian(this) result(has)
 
@@ -278,6 +437,25 @@ contains
   end function TMixer_hasInverseJacobian
 
 
+  !> Tells whether the mixer is able to provide the inverse Jacobian.
+  function TMixerCmplx_hasInverseJacobian(this) result(has)
+
+    !> Mixer instance
+    type(TMixerCmplx), intent(inout) :: this
+
+    !> Size of the vectors to mix
+    logical :: has
+
+    select case (this%mixerType)
+    case(mixerTypes%simple)
+      has = .false.
+    case(mixerTypes%broyden)
+      has = .true.
+    end select
+
+  end function TMixerCmplx_hasInverseJacobian
+
+
   !> Return an inverse Jacobian if possible, halting if not
   subroutine TMixer_getInverseJacobian(this, invJac)
 
@@ -299,5 +477,24 @@ contains
     end select
 
   end subroutine TMixer_getInverseJacobian
+
+
+  !> Return an inverse Jacobian if possible, halting if not
+  subroutine TMixerCmplx_getInverseJacobian(this, invJac)
+
+    !> Mixer instance.
+    type(TMixerCmplx), intent(inout) :: this
+
+    !> Inverse Jacobian matrix if available
+    complex(dp), intent(out) :: invJac(:,:)
+
+    select case (this%mixerType)
+    case(mixerTypes%simple)
+      call error("Simple mixer does not provide inverse Jacobian")
+    case (mixerTypes%broyden)
+      call TBroydenMixerCmplx_getInverseJacobian(this%pBroydenMixer, invJac)
+    end select
+
+  end subroutine TMixerCmplx_getInverseJacobian
 
 end module dftbp_mixer_mixer

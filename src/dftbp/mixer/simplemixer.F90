@@ -13,8 +13,9 @@ module dftbp_mixer_simplemixer
   implicit none
 
   private
-  public :: TSimpleMixer
+  public :: TSimpleMixer, TSimpleMixerCmplx
   public :: init, reset, mix
+  public :: TSimpleMixerCmplx_init, TSimpleMixerCmplx_reset, TSimpleMixerCmplx_mix
 
 
   !> Contains data for a simple mixer
@@ -25,6 +26,16 @@ module dftbp_mixer_simplemixer
     real(dp) :: mixParam
 
   end type TSimpleMixer
+
+
+  !> Contains data for a simple mixer
+  type TSimpleMixerCmplx
+    private
+
+    !> Mixing parameter
+    real(dp) :: mixParam
+
+  end type TSimpleMixerCmplx
 
 
   !> Creates a SimpleMixer instance
@@ -94,5 +105,54 @@ contains
     qInpResult(:) = qInpResult(:) + this%mixParam * qDiff(:)
 
   end subroutine SimpleMixer_mix
+
+
+  !> Creates a complex simple mixer.
+  subroutine TSimpleMixerCmplx_init(this, mixParam)
+
+    !> Simple mixer instance on exit
+    type(TSimpleMixerCmplx), intent(out) :: this
+
+    !> Mixing parameter
+    real(dp), intent(in) :: mixParam
+
+    this%mixParam = mixParam
+
+  end subroutine TSimpleMixerCmplx_init
+
+
+  !> Resets the mixer.
+  subroutine TSimpleMixerCmplx_reset(this, nElem)
+
+    !> Simple mixer instance
+    type(TSimpleMixerCmplx), intent(inout) :: this
+
+    !> Length of the vectors to mix
+    integer, intent(in) :: nElem
+
+    @:ASSERT(nElem > 0)
+
+    continue
+
+  end subroutine TSimpleMixerCmplx_reset
+
+
+  !> Does the actual mixing.
+  subroutine TSimpleMixerCmplx_mix(this, qInpResult, qDiff)
+
+    !> SimpleMixer instance
+    type(TSimpleMixerCmplx), intent(inout) :: this
+
+    !> Input charge on entry, mixed charge on exit
+    complex(dp), intent(inout) :: qInpResult(:)
+
+    !> Charge difference
+    complex(dp), intent(in) :: qDiff(:)
+
+    @:ASSERT(size(qInpResult) == size(qDiff))
+
+    qInpResult(:) = qInpResult + this%mixParam * qDiff
+
+  end subroutine TSimpleMixerCmplx_mix
 
 end module dftbp_mixer_simplemixer

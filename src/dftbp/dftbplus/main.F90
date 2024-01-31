@@ -102,7 +102,8 @@ module dftbp_dftbplus_main
   use dftbp_md_mdintegrator, only : TMdIntegrator, next, rescale
   use dftbp_md_tempprofile, only : TTempProfile
   use dftbp_md_xlbomd, only : TXLBOMD
-  use dftbp_mixer_mixer, only : TMixer, reset, mix, getInverseJacobian
+  use dftbp_mixer_mixer, only : TMixer, TMixerCmplx, reset, TMixerCmplx_reset, mix,&
+      & TMixerCmplx_mix, getInverseJacobian, TMixerCmplx_getInverseJacobian
   use dftbp_mixer_broydenmixer, only : TBroydenMixerCmplx, TBroydenMixerCmplx_mix,&
       & TBroydenMixerCmplx_reset, TBroydenMixerCmplx_getInverseJacobian
   use dftbp_reks_reks, only : TReksCalc, guessneweigvecs, optimizeFONs, calcweights, activeorbswap,&
@@ -942,7 +943,7 @@ contains
       ! Mix charges Input/Output
 
       if (.not. this%isHybridXc) then
-        call getNextInputCharges(env, this%pChrgMixer, this%pBroydenMixerCmplx, this%qOutput, this%qOutRed, this%orb,&
+        call getNextInputCharges(env, this%pChrgMixer, this%qOutput, this%qOutRed, this%orb,&
             & this%nIneqOrb, this%iEqOrbitals, iGeoStep, iSccIter, this%minSccIter,&
             & this%maxSccIter, this%sccTol, tStopScc, this%tMixBlockCharges, this%tReadChrg,&
             & this%qInput, this%qInpRed, sccErrorQ, tConverged, this%dftbU, this%qBlockOut,&
@@ -962,9 +963,9 @@ contains
         else
           call getNextInputDensityCplx(this%ints, this%neighbourList, this%nNeighbourSK,&
               & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell,&
-              & this%pChrgMixer, this%qOutput, this%orb, iGeoStep, iSccIter, this%minSccIter,&
-              & this%maxSccIter, this%sccTol, tStopScc, this%tReadChrg, this%q0, this%iCellVec,&
-              & this%cellVec, this%hybridXc, this%qInput, sccErrorQ, tConverged,&
+              & this%pChrgMixer, this%pChrgMixerCmplx, this%qOutput, this%orb, iGeoStep, iSccIter,&
+              & this%minSccIter, this%maxSccIter, this%sccTol, tStopScc, this%tReadChrg, this%q0,&
+              & this%iCellVec, this%cellVec, this%hybridXc, this%qInput, sccErrorQ, tConverged,&
               & this%densityMatrix, this%qBlockIn, this%qBlockOut)
         end if
       end if
@@ -982,7 +983,7 @@ contains
       end if
 
       tWriteSccRestart = env%tGlobalLead .and. needsSccRestartWriting(this%restartFreq,&
-          & iGeoStep, iSccIter, this%minSccIter, this%maxSccIter, this%tMd, &
+          & iGeoStep, iSccIter, this%minSccIter, this%maxSccIter, this%tMd,&
           & this%isGeoOpt .or. allocated(this%geoOpt),&
           & this%tDerivs, tConverged, this%tReadChrg, tStopScc) .and. this%tWriteCharges
     #:if WITH_SCALAPACK
@@ -1148,15 +1149,12 @@ contains
       if (allocated(this%hybridXc)) then
         if (withMpi .and. this%tRealHS&
             & .and. this%hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
-          ! call reset(this%pChrgMixer, this%nOrb**2 * this%nSpin)
-          call TBroydenMixerCmplx_reset(this%pBroydenMixerCmplx, this%nOrb**2 * this%nSpin)
+          call reset(this%pChrgMixer, this%nOrb**2 * this%nSpin)
         else
-          ! call reset(this%pChrgMixer, this%nMixElements)
-          call TBroydenMixerCmplx_reset(this%pBroydenMixerCmplx, this%nMixElements)
+          call reset(this%pChrgMixer, this%nMixElements)
         end if
       else
-        ! call reset(this%pChrgMixer, this%nMixElements)
-        call TBroydenMixerCmplx_reset(this%pBroydenMixerCmplx, this%nMixElements)
+        call reset(this%pChrgMixer, this%nMixElements)
       end if
     end if
 
@@ -1615,7 +1613,7 @@ contains
     end if
 
     if (this%isXlbomd) then
-      call getXlbomdCharges(this%xlbomdIntegrator, this%qOutRed, this%pChrgMixer, this%pBroydenMixerCmplx, this%orb,&
+      call getXlbomdCharges(this%xlbomdIntegrator, this%qOutRed, this%pChrgMixer, this%orb,&
           & this%nIneqOrb, this%iEqOrbitals, this%qInput, this%qInpRed, this%dftbU,&
           & this%iEqBlockDftbU, this%qBlockIn, this%species0, this%iEqBlockDftbuLs, this%qiBlockIn,&
           & this%iEqBlockOnSite, this%iEqBlockOnSiteLS)
@@ -4215,7 +4213,7 @@ contains
 
 
   !> Returns input charges for next SCC iteration.
-  subroutine getNextInputCharges(env, pChrgMixer, pBroydenMixerCmplx, qOutput, qOutRed, orb, nIneqOrb, iEqOrbitals,&
+  subroutine getNextInputCharges(env, pChrgMixer, qOutput, qOutRed, orb, nIneqOrb, iEqOrbitals,&
       & iGeoStep, iSccIter, minSccIter, maxSccIter, sccTol, tStopScc, tMixBlockCharges, tReadChrg,&
       & qInput, qInpRed, sccErrorQ, tConverged, dftbU, qBlockOut, iEqBlockDftbU, qBlockIn,&
       & qiBlockOut, iEqBlockDftbuLS, species0, qiBlockIn, iEqBlockOnSite, iEqBlockOnSiteLS,&
@@ -4226,7 +4224,6 @@ contains
 
     !> Charge mixing object
     type(TMixer), intent(inout) :: pChrgMixer
-    type(TBroydenMixerCmplx), intent(inout) :: pBroydenMixerCmplx
 
     !> Output electrons
     real(dp), intent(inout) :: qOutput(:,:,:)
@@ -4322,7 +4319,6 @@ contains
     type(TMultipole), intent(inout) :: multipoleOut
 
     real(dp), allocatable :: qDiffRed(:)
-    complex(dp), allocatable :: qInpRedCmplx(:), qDiffRedCmplx(:)
     integer :: nSpin, nMix
 
     nSpin = size(qOutput, dim=3)
@@ -4361,12 +4357,7 @@ contains
         end if
         multipoleInp = multipoleOut
       else
-        ! call mix(pChrgMixer, qInpRed, qDiffRed)
-        qInpRedCmplx = cmplx(qInpRed)
-        qDiffRedCmplx = cmplx(qDiffRed)
-        call TBroydenMixerCmplx_mix(pBroydenMixerCmplx, qInpRedCmplx, qDiffRedCmplx)
-        qInpRed(:) = real(qInpRedCmplx)
-        qDiffRed(:) = real(qDiffRedCmplx)
+        call mix(pChrgMixer, qInpRed, qDiffRed)
       #:if WITH_MPI
         ! Synchronise charges in order to avoid mixers that store a history drifting apart
         call mpifx_bcast(env%mpi%globalComm, qInpRed)
@@ -4614,9 +4605,9 @@ contains
 
   !> Update delta density matrix rather than merely q for hybrid xc-functionals.
   subroutine getNextInputDensityCplx(ints, neighbourList, nNeighbourSK, iAtomStart, iSparseStart,&
-      & img2CentCell, pChrgMixer, qOutput, orb, iGeoStep, iSccIter, minSccIter, maxSccIter, sccTol,&
-      & tStopScc, tReadChrg, q0, iCellVec, cellVec, hybridXc, qInput, sccErrorQ, tConverged,&
-      & densityMatrix, qBlockIn, qBlockOut)
+      & img2CentCell, pChrgMixer, pChrgMixerCmplx, qOutput, orb, iGeoStep, iSccIter, minSccIter,&
+      & maxSccIter, sccTol, tStopScc, tReadChrg, q0, iCellVec, cellVec, hybridXc, qInput,&
+      & sccErrorQ, tConverged, densityMatrix, qBlockIn, qBlockOut)
 
     !> Integral container
     type(TIntegral), intent(in) :: ints
@@ -4638,6 +4629,9 @@ contains
 
     !> Charge mixing object
     type(TMixer), intent(inout) :: pChrgMixer
+
+    !> Complex charge mixing object
+    type(TMixerCmplx), intent(inout) :: pChrgMixerCmplx
 
     !> Output electrons
     real(dp), intent(in) :: qOutput(:,:,:)
@@ -5150,7 +5144,7 @@ contains
   end subroutine calculateLinRespExcitations
 
   !> Get the XLBOMD charges for the current geometry.
-  subroutine getXlbomdCharges(xlbomdIntegrator, qOutRed, pChrgMixer, pBroydenMixerCmplx, orb, nIneqOrb, iEqOrbitals,&
+  subroutine getXlbomdCharges(xlbomdIntegrator, qOutRed, pChrgMixer, orb, nIneqOrb, iEqOrbitals,&
       & qInput, qInpRed, dftbU, iEqBlockDftbu, qBlockIn, species0, iEqBlockDftbuLS, qiBlockIn,&
       & iEqBlockOnSite, iEqBlockOnSiteLS)
 
@@ -5162,7 +5156,6 @@ contains
 
     !> SCC mixer
     type(TMixer), intent(inout) :: pChrgMixer
-    type(TBroydenMixerCmplx), intent(inout) :: pBroydenMixerCmplx
 
     !> Atomic orbital information
     type(TOrbitals), intent(in) :: orb
@@ -5204,18 +5197,13 @@ contains
     integer, intent(inout), allocatable :: iEqBlockOnSiteLS(:,:,:,:)
 
     real(dp), allocatable :: invJacobian(:,:)
-    complex(dp), allocatable :: invJacobianCmplx(:,:)
 
     if (xlbomdIntegrator%needsInverseJacobian()) then
       write(stdOut, "(A)") ">> Updating XLBOMD Inverse Jacobian"
       allocate(invJacobian(nIneqOrb, nIneqOrb))
-      allocate(invJacobianCmplx(nIneqOrb, nIneqOrb))
-      ! call getInverseJacobian(pChrgMixer, invJacobian)
-      call TBroydenMixerCmplx_getInverseJacobian(pBroydenMixerCmplx, invJacobianCmplx)
-      invJacobian(:,:) = real(invJacobian)
+      call getInverseJacobian(pChrgMixer, invJacobian)
       call xlbomdIntegrator%setInverseJacobian(invJacobian)
       deallocate(invJacobian)
-      deallocate(invJacobianCmplx)
     end if
     call xlbomdIntegrator%getNextCharges(qOutRed(1:nIneqOrb), qInpRed(1:nIneqOrb))
     call expandCharges(qInpRed, orb, nIneqOrb, iEqOrbitals, qInput, dftbU, qBlockIn, iEqBlockDftbu,&
