@@ -60,7 +60,7 @@ module dftbp_dftbplus_main
   use dftbp_dftb_sparse2dense, only : unpackHPauli, unpackHS, blockSymmetrizeHS, packHS,&
       & blockSymmetrizeHS, packHS, symmetrizeHS, unpackHelicalHS, packerho, blockHermitianHS,&
       & packHSPauli, packHelicalHS, packHSPauliImag, iPackHS, unpackSPauli, getSparseDescriptor,&
-      & hermitianSquareMatrix
+      & getSparseSize, hermitianSquareMatrix
   use dftbp_dftb_spin, only : ud2qm, qm2ud
   use dftbp_dftb_spinorbit, only : addOnsiteSpinOrbitHam, getOnsiteSpinOrbitEnergy
   use dftbp_dftb_stress, only : getkineticstress, getBlockStress, getBlockiStress, getNonSCCStress
@@ -102,8 +102,8 @@ module dftbp_dftbplus_main
   use dftbp_md_mdintegrator, only : TMdIntegrator, next, rescale
   use dftbp_md_tempprofile, only : TTempProfile
   use dftbp_md_xlbomd, only : TXLBOMD
-  use dftbp_mixer_mixer, only : TMixer, TMixerCmplx, reset, TMixerCmplx_reset, mix,&
-      & TMixerCmplx_mix, getInverseJacobian, TMixerCmplx_getInverseJacobian
+  use dftbp_mixer_mixer, only : TMixer, TMixerCmplx, reset, TMixerCmplx_reset,&
+      & mix, TMixerCmplx_mix, getInverseJacobian, TMixerCmplx_getInverseJacobian
   use dftbp_mixer_broydenmixer, only : TBroydenMixerCmplx, TBroydenMixerCmplx_mix,&
       & TBroydenMixerCmplx_reset, TBroydenMixerCmplx_getInverseJacobian
   use dftbp_reks_reks, only : TReksCalc, guessneweigvecs, optimizeFONs, calcweights, activeorbswap,&
@@ -848,21 +848,29 @@ contains
     #:endif
 
       if (.not. this%tRealHS) then
-        ! denseSubtractDensityOfAtoms_cmplx_periodic()
-        call denseSubtractDensityOfAtoms(env, this%ints, this%denseDesc, this%parallelKS,&
-            & this%neighbourList, this%kPoint, this%nNeighbourSK, this%iCellVec, this%cellVec,&
-            & this%iSparseStart, this%img2CentCell, this%q0, this%densityMatrix%deltaRhoOutCplx)
-        ! Build real-space delta rho from k-space density matrix:
-        ! Also, zero-out deltaRhoOutCplxHS, because of internal summation.
-        this%densityMatrix%deltaRhoOutCplxHS(:,:,:,:,:,:) = 0.0_dp
-        call transformDualSpaceToBvKRealSpace(this%densityMatrix%deltaRhoOutCplx,&
-            & this%parallelKS, this%kPoint, this%kWeight, this%hybridXc%bvKShifts,&
-            & this%hybridXc%coeffsDiag, this%densityMatrix%deltaRhoOutCplxHS)
-      #:if WITH_MPI
-        ! Distribute all square, real-space density matrices to all nodes via global summation
-        call mpifx_allreduceip(env%mpi%interGroupComm, this%densityMatrix%deltaRhoOutCplxHS,&
-            & MPI_SUM)
-      #:endif
+        if (this%hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
+          ! denseSubtractDensityOfAtoms_cmplx_periodic_global()
+          call denseSubtractDensityOfAtoms(env, this%ints, this%denseDesc, this%neighbourList,&
+              & this%kPoint, this%densityMatrix%iKiSToiGlobalKS, this%nNeighbourSK, this%iCellVec,&
+              & this%cellVec, this%iSparseStart, this%img2CentCell, this%q0,&
+              & this%densityMatrix%deltaRhoOutCplx)
+        else
+          ! denseSubtractDensityOfAtoms_cmplx_periodic()
+          call denseSubtractDensityOfAtoms(env, this%ints, this%denseDesc, this%parallelKS,&
+              & this%neighbourList, this%kPoint, this%nNeighbourSK, this%iCellVec, this%cellVec,&
+              & this%iSparseStart, this%img2CentCell, this%q0, this%densityMatrix%deltaRhoOutCplx)
+          ! Build real-space delta rho from k-space density matrix:
+          ! Also, zero-out deltaRhoOutCplxHS, because of internal summation.
+          this%densityMatrix%deltaRhoOutCplxHS(:,:,:,:,:,:) = 0.0_dp
+          call transformDualSpaceToBvKRealSpace(this%densityMatrix%deltaRhoOutCplx,&
+              & this%parallelKS, this%kPoint, this%kWeight, this%hybridXc%bvKShifts,&
+              & this%hybridXc%coeffsDiag, this%densityMatrix%deltaRhoOutCplxHS)
+        #:if WITH_MPI
+          ! Distribute all square, real-space density matrices to all nodes via global summation
+          call mpifx_allreduceip(env%mpi%interGroupComm, this%densityMatrix%deltaRhoOutCplxHS,&
+              & MPI_SUM)
+        #:endif
+        end if
       end if
       if (this%tRealHS .and. this%tPeriodic) deallocate(SSqrReal)
     end if
@@ -961,12 +969,13 @@ contains
               & this%qBlockOut, errStatus)
           @:PROPAGATE_ERROR(errStatus)
         else
-          call getNextInputDensityCplx(this%ints, this%neighbourList, this%nNeighbourSK,&
-              & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell,&
-              & this%pChrgMixer, this%pChrgMixerCmplx, this%qOutput, this%orb, iGeoStep, iSccIter,&
-              & this%minSccIter, this%maxSccIter, this%sccTol, tStopScc, this%tReadChrg, this%q0,&
-              & this%iCellVec, this%cellVec, this%hybridXc, this%qInput, sccErrorQ, tConverged,&
-              & this%densityMatrix, this%qBlockIn, this%qBlockOut)
+          call getNextInputDensityCplx(env, this%ints, this%neighbourList, this%nNeighbourSK,&
+              & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell, this%pChrgMixer,&
+              & this%pChrgMixerCmplx, this%qOutput, this%orb, this%parallelKS, this%kPoint,&
+              & this%kWeight, iGeoStep, iSccIter, this%minSccIter, this%maxSccIter, this%sccTol,&
+              & tStopScc, this%tReadChrg, this%q0, this%iCellVec, this%cellVec, this%hybridXc,&
+              & this%qInput, sccErrorQ, tConverged, this%densityMatrix, this%qBlockIn,&
+              & this%qBlockOut)
         end if
       end if
 
@@ -1150,6 +1159,8 @@ contains
         if (withMpi .and. this%tRealHS&
             & .and. this%hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
           call reset(this%pChrgMixer, this%nOrb**2 * this%nSpin)
+        elseif (allocated(this%pChrgMixerCmplx)) then
+          call TMixerCmplx_reset(this%pChrgMixerCmplx, this%nMixElements)
         else
           call reset(this%pChrgMixer, this%nMixElements)
         end if
@@ -3334,9 +3345,9 @@ contains
 
     if (allocated(hybridXc)) then
       ! Get CAM-Hamiltonian contribution for all spins/k-points
-      call hybridXc%getCamHamiltonian_kpts(env, densityMatrix%deltaRhoInCplxHS,&
-          & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb,&
-          & kPoint, densityMatrix%iKiSToiGlobalKS, HSqrCplxCam, errStatus)
+      call hybridXc%getCamHamiltonian_kpts(env, densityMatrix, symNeighbourList, nNeighbourCamSym,&
+          & rCellVecs, cellVec, denseDesc%iAtomStart, orb, kPoint, densityMatrix%iKiSToiGlobalKS,&
+          & HSqrCplxCam, errStatus)
       @:PROPAGATE_ERROR(errStatus)
     end if
 
@@ -3803,13 +3814,24 @@ contains
       if (allocated(hybridXc)) then
         ! Store square density matrix P(iKS), since currently needed for q0 substraction
         call hermitianSquareMatrix(work)
-        densityMatrix%deltaRhoOutCplx(:,:, iKS) = work
+        if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
+          densityMatrix%deltaRhoOutCplx(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)) = work
+        else
+          densityMatrix%deltaRhoOutCplx(:,:, iKS) = work
+        end if
       end if
     end do
 
   #:if WITH_SCALAPACK
     ! Add up and distribute density matrix contribution from each group
     call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
+
+    ! Add up and distribute density matrix contribution from each process
+    if (allocated(hybridXc)) then
+      if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
+        call mpifx_allreduceip(env%mpi%globalComm, densityMatrix%deltaRhoOutCplx, MPI_SUM)
+      end if
+    end if
   #:endif
 
   end subroutine getDensityFromCplxEigvecs
@@ -4538,7 +4560,7 @@ contains
           if (env%tGlobalLead) then
             ! Re-allocate difference, this time for full density collected from all MPI ranks
             deltaRhoDiffSqr = collectedDeltaRhoOutSqr - collectedDeltaRhoInSqr
-            ! call mix(pChrgMixer, collectedDeltaRhoInSqr, deltaRhoDiffSqr)
+            call mix(pChrgMixer, collectedDeltaRhoInSqr, deltaRhoDiffSqr)
           end if
           ! scatter mixed full, square density matrix to MPI ranks
           call scatterFullToDistributed(env, denseDesc, parallelKS, collectedDeltaRhoInSqr,&
@@ -4604,10 +4626,14 @@ contains
 
 
   !> Update delta density matrix rather than merely q for hybrid xc-functionals.
-  subroutine getNextInputDensityCplx(ints, neighbourList, nNeighbourSK, iAtomStart, iSparseStart,&
-      & img2CentCell, pChrgMixer, pChrgMixerCmplx, qOutput, orb, iGeoStep, iSccIter, minSccIter,&
-      & maxSccIter, sccTol, tStopScc, tReadChrg, q0, iCellVec, cellVec, hybridXc, qInput,&
-      & sccErrorQ, tConverged, densityMatrix, qBlockIn, qBlockOut)
+  subroutine getNextInputDensityCplx(env, ints, neighbourList, nNeighbourSK, iAtomStart,&
+      & iSparseStart, img2CentCell, pChrgMixer, pChrgMixerCmplx, qOutput, orb, parallelKS, kPoint,&
+      & kWeight, iGeoStep, iSccIter, minSccIter, maxSccIter, sccTol, tStopScc, tReadChrg, q0,&
+      & iCellVec, cellVec, hybridXc, qInput, sccErrorQ, tConverged, densityMatrix, qBlockIn,&
+      & qBlockOut)
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
 
     !> Integral container
     type(TIntegral), intent(in) :: ints
@@ -4638,6 +4664,15 @@ contains
 
     !> Atomic orbital data
     type(TOrbitals), intent(in) :: orb
+
+    !> The k-points and spins to process
+    type(TParallelKS), intent(in) :: parallelKS
+
+    !> The k-points
+    real(dp), intent(in) :: kPoint(:,:)
+
+    !> Weights for k-points
+    real(dp), intent(in) :: kWeight(:)
 
     !> Number of current geometry step
     integer, intent(in) :: iGeoStep
@@ -4693,30 +4728,88 @@ contains
     !! Number of spins and spin index
     integer :: nSpin
 
+    !! Total size of orbitals in the sparse data structures, where the decay of the overlap sets the
+    !! sparsity pattern
+    integer :: sparseSize
+
+    !! Sparse density matrix storage
+    real(dp), allocatable :: rhoPrim(:,:)
+
     !! Difference of delta density matrix in and out
     real(dp), allocatable :: deltaRhoDiffSqrCplxHS(:,:,:,:,:,:)
+    complex(dp), allocatable :: deltaRhoDiffSqrCplx(:,:,:)
+
+    !! K-point-spin composite index and k-point/spin index
+    integer :: iKS, iK, iSpin
 
     nSpin = size(qOutput, dim=3)
 
-    deltaRhoDiffSqrCplxHS = densityMatrix%deltaRhoOutCplxHS - densityMatrix%deltaRhoInCplxHS
-    sccErrorQ = maxval(abs(deltaRhoDiffSqrCplxHS))
+    if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
+      deltaRhoDiffSqrCplx = densityMatrix%deltaRhoOutCplx - densityMatrix%deltaRhoInCplx
+      sccErrorQ = maxval(abs(deltaRhoDiffSqrCplx))
+    else
+      deltaRhoDiffSqrCplxHS = densityMatrix%deltaRhoOutCplxHS - densityMatrix%deltaRhoInCplxHS
+      sccErrorQ = maxval(abs(deltaRhoDiffSqrCplxHS))
+    end if
     tConverged = (sccErrorQ < sccTol)&
         & .and. (iSCCiter >= minSCCIter .or. tReadChrg .or. iGeoStep > 0)
 
     if ((.not. tConverged) .and. (iSCCiter /= maxSccIter .and. .not. tStopScc)) then
       if ((iSCCIter + iGeoStep) == 1 .and. (nSpin > 1 .and. .not. tReadChrg)) then
-        densityMatrix%deltaRhoInCplxHS(:,:,:,:,:,:) = densityMatrix%deltaRhoOutCplxHS
-        qInput(:,:,:) = qOutput
-        if (allocated(qBlockIn)) then
-          qBlockIn(:,:,:,:) = qBlockOut
+        if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
+          densityMatrix%deltaRhoInCplx(:,:,:) = densityMatrix%deltaRhoOutCplx
+        else
+          densityMatrix%deltaRhoInCplxHS(:,:,:,:,:,:) = densityMatrix%deltaRhoOutCplxHS
         end if
+        qInput(:,:,:) = qOutput
+        if (allocated(qBlockIn)) qBlockIn(:,:,:,:) = qBlockOut
       else
 
-        call mix(pChrgMixer, densityMatrix%deltaRhoInCplxHS, deltaRhoDiffSqrCplxHS)
+        if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
+          call TMixerCmplx_mix(pChrgMixerCmplx, densityMatrix%deltaRhoInCplx, deltaRhoDiffSqrCplx)
 
-        call mulliken(qInput, ints%overlap, densityMatrix%deltaRhoInCplxHS, orb,&
-            & neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart, iAtomStart,&
-            & iCellVec, cellVec, hybridXc)
+          ! Construct sparse density matrix for later Mulliken analysis
+          call getSparseSize(neighbourList%iNeighbour, nNeighbourSK, img2CentCell, orb,&
+              & sparseSize)
+          allocate(rhoPrim(sparseSize, nSpin), source=0.0_dp)
+
+          do iKS = 1, parallelKS%nLocalKS
+            iK = parallelKS%localKS(1, iKS)
+            iSpin = parallelKS%localKS(2, iKS)
+          #:if WITH_SCALAPACK
+            call env%globalTimer%startTimer(globalTimers%denseToSparse)
+            call packRhoCplxBlacs(env%blacs, denseDesc,&
+                & densityMatrix%deltaRhoInCplx(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)),&
+                & kPoint(:, iK), kWeight(iK), neighbourList%iNeighbour, nNeighbourSK, orb%mOrb,&
+                & iCellVec, cellVec, iSparseStart, img2CentCell, rhoPrim(:, iSpin))
+            call env%globalTimer%stopTimer(globalTimers%denseToSparse)
+          #:else
+            call env%globalTimer%startTimer(globalTimers%denseToSparse)
+            call packHS(rhoPrim(:, iSpin),&
+                & densityMatrix%deltaRhoInCplx(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)),&
+                & kPoint(:, iK), kWeight(iK), neighbourList%iNeighbour, nNeighbourSK, orb%mOrb,&
+                & iCellVec, cellVec, iAtomStart, iSparseStart, img2CentCell)
+            call env%globalTimer%stopTimer(globalTimers%denseToSparse)
+          #:endif
+          end do
+
+        #:if WITH_SCALAPACK
+          ! Add up and distribute density matrix contribution from each group
+          call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
+        #:endif
+
+          qInput(:,:,:) = 0.0_dp
+          do iSpin = 1, size(rhoPrim, dim=2)
+            call mulliken(env, qInput(:,:, iSpin), ints%overlap, rhoPrim(:, iSpin), orb,&
+                & neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart)
+          end do
+
+        else ! hybridXc%hybridXcAlg /= hybridXcAlgo%matrixBased
+          call mix(pChrgMixer, densityMatrix%deltaRhoInCplxHS, deltaRhoDiffSqrCplxHS)
+          call mulliken(qInput, ints%overlap, densityMatrix%deltaRhoInCplxHS, orb,&
+              & neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart, iAtomStart,&
+              & iCellVec, cellVec, hybridXc)
+        end if
 
         ! HybridXc: for spin-unrestricted calculation the initial guess should be equally
         ! distributed to alpha and beta density matrices.

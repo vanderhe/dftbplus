@@ -15,6 +15,7 @@ module dftbp_dftb_hybridxc
   use dftbp_common_constants, only : pi
   use dftbp_common_environment, only : TEnvironment, globalTimers
   use dftbp_common_status, only : TStatus
+  use dftbp_dftb_densitymatrix, only : TDensityMatrix
   use dftbp_dftb_nonscc, only : TNonSccDiff
   use dftbp_dftb_slakocont, only : TSlakoCont
   use dftbp_dftb_sparse2dense, only : blockSymmetrizeHS, symmetrizeHS, hermitianSquareMatrix
@@ -1430,7 +1431,7 @@ contains
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (k-point version)
-  subroutine getCamHamiltonian_kpts(this, env, deltaRhoSqr, symNeighbourList, nNeighbourCamSym,&
+  subroutine getCamHamiltonian_kpts(this, env, densityMatrix, symNeighbourList, nNeighbourCamSym,&
       & rCellVecs, cellVecs, iSquare, orb, kPoints, iKiSToiGlobalKS, HSqrCplxCam, errStatus)
 
     !> Class instance
@@ -1439,8 +1440,8 @@ contains
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
 
-    !> Square (unpacked) delta spin-density matrix at BvK real-space shifts
-    real(dp), intent(in) :: deltaRhoSqr(:,:,:,:,:,:)
+    !> Holds real and complex delta density matrices and pointers
+    type(TDensityMatrix), intent(in) :: densityMatrix
 
     !> List of neighbours for each atom (symmetric version)
     type(TSymNeighbourList), intent(in) :: symNeighbourList
@@ -1480,19 +1481,18 @@ contains
           & point.")
     case (hybridXcAlgo%neighbourBased)
       if (this%gammaType == hybridXcGammaTypes%mic) then
-        call addCamHamiltonianNeighbour_kpts_mic(this, env, deltaRhoSqr, symNeighbourList,&
-            & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, iKiSToiGlobalKS,&
-            & HSqrCplxCam, errStatus)
+        call addCamHamiltonianNeighbour_kpts_mic(this, env, densityMatrix%deltaRhoInCplxHS,&
+            & symNeighbourList, nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints,&
+            & iKiSToiGlobalKS, HSqrCplxCam, errStatus)
         @:PROPAGATE_ERROR(errStatus)
     else
-      call addCamHamiltonianNeighbour_kpts_ct(this, env, deltaRhoSqr, symNeighbourList,&
-          & nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, iKiSToiGlobalKS, HSqrCplxCam,&
-          & errStatus)
+      call addCamHamiltonianNeighbour_kpts_ct(this, env, densityMatrix%deltaRhoInCplxHS,&
+          & symNeighbourList, nNeighbourCamSym, cellVecs, iSquare, orb, kPoints, iKiSToiGlobalKS,&
+          & HSqrCplxCam, errStatus)
       @:PROPAGATE_ERROR(errStatus)
       end if
     case (hybridXcAlgo%matrixBased)
-      @:RAISE_ERROR(errStatus, -1, "Matrix based algorithm not implemented for CAM beyond the Gamma&
-          & point.")
+      call addCamHamiltonianMatrix_kpts(this, env, densityMatrix%deltaRhoInCplx, HSqrCplxCam)
     end select
 
     call env%globalTimer%stopTimer(globalTimers%hybridXcH)
@@ -2408,6 +2408,37 @@ contains
     end subroutine evaluateHamiltonian
 
   end subroutine addCamHamiltonianMatrix_cluster_cmplx
+
+
+  !> Adds range-separated contributions to Hamiltonian, using matrix based algorithm.
+  !! (k-point version)
+  subroutine addCamHamiltonianMatrix_kpts(this, env, deltaRhoSqr, HSqrCplxCam)
+
+    !> Class instance
+    class(THybridXcFunc), intent(inout) :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
+
+    !> Complex, square dual-space delta spin-density matrix for all global k-points/spins
+    complex(dp), intent(in) :: deltaRhoSqr(:,:,:)
+
+    !> Square (unpacked) Hamiltonian for all k-point/spin composite indices
+    complex(dp), intent(out), allocatable :: HSqrCplxCam(:,:,:)
+
+    !! Size of square matrices (e.g. Hamiltonian)
+    integer :: squareSize
+
+    !! Number of k-point-spin compound indices
+    integer :: nKS
+
+    squareSize = size(deltaRhoSqr, dim=1)
+    nKS = size(deltaRhoSqr, dim=3)
+
+    ! allocate exchange contribution to Hamiltonian
+    allocate(HSqrCplxCam(squareSize, squareSize, nKS), source=(0.0_dp, 0.0_dp))
+
+  end subroutine addCamHamiltonianMatrix_kpts
 
 
   !> Adds CAM range-separated contributions to Hamiltonian, using neighbour-list based algorithm.

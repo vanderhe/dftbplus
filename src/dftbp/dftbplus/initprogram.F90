@@ -1290,6 +1290,9 @@ contains
     !> Flag if some files do exist or not
     logical :: tExist
 
+    !> Whether a complex-valued mixer is required
+    logical :: tCmplxMixer
+
     ! Damped interactions
     type(TShortGammaDamp) :: shortGammaDamp
     type(TThirdOrderInp) :: thirdInp
@@ -1792,8 +1795,17 @@ contains
       iMixer = input%ctrl%iMixSwitch
       nGeneration = input%ctrl%iGenerations
       mixParam = input%ctrl%almix
-      if ((.not. this%tRealHS) .and. (input%ctrl%hybridXcInp%hybridXcAlg&
-          & == hybridXcAlgo%matrixBased) .and. (this%isHybridXc)) then
+      if (this%isHybridXc) then
+        if ((.not. this%tRealHS) .and. (input%ctrl%hybridXcInp%hybridXcAlg&
+            & == hybridXcAlgo%matrixBased)) then
+          tCmplxMixer = .true.
+        else
+          tCmplxMixer = .false.
+        end if
+      else
+        tCmplxMixer = .false.
+      end if
+      if (tCmplxMixer) then
         allocate(this%pChrgMixerCmplx)
         select case (iMixer)
         case (mixerTypes%simple)
@@ -2768,7 +2780,7 @@ contains
 
       if (this%isHybridXc) then
         ! allocation is necessary to hint "initializeCharges" what information to extract
-        call reallocateHybridXc(this, nLocalRows, nLocalCols,&
+        call reallocateHybridXc(this, input%ctrl%hybridXcInp%hybridXcAlg, nLocalRows, nLocalCols,&
             & size(this%parallelKS%localKS, dim=2))
       end if
 
@@ -2831,12 +2843,17 @@ contains
         call error(errStatus%message)
       end if
       ! now all information is present to properly allocate density matrices and associate pointers
-      call reallocateHybridXc(this, nLocalRows, nLocalCols, size(this%parallelKS%localKS, dim=2))
+      call reallocateHybridXc(this, input%ctrl%hybridXcInp%hybridXcAlg, nLocalRows, nLocalCols,&
+          & size(this%parallelKS%localKS, dim=2))
       ! reset number of mixer elements, so that there is enough space for density matrices
       if (this%tRealHS) then
         this%nMixElements = size(this%densityMatrix%deltaRhoIn)
       else
-        this%nMixElements = size(this%densityMatrix%deltaRhoInCplxHS)
+        if (input%ctrl%hybridXcInp%hybridXcAlg == hybridXcAlgo%matrixBased) then
+          this%nMixElements = size(this%densityMatrix%deltaRhoInCplx)
+        else
+          this%nMixElements = size(this%densityMatrix%deltaRhoInCplxHS)
+        end if
       end if
     end if
 
@@ -2845,10 +2862,8 @@ contains
       call getCellTranslations(this%cellVec, this%rCellVec, this%latVec, this%invLatVec,&
           & this%cutOff%mCutOff)
     else
-      allocate(this%cellVec(3, 1))
-      allocate(this%rCellVec(3, 1))
-      this%cellVec(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
-      this%rCellVec(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+      allocate(this%cellVec(3, 1), source=0.0_dp)
+      allocate(this%rCellVec(3, 1), source=0.0_dp)
     end if
 
     ! Initialize neighbourlist(s)
@@ -5708,15 +5723,9 @@ contains
           & yet support restarts for MPI-enabled builds.")
     end if
 
-    if (this%tPeriodic) then
-      if ((.not. this%tRealHS) .and. (hybridXcInp%hybridXcAlg /= hybridXcAlgo%neighbourBased)) then
-        call error("Hybrid functionality for periodic systems beyond the Gamma-point currently only&
-            & working for the neighbour list based algorithm.")
-      end if
-      if (this%tRealHS .and. hybridXcInp%hybridXcAlg == hybridXcAlgo%thresholdBased) then
-        call error("Hybrid functionality at the Gamma-point not implemented for the threshold&
-            & algorithm.")
-      end if
+    if (this%tPeriodic .and. hybridXcInp%hybridXcAlg == hybridXcAlgo%thresholdBased) then
+      call error("Hybrid functionality for periodic systems currently not implemented for the&
+          & threshold algorithm.")
     end if
 
     if ((.not. this%tRealHS) .and. this%tForces&
@@ -6073,10 +6082,13 @@ contains
 
 
   !> Pre-allocate density matrix for range-separation.
-  subroutine reallocateHybridXc(this, nLocalRows, nLocalCols, nLocalKS)
+  subroutine reallocateHybridXc(this, hybridXcAlg, nLocalRows, nLocalCols, nLocalKS)
 
     !> Instance
     type(TDftbPlusMain), intent(inout) :: this
+
+    !> Hybrid Hamiltonian construction algorithm
+    integer, intent(in) :: hybridXcAlg
 
     !> Size descriptors for MPI parallel execution
     integer, intent(in) :: nLocalRows, nLocalCols, nLocalKS
@@ -6088,7 +6100,10 @@ contains
     integer :: iSpin, iK
 
     ! deallocate arrays, if already allocated
-    if (allocated(this%densityMatrix%deltaRhoOut)) deallocate(this%densityMatrix%deltaRhoOut)
+    if (allocated(this%densityMatrix%deltaRhoOut))&
+        & deallocate(this%densityMatrix%deltaRhoOut)
+    if (allocated(this%densityMatrix%deltaRhoInCplx))&
+        & deallocate(this%densityMatrix%deltaRhoInCplx)
     if (allocated(this%densityMatrix%deltaRhoOutCplx))&
         & deallocate(this%densityMatrix%deltaRhoOutCplx)
     if (allocated(this%densityMatrix%iKiSToiGlobalKS))&
@@ -6099,38 +6114,38 @@ contains
     if (this%tRealHS) then
       ! Prevent for deleting charges read in from file
       if (.not. allocated(this%densityMatrix%deltaRhoIn)) then
-        allocate(this%densityMatrix%deltaRhoIn(nLocalRows, nLocalCols, nLocalKS))
-        this%densityMatrix%deltaRhoIn(:,:,:) = 0.0_dp
+        allocate(this%densityMatrix%deltaRhoIn(nLocalRows, nLocalCols, nLocalKS), source=0.0_dp)
       end if
-      allocate(this%densityMatrix%deltaRhoOut(nLocalRows, nLocalCols, nLocalKS))
-      this%densityMatrix%deltaRhoOut(:,:,:) = 0.0_dp
+      allocate(this%densityMatrix%deltaRhoOut(nLocalRows, nLocalCols, nLocalKS), source=0.0_dp)
     elseif (this%tReadChrg .and. (.not. allocated(this%supercellFoldingDiag))) then
       ! in case of k-points and restart from file, we have to wait until charges.bin was read
       if (.not. allocated(this%densityMatrix%deltaRhoInCplxHS)) then
-        allocate(this%densityMatrix%deltaRhoInCplxHS(0, 0, 0, 0, 0, 0))
-        this%densityMatrix%deltaRhoInCplxHS(:,:,:,:,:,:) = 0.0_dp
+        allocate(this%densityMatrix%deltaRhoInCplxHS(0, 0, 0, 0, 0, 0), source=0.0_dp)
       end if
-      allocate(this%densityMatrix%deltaRhoOutCplxHS(0, 0, 0, 0, 0, 0))
-      this%densityMatrix%deltaRhoOutCplxHS(:,:,:,:,:,:) = 0.0_dp
+      allocate(this%densityMatrix%deltaRhoOutCplxHS(0, 0, 0, 0, 0, 0), source=0.0_dp)
     else
       ! normal k-point case, without restart from file
       if (.not. allocated(this%densityMatrix%deltaRhoInCplxHS)) then
         allocate(this%densityMatrix%deltaRhoInCplxHS(this%nOrb, this%nOrb,&
             & this%supercellFoldingDiag(1), this%supercellFoldingDiag(2),&
-            & this%supercellFoldingDiag(3), this%nIndepSpin))
-        this%densityMatrix%deltaRhoInCplxHS(:,:,:,:,:,:) = 0.0_dp
+            & this%supercellFoldingDiag(3), this%nIndepSpin), source=0.0_dp)
       end if
         allocate(this%densityMatrix%deltaRhoOutCplxHS(this%nOrb, this%nOrb,&
             & this%supercellFoldingDiag(1), this%supercellFoldingDiag(2),&
-            & this%supercellFoldingDiag(3), this%nIndepSpin))
-        this%densityMatrix%deltaRhoOutCplxHS(:,:,:,:,:,:) = 0.0_dp
+            & this%supercellFoldingDiag(3), this%nIndepSpin), source=0.0_dp)
     end if
 
     if (.not. this%tRealHS) then
 
-      allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb, this%nOrb,&
-          & size(this%parallelKS%localKS, dim=2)))
-      this%densityMatrix%deltaRhoOutCplx(:,:,:) = 0.0_dp
+      if (hybridXcAlg == hybridXcAlgo%matrixBased) then
+        allocate(this%densityMatrix%deltaRhoInCplx(this%nOrb, this%nOrb,&
+            & this%nKPoint * this%nSpin), source=(0.0_dp, 0.0_dp))
+        allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb, this%nOrb,&
+            & this%nKPoint * this%nSpin), source=(0.0_dp, 0.0_dp))
+      else
+        allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb, this%nOrb,&
+            & size(this%parallelKS%localKS, dim=2)), source=(0.0_dp, 0.0_dp))
+      end if
 
       ! Build spin/k-point composite index for all spins and k-points (global)
       iGlobalKS = 1
