@@ -2439,6 +2439,27 @@ contains
     ! allocate exchange contribution to Hamiltonian
     allocate(HSqrCplxCam(squareSize, squareSize, nKS), source=(0.0_dp, 0.0_dp))
 
+    loopS: do iS = 1, nS
+      loopK: do iK = 1, nK
+        ! Loop over all spins/k-points associated with MPI group
+        do iKSPrime = 1, parallelKS%nLocalKS
+          ! Get global k-point index from local iKS composite
+          iKPrime = parallelKS%localKS(1, iKS)
+          ! Get global spin index from local iKS composite
+          iSpinPrime = parallelKS%localKS(2, iKS)
+
+          
+
+        end do
+      end do loopK
+    end do loopS
+
+    if (this%tSpin .or. this%tREKS) then
+      HSqrCplxCam(:,:,:) = -0.25_dp * HSqrCplxCam
+    else
+      HSqrCplxCam(:,:,:) = -0.125_dp * HSqrCplxCam
+    end if
+
   end subroutine addCamHamiltonianMatrix_kpts
 
 

@@ -4765,7 +4765,6 @@ contains
 
         if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
           call TMixerCmplx_mix(pChrgMixerCmplx, densityMatrix%deltaRhoInCplx, deltaRhoDiffSqrCplx)
-          print *, '# mixing...'
 
           ! Construct sparse density matrix for later Mulliken analysis
           call getSparseSize(neighbourList%iNeighbour, nNeighbourSK, img2CentCell, orb,&
