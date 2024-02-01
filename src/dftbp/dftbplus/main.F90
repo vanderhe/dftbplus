@@ -987,9 +987,7 @@ contains
       call printSccInfo(allocated(this%dftbU), iSccIter,&
           & this%dftbEnergy(this%deltaDftb%iDeterminant)%Eelec, diffElec, sccErrorQ)
 
-      if (this%tNegf) then
-        call printBlankLine()
-      end if
+      if (this%tNegf) call printBlankLine()
 
       tWriteSccRestart = env%tGlobalLead .and. needsSccRestartWriting(this%restartFreq,&
           & iGeoStep, iSccIter, this%minSccIter, this%maxSccIter, this%tMd,&
@@ -4657,7 +4655,7 @@ contains
     type(TMixer), intent(inout) :: pChrgMixer
 
     !> Complex charge mixing object
-    type(TMixerCmplx), intent(inout) :: pChrgMixerCmplx
+    type(TMixerCmplx), intent(inout), allocatable :: pChrgMixerCmplx
 
     !> Output electrons
     real(dp), intent(in) :: qOutput(:,:,:)
@@ -4767,6 +4765,7 @@ contains
 
         if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
           call TMixerCmplx_mix(pChrgMixerCmplx, densityMatrix%deltaRhoInCplx, deltaRhoDiffSqrCplx)
+          print *, '# mixing...'
 
           ! Construct sparse density matrix for later Mulliken analysis
           call getSparseSize(neighbourList%iNeighbour, nNeighbourSK, img2CentCell, orb,&

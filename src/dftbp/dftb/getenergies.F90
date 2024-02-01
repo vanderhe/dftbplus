@@ -22,7 +22,7 @@ module dftbp_dftb_getenergies
   use dftbp_dftb_periodic, only : TNeighbourList
   use dftbp_dftb_populations, only : mulliken
   use dftbp_dftb_potentials, only : TPotentials
-  use dftbp_dftb_hybridxc, only : THybridXcFunc
+  use dftbp_dftb_hybridxc, only : THybridXcFunc, hybridXcAlgo
   use dftbp_dftb_repulsive_repulsive, only : TRepulsive
   use dftbp_dftb_scc, only : TScc
   use dftbp_dftb_spinorbit, only : getDualSpinOrbitShift, getDualSpinOrbitEnergy
@@ -289,8 +289,13 @@ contains
           @:RAISE_ERROR(errStatus, -1, "Missing expected array(s) for hybrid xc-functional&
               & calculation.")
         end if
-        call hybridXc%addCamEnergy_kpts(env, localKS, densityMatrix%iKiSToiGlobalKS,&
-            & kWeights, densityMatrix%deltaRhoOutCplx, energy%Efock)
+        if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
+          call hybridXc%addCamEnergy_kpts_matrix(env, localKS, densityMatrix%iKiSToiGlobalKS,&
+              & kWeights, densityMatrix%deltaRhoOutCplx, energy%Efock)
+        else
+          call hybridXc%addCamEnergy_kpts(env, localKS, densityMatrix%iKiSToiGlobalKS,&
+              & kWeights, densityMatrix%deltaRhoOutCplx, energy%Efock)
+        end if
       end if
     end if
 

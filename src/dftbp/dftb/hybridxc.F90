@@ -267,6 +267,7 @@ module dftbp_dftb_hybridxc
 
     procedure :: addCamEnergy_real
     procedure :: addCamEnergy_kpts
+    procedure :: addCamEnergy_kpts_matrix
 
     procedure :: tabulateCamdGammaEval0_cluster
     procedure :: tabulateCamdGammaEval0_gamma
@@ -3175,6 +3176,35 @@ contains
     this%camEnergy = 0.0_dp
 
   end subroutine addCamEnergy_kpts
+
+
+  !> Adds the CAM-energy contribution to the total energy.
+  subroutine addCamEnergy_kpts_matrix(this, env, localKS, iKiSToiGlobalKS, kWeights,&
+      & deltaRhoOutSqrCplx, energy)
+
+    !> Class instance
+    class(THybridXcFunc), intent(inout) :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
+
+    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
+    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
+    integer, intent(in) :: localKS(:,:)
+
+    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
+    integer, intent(in) :: iKiSToiGlobalKS(:,:)
+
+    !> The k-point weights
+    real(dp), intent(in) :: kWeights(:)
+
+    !> Complex, dense, square k-space delta density matrix of all spins/k-points
+    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
+
+    !> Total energy
+    real(dp), intent(inout) :: energy
+
+  end subroutine addCamEnergy_kpts_matrix
 
 
   !> Finds location of relevant atomic block indices in a dense matrix.
