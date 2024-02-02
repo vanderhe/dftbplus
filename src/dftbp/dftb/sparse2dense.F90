@@ -29,6 +29,7 @@ module dftbp_dftb_sparse2dense
   public :: packHSPauli, packHSPauliImag, unpackHPauli, unpackSPauli
   public :: unpackHelicalHS, packHelicalHS
   public :: getSparseDescriptor, getSparseSize
+  public :: realSpaceSquareOverlapFromSparse
 
 #:if WITH_SCALAPACK
   public :: unpackHSRealBlacs, unpackHSCplxBlacs, unpackHPauliBlacs, unpackSPauliBlacs
@@ -111,6 +112,96 @@ module dftbp_dftb_sparse2dense
 
 
 contains
+
+  !> Calculates the real-space, dense, square overlap matrix S_{\mu\nu}(\vec{l}), with \mu located
+  !! in the periodic image cell of lattice shift \vec{l} and \nu located in the central cell.
+  subroutine realSpaceSquareOverlapFromSparse(overSqr, overSparse, iNeighbour, nNeighbourSK,&
+      & iCellVec, iAtomStart, iSparseStart, img2CentCell)
+
+    !> Real-space, dense, square overlap matrix S_{\mu\nu}(\vec{l}) on exit
+    real(dp), intent(out) :: overSqr(:,:,:)
+
+    !> Real-space, sparse overlap matrix
+    real(dp), intent(in) :: overSparse(:)
+
+    !> Neighbour list for each atom (First index from 0!)
+    integer, intent(in) :: iNeighbour(0:, :)
+
+    !> Nr. of neighbours for each atom (incl. itself).
+    integer, intent(in) :: nNeighbourSK(:)
+
+    !> Index of the cell translation vector for each atom
+    integer, intent(in) :: iCellVec(:)
+
+    !> Atom offset for the square Hamiltonian
+    integer, intent(in) :: iAtomStart(:)
+
+    !> indexing array for the sparse Hamiltonian
+    integer, intent(in) :: iSparseStart(0:, :)
+
+    !> Map from images of atoms to central cell atoms
+    integer, intent(in) :: img2CentCell(:)
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    !! Indices of interacting atoms in central cell
+    integer :: iAt1, iAt2
+
+    !! Folded (to central cell) atom index
+    integer :: iAt2fold
+
+    !! Start and end index of atomic orbitals in square, dense matrix
+    integer :: iOrbStart1, iOrbEnd1, iOrbStart2, iOrbEnd2
+
+    !! Start and end index of atomic orbitals in sparse matrix
+    integer :: iOrigStart, iOrigEnd
+
+    !! Neighbour index
+    integer :: iNeigh
+
+    !! Index of the cell translation vector for current neighbor
+    integer :: iVec
+
+    !! Number of orbitals of atom in central cell and neighbor
+    integer :: nOrb1, nOrb2
+
+    nAtom0 = size(iNeighbour, dim=2)
+
+    @:ASSERT(nAtom0 > 0)
+    @:ASSERT(size(overSqr, dim=1) == size(overSqr, dim=2))
+    @:ASSERT(size(overSqr, dim=3) == maxval(iCellVec))
+    @:ASSERT(size(overSqr, dim=1) == iAtomStart(nAtom0+1) - 1)
+    @:ASSERT(all(shape(nNeighbourSK) == [nAtom0]))
+    @:ASSERT(size(iAtomStart) == nAtom0 + 1)
+
+    overSqr(:,:,:) = (0.0_dp, 0.0_dp)
+
+    do iAt1 = 1, nAtom0
+      iOrbStart1 = iAtomStart(iAt1)
+      nOrb1 = iAtomStart(iAt1 + 1) - iOrbStart1
+      iOrbEnd1 = iOrbStart1 + nOrb1 - 1
+      do iNeigh = 0, nNeighbourSK(iAt1)
+        iAt2 = iNeighbour(iNeigh, iAt1)
+        iAt2fold = img2CentCell(iAt2)
+
+        iOrbStart2 = iAtomStart(iAt2fold)
+        ! @:ASSERT(iOrbStart2 >= iOrbStart1)
+        nOrb2 = iAtomStart(iAt2fold + 1) - iOrbStart2
+        iOrbEnd2 = iOrbStart2 + nOrb2 - 1
+
+        iOrigStart = iSparseStart(iNeigh, iAt1) + 1
+        iOrigEnd = iOrigStart + nOrb1 * nOrb2 - 1
+
+        iVec = iCellVec(iAt2)
+        overSqr(iOrbStart2:iOrbEnd2, iOrbStart1:iOrbEnd1, iVec)&
+            & = overSqr(iOrbStart2:iOrbEnd2, iOrbStart1:iOrbEnd1, iVec)&
+            & + reshape(overSparse(iOrigStart:iOrigEnd), [nOrb2, nOrb1])
+      end do
+    end do
+
+  end subroutine realSpaceSquareOverlapFromSparse
+
 
   !> Unpacks sparse matrix to square form (complex version) Note the non on-site blocks are only
   !> filled in the lower triangle part of the matrix. To fill the matrix completely, apply the
