@@ -268,7 +268,6 @@ module dftbp_dftb_hybridxc
 
     procedure :: addCamEnergy_real
     procedure :: addCamEnergy_kpts
-    procedure :: addCamEnergy_kpts_matrix
 
     procedure :: tabulateCamdGammaEval0_cluster
     procedure :: tabulateCamdGammaEval0_gamma
@@ -2484,10 +2483,12 @@ contains
     integer :: iGlobalKS, iGlobalKSprime
 
     !! Temporary storage
-    complex(dp), allocatable :: tmp1(:,:), tmp2(:,:), dP_S(:,:), S_dP(:,:)
+    complex(dp), allocatable :: tmp1(:,:), tmp2(:,:), Sp_dPp(:,:), dPp_Sp(:,:)
 
     !! Dummy array with zeros
     real(dp) :: zeros(3)
+
+    real(dp) :: highest, diag
 
     zeros(:) = 0.0_dp
 
@@ -2496,14 +2497,20 @@ contains
     nK = size(kPoints, dim=2)
     nKS = size(deltaRhoSqr, dim=3)
 
+    ! check and initialize screening
+    if (.not. this%tScreeningInited) then
+      allocate(this%hprevCplxHS(squareSize, squareSize, nKS), source=(0.0_dp, 0.0_dp))
+      this%tScreeningInited = .true.
+    end if
+
     ! allocate exchange contribution to Hamiltonian
     allocate(HSqrCplxCam(squareSize, squareSize, nKS), source=(0.0_dp, 0.0_dp))
 
     allocate(tmp1(squareSize, squareSize))
     allocate(tmp2(squareSize, squareSize))
 
-    allocate(S_dP(squareSize, squareSize))
-    allocate(dP_S(squareSize, squareSize))
+    allocate(Sp_dPp(squareSize, squareSize))
+    allocate(dPp_Sp(squareSize, squareSize))
 
     allocate(gammaSqr(squareSize, squareSize))
 
@@ -2518,27 +2525,26 @@ contains
           iSPrime = parallelKS%localKS(2, iKSPrime)
           iGlobalKSprime = iKiSToiGlobalKS(iKPrime, iSPrime)
 
-          S_dP(:,:) = matmul(SSqrCplxCam(:,:, iK), deltaRhoSqr(:,:, iGlobalKSprime))
-          dP_S(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime), SSqrCplxCam(:,:, iKPrime))
+          Sp_dPp(:,:) = matmul(SSqrCplxCam(:,:, iKPrime), deltaRhoSqr(:,:, iGlobalKSprime))
+          dPp_Sp(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime), SSqrCplxCam(:,:, iKPrime))
 
           call getCamGammaFourierSqr(this, iSquare, this%cellVecsG, this%rCellVecsG, zeros,&
               & kPoints(:, iK), kPoints(:, iKPrime), gammaSqr)
-          if (abs(aimag(gammaSqr(1, 1))) > 1e-06_dp) error stop
 
           ! term 1
-          tmp1(:,:) = matmul(S_dP, SSqrCplxCam(:,:, iKPrime)) * gammaSqr
+          tmp1(:,:) = matmul(Sp_dPp, SSqrCplxCam(:,:, iKPrime)) * gammaSqr
           HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + kWeights(iKPrime) * tmp1
 
           ! term 2
-          tmp1(:,:) = matmul(S_dP * gammaSqr, SSqrCplxCam(:,:, iKPrime))
+          tmp1(:,:) = matmul(Sp_dPp * gammaSqr, SSqrCplxCam(:,:, iK))
           HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + kWeights(iKPrime) * tmp1
 
           ! term 3
-          tmp1(:,:) = matmul(SSqrCplxCam(:,:, iK), dP_S * gammaSqr)
+          tmp1(:,:) = matmul(SSqrCplxCam(:,:, iK), dPp_Sp * gammaSqr)
           HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + kWeights(iKPrime) * tmp1
 
           ! term 4
-          tmp1(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime) * gammaSqr, SSqrCplxCam(:,:, iKPrime))
+          tmp1(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime) * gammaSqr, SSqrCplxCam(:,:, iK))
           tmp2(:,:) = matmul(SSqrCplxCam(:,:, iK), tmp1)
           HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + kWeights(iKPrime) * tmp2
 
@@ -2546,11 +2552,49 @@ contains
       end do loopK
     end do loopS
 
+    highest = 0.0_dp
+
+    do iS = 1, nS
+      do iK = 1, nK
+        iGlobalKS = iKiSToiGlobalKS(iK, iS)
+        do iKSPrime = 1, size(HSqrCplxCam, dim=1)
+          if (abs(aimag(HSqrCplxCam(iKSPrime, iKSPrime, iGlobalKS))) > highest) then
+            highest = abs(aimag(HSqrCplxCam(iKSPrime, iKSPrime, iGlobalKS)))
+          end if
+        end do
+      end do
+    end do
+
+    print *, highest
+
+    ! do iS = 1, nS
+    !   do iK = 1, nK
+    !     iGlobalKS = iKiSToiGlobalKS(iK, iS)
+    !     do iKSPrime = 1, size(HSqrCplxCam, dim=1)
+    !       diag = real(HSqrCplxCam(iKSPrime, iKSPrime, iGlobalKS), dp)
+    !       HSqrCplxCam(iKSPrime, iKSPrime, iGlobalKS) = cmplx(diag, 0.0, dp)
+    !     end do
+    !   end do
+    ! end do
+
     if (this%tSpin .or. this%tREKS) then
       HSqrCplxCam(:,:,:) = -0.25_dp * HSqrCplxCam
     else
       HSqrCplxCam(:,:,:) = -0.125_dp * HSqrCplxCam
     end if
+
+  #:if WITH_MPI
+    ! Sum up contributions of current MPI group
+    call mpifx_allreduceip(env%mpi%globalComm, HSqrCplxCam, MPI_SUM)
+  #:endif
+
+    if (env%tGlobalLead) then
+      this%hprevCplxHS(:,:,:) = HSqrCplxCam
+    end if
+
+  #:if WITH_MPI
+    call mpifx_bcast(env%mpi%globalComm, this%hprevCplxHS)
+  #:endif
 
   end subroutine addCamHamiltonianMatrix_kpts
 
@@ -3455,26 +3499,20 @@ contains
     integer :: iS, iK
 
     !! Local and global iKS for arrays present at every MPI rank
-    integer :: iLocalKS, iGlobalKS
-
-    !! Pre-factor
-    real(dp) :: fac
-
-    ! Add energy contribution but divide by the number of processes in group
-    ! (when querying this%camEnergy, an in-place allreduce is performed)
-  #:if WITH_MPI
-    fac = 1.0_dp / real(env%mpi%groupComm%size, dp)
-  #:else
-    fac = 1.0_dp
-  #:endif
+    integer :: iLocalKS, iGlobalKS, iDensMatKS
 
     do iLocalKS = 1, size(localKS, dim=2)
       iK = localKS(1, iLocalKS)
       iS = localKS(2, iLocalKS)
       iGlobalKS = iKiSToiGlobalKS(iK, iS)
+      if (this%hybridXcAlg == hybridXcAlgo%matrixBased) then
+        iDensMatKS = iGlobalKS
+      else
+        iDensMatKS = iLocalKS
+      end if
       this%camEnergy = this%camEnergy&
           & + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
-          & transpose(deltaRhoOutSqrCplx(:,:, iLocalKS)))
+          & transpose(deltaRhoOutSqrCplx(:,:, iDensMatKS)))
     end do
 
   #:if WITH_MPI
@@ -3487,35 +3525,6 @@ contains
     this%camEnergy = 0.0_dp
 
   end subroutine addCamEnergy_kpts
-
-
-  !> Adds the CAM-energy contribution to the total energy.
-  subroutine addCamEnergy_kpts_matrix(this, env, localKS, iKiSToiGlobalKS, kWeights,&
-      & deltaRhoOutSqrCplx, energy)
-
-    !> Class instance
-    class(THybridXcFunc), intent(inout) :: this
-
-    !> Environment settings
-    type(TEnvironment), intent(in) :: env
-
-    !> The (K, S) tuples of the local processor group (localKS(1:2,iKS))
-    !> Usage: iK = localKS(1, iKS); iS = localKS(2, iKS)
-    integer, intent(in) :: localKS(:,:)
-
-    !> Composite index for mapping iK/iS --> iGlobalKS for arrays present at every MPI rank
-    integer, intent(in) :: iKiSToiGlobalKS(:,:)
-
-    !> The k-point weights
-    real(dp), intent(in) :: kWeights(:)
-
-    !> Complex, dense, square k-space delta density matrix of all spins/k-points
-    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
-
-    !> Total energy
-    real(dp), intent(inout) :: energy
-
-  end subroutine addCamEnergy_kpts_matrix
 
 
   !> Finds location of relevant atomic block indices in a dense matrix.
