@@ -2488,8 +2488,6 @@ contains
     !! Dummy array with zeros
     real(dp) :: zeros(3)
 
-    real(dp) :: highest, diag
-
     zeros(:) = 0.0_dp
 
     squareSize = size(deltaRhoSqr, dim=1)
@@ -2499,12 +2497,15 @@ contains
 
     ! check and initialize screening
     if (.not. this%tScreeningInited) then
-      allocate(this%hprevCplxHS(squareSize, squareSize, nKS), source=(0.0_dp, 0.0_dp))
+      allocate(this%hprevCplxHS(squareSize, squareSize, nKS))
       this%tScreeningInited = .true.
     end if
 
     ! allocate exchange contribution to Hamiltonian
     allocate(HSqrCplxCam(squareSize, squareSize, nKS), source=(0.0_dp, 0.0_dp))
+
+    ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
+    if (maxval(abs(deltaRhoSqr)) < 1e-16_dp) return
 
     allocate(tmp1(squareSize, squareSize))
     allocate(tmp2(squareSize, squareSize))
@@ -2552,36 +2553,15 @@ contains
       end do loopK
     end do loopS
 
-    highest = 0.0_dp
-
-    do iS = 1, nS
-      do iK = 1, nK
-        iGlobalKS = iKiSToiGlobalKS(iK, iS)
-        do iKSPrime = 1, size(HSqrCplxCam, dim=1)
-          if (abs(aimag(HSqrCplxCam(iKSPrime, iKSPrime, iGlobalKS))) > highest) then
-            highest = abs(aimag(HSqrCplxCam(iKSPrime, iKSPrime, iGlobalKS)))
-          end if
-        end do
-      end do
-    end do
-
-    print *, highest
-
-    ! do iS = 1, nS
-    !   do iK = 1, nK
-    !     iGlobalKS = iKiSToiGlobalKS(iK, iS)
-    !     do iKSPrime = 1, size(HSqrCplxCam, dim=1)
-    !       diag = real(HSqrCplxCam(iKSPrime, iKSPrime, iGlobalKS), dp)
-    !       HSqrCplxCam(iKSPrime, iKSPrime, iGlobalKS) = cmplx(diag, 0.0, dp)
-    !     end do
-    !   end do
-    ! end do
-
     if (this%tSpin .or. this%tREKS) then
       HSqrCplxCam(:,:,:) = -0.25_dp * HSqrCplxCam
     else
       HSqrCplxCam(:,:,:) = -0.125_dp * HSqrCplxCam
     end if
+
+    print '(2F18.12)', HSqrCplxCam(:,:, 1)
+    print *, ''
+    print '(2F18.12)', HSqrCplxCam(:,:, 2)
 
   #:if WITH_MPI
     ! Sum up contributions of current MPI group
@@ -3426,6 +3406,10 @@ contains
       HSqrCplxCam(:,:,:) = -0.125_dp * HSqrCplxCam
     end if
 
+    print '(2F18.12)', HSqrCplxCam(:,:, 1)
+    print *, ''
+    print '(2F18.12)', HSqrCplxCam(:,:, 2)
+
   #:if WITH_MPI
     ! Sum up contributions of current MPI group
     call mpifx_allreduceip(env%mpi%globalComm, HSqrCplxCam, MPI_SUM)
@@ -3470,7 +3454,7 @@ contains
 
 
   !> Adds the CAM-energy contribution to the total energy.
-  subroutine addCamEnergy_kpts(this, env, localKS, iKiSToiGlobalKS, kWeights, deltaRhoOutSqrCplx,&
+  subroutine addCamEnergy_kpts(this, env, localKS, iKiSToiGlobalKS, kWeights, deltaRhoOutCplx,&
       & energy)
 
     !> Class instance
@@ -3490,7 +3474,7 @@ contains
     real(dp), intent(in) :: kWeights(:)
 
     !> Complex, dense, square k-space delta density matrix of all spins/k-points
-    complex(dp), intent(in) :: deltaRhoOutSqrCplx(:,:,:)
+    complex(dp), intent(in) :: deltaRhoOutCplx(:,:,:)
 
     !> Total energy
     real(dp), intent(inout) :: energy
@@ -3512,7 +3496,7 @@ contains
       end if
       this%camEnergy = this%camEnergy&
           & + evaluateEnergy_cplx(this%hprevCplxHS(:,:, iGlobalKS), kWeights(iK),&
-          & transpose(deltaRhoOutSqrCplx(:,:, iDensMatKS)))
+          & transpose(deltaRhoOutCplx(:,:, iDensMatKS)))
     end do
 
   #:if WITH_MPI
@@ -3989,15 +3973,15 @@ contains
 
     camGammaSqr(:,:) = (0.0_dp, 0.0_dp)
 
-    do iAt1 = 1, nAtom0
-      iSp1 = this%species0(iAt1)
-      iOrbStart1 = iSquare(iAt1)
-      iOrbEnd1 = iSquare(iAt1 + 1) - 1
-      do iAt2 = 1, nAtom0
-        iSp2 = this%species0(iAt2)
-        iOrbStart2 = iSquare(iAt2)
-        iOrbEnd2 = iSquare(iAt2 + 1) - 1
-        camGammaSqr(iOrbStart2:iOrbEnd2, iOrbStart1:iOrbEnd1)&
+    do iAt2 = 1, nAtom0
+      iSp2 = this%species0(iAt2)
+      iOrbStart2 = iSquare(iAt2)
+      iOrbEnd2 = iSquare(iAt2 + 1) - 1
+      do iAt1 = 1, nAtom0
+        iSp1 = this%species0(iAt1)
+        iOrbStart1 = iSquare(iAt1)
+        iOrbEnd1 = iSquare(iAt1 + 1) - 1
+        camGammaSqr(iOrbStart1:iOrbEnd1, iOrbStart2:iOrbEnd2)&
             & = getCamGammaFourier(this, iAt1, iAt2, iSp1, iSp2, cellVecsG, rCellVecsG, rShift,&
             & kPoint, kPointPrime)
       end do
@@ -4051,18 +4035,20 @@ contains
     if (this%hybridXcType == hybridXcFunc%lc .or. this%hybridXcType == hybridXcFunc%cam) then
       loopGLr: do iG = 1, size(rCellVecsG, dim=2)
         rTotshift(:) = rCellVecsG(:, iG) + rShift
-        dist = norm2(this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rTotshift))
+        dist = norm2(this%rCoords(:, iAt2) - (this%rCoords(:, iAt1) + rTotshift))
         phase = exp(-imag * dot_product(2.0_dp * pi * (kPoint - kPointPrime), cellVecsG(:, iG)))
         gamma = gamma + this%camBeta * this%getLrGammaValue(iSp1, iSp2, dist) * phase
+        ! gamma = gamma + phase
       end do loopGLr
     end if
 
     if (this%hybridXcType == hybridXcFunc%hyb .or. this%hybridXcType == hybridXcFunc%cam) then
       loopGHf: do iG = 1, size(rCellVecsG, dim=2)
         rTotshift(:) = rCellVecsG(:, iG) + rShift
-        dist = norm2(this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rTotshift))
+        dist = norm2(this%rCoords(:, iAt2) - (this%rCoords(:, iAt1) + rTotshift))
         phase = exp(-imag * dot_product(2.0_dp * pi * (kPoint - kPointPrime), cellVecsG(:, iG)))
         gamma = gamma + this%camAlpha * this%getHfGammaValue(iSp1, iSp2, dist) * phase
+        ! gamma = gamma + phase
       end do loopGHf
     end if
 

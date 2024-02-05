@@ -2963,6 +2963,7 @@ contains
         ctrl%supercellFoldingMatrix = coeffsAndShifts
       end if
       tReduceByInversion = (.not. ctrl%tSpinOrbit)
+      tReduceByInversion = .false.
       call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
           & ctrl%kPoint, ctrl%kWeight, reduceByInversion=tReduceByInversion)
       ctrl%nKPoint = size(ctrl%kPoint, dim=2)

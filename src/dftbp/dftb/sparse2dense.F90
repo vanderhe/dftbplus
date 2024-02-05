@@ -43,6 +43,7 @@ module dftbp_dftb_sparse2dense
   interface unpackHS
     module procedure unpackHS_real
     module procedure unpackHS_cmplx_kpts
+    module procedure unpackHS_cmplx_kpts_mod
   end interface unpackHS
 
 
@@ -201,6 +202,91 @@ contains
     end do
 
   end subroutine realSpaceSquareOverlapFromSparse
+
+
+  !> Unpacks sparse matrix to square form (complex version) Note the non on-site blocks are only
+  !> filled in the lower triangle part of the matrix. To fill the matrix completely, apply the
+  !> blockSymmetrizeHS subroutine.
+  subroutine unpackHS_cmplx_kpts_mod(square, orig, kPoint, iNeighbour, nNeighbourSK, iCellVec, cellVec,&
+      & iAtomStart, img2CentCell, iSparseStart, dummy)
+
+    !> Square form matrix on exit.
+    complex(dp), intent(out) :: square(:,:)
+
+    !> Sparse matrix
+    real(dp), intent(in) :: orig(:)
+
+    !> Relative coordinates of the K-point where the sparse matrix should be unfolded.
+    real(dp), intent(in) :: kPoint(:)
+
+    !> Neighbour list for each atom (First index from 0!)
+    integer, intent(in) :: iNeighbour(0:, :)
+
+    !> Nr. of neighbours for each atom (incl. itself).
+    integer, intent(in) :: nNeighbourSK(:)
+
+    !> Index of the cell translation vector for each atom.
+    integer, intent(in) :: iCellVec(:)
+
+    !> Relative coordinates of the cell translation vectors.
+    real(dp), intent(in) :: cellVec(:,:)
+
+    !> Atom offset for the square Hamiltonian
+    integer, intent(in) :: iAtomStart(:)
+
+    !> indexing array for the sparse Hamiltonian
+    integer, intent(in) :: iSparseStart(0:, :)
+
+    !> Map from images of atoms to central cell atoms
+    integer, intent(in) :: img2CentCell(:)
+
+    integer, intent(in) :: dummy
+
+    complex(dp) :: phase
+    integer :: nAtom
+    integer :: iOrig, ii, jj
+    integer :: iNeigh
+    integer :: iOldVec, iVec
+    integer :: iAtom1, iAtom2, iAtom2f
+    integer :: nOrb1, nOrb2
+    real(dp) :: kPoint2p(3)
+
+    print *, '###'
+
+    nAtom = size(iNeighbour, dim=2)
+
+    @:ASSERT(nAtom > 0)
+    @:ASSERT(size(square, dim=1) == size(square, dim=2))
+    @:ASSERT(size(square, dim=1) == iAtomStart(nAtom+1) - 1)
+    @:ASSERT(all(shape(kPoint) == [3]))
+    @:ASSERT(all(shape(nNeighbourSK) == [nAtom]))
+    @:ASSERT(size(iAtomStart) == nAtom + 1)
+
+    square(:,:) = cmplx(0, 0, dp)
+    kPoint2p(:) = 2.0_dp * pi * kPoint
+    iOldVec = 0
+    phase = 1.0_dp
+    do iAtom1 = 1, nAtom
+      ii = iAtomStart(iAtom1)
+      nOrb1 = iAtomStart(iAtom1 + 1) - ii
+      do iNeigh = 0, nNeighbourSK(iAtom1)
+        iOrig = iSparseStart(iNeigh, iAtom1) + 1
+        iAtom2 = iNeighbour(iNeigh, iAtom1)
+        iAtom2f = img2CentCell(iAtom2)
+        jj = iAtomStart(iAtom2f)
+        @:ASSERT(jj >= ii)
+        nOrb2 = iAtomStart(iAtom2f + 1) - jj
+        iVec = iCellVec(iAtom2)
+        if (iVec /= iOldVec) then
+          phase = exp(-(0.0_dp, 1.0_dp) * dot_product(kPoint2p, cellVec(:, iVec)))
+          iOldVec = iVec
+        end if
+        square(jj:jj+nOrb2-1, ii:ii+nOrb1-1) = square(jj:jj+nOrb2-1, ii:ii+nOrb1-1)&
+            & + phase * reshape(orig(iOrig:iOrig+nOrb1*nOrb2-1), [nOrb2, nOrb1])
+      end do
+    end do
+
+  end subroutine unpackHS_cmplx_kpts_mod
 
 
   !> Unpacks sparse matrix to square form (complex version) Note the non on-site blocks are only

@@ -3357,7 +3357,11 @@ contains
           call unpackHS(SSqrCplxCam(:,:, iK), ints%overlap, kPoint(:, iK),&
               & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart,&
               & iSparseStart, img2CentCell)
+          ! call unpackHS(SSqrCplxCam(:,:, iK), ints%overlap, kPoint(:, iK),&
+          !     & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart,&
+          !     & img2CentCell, iSparseStart, 1)
           call hermitianSquareMatrix(SSqrCplxCam(:,:, iK))
+          call blockHermitianHS(SSqrCplxCam(:,:, iK), denseDesc%iAtomStart)
         end do
       end if
 
