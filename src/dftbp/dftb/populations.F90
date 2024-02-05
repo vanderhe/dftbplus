@@ -890,8 +890,8 @@ contains
 
 
   !> Subtracts superposition of atomic densities from dense density matrix.
-  !> For spin-polarized calculations, q0 is distributed equally to alpha and beta density matrices.
-  !> Note: q0 is normalized by the overlap that includes periodic images.
+  !! For spin-polarized calculations, q0 is distributed equally to alpha and beta density matrices.
+  !! Note: q0 is normalized by the overlap that includes periodic images.
   subroutine denseSubtractDensityOfAtoms_cmplx_periodic_global(env, ints, denseDesc, neighbourList,&
       & kPoint, iKiSToiGlobalKS, nNeighbourSK, iCellVec, cellVec, iSparseStart, img2CentCell, q0,&
       & rho)

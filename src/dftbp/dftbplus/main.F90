@@ -3050,8 +3050,8 @@ contains
         call buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
             & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec,&
             & recVecs2p, cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord,&
-            & latVecs, hybridXc, densityMatrix, nNeighbourCamSym, HSqrCplx, SSqrCplx, eigVecsCplx,&
-            & eigen, errStatus)
+            & hybridXc, densityMatrix, nNeighbourCamSym, HSqrCplx, SSqrCplx, eigVecsCplx, eigen,&
+            & errStatus)
         @:PROPAGATE_ERROR(errStatus)
       end if
     else
@@ -3246,7 +3246,7 @@ contains
   !> Builds and diagonalises dense k-point dependent Hamiltonians.
   subroutine buildAndDiagDenseCplxHam(env, denseDesc, ints, kPoint, kWeight, neighbourList,&
       & symNeighbourList, nNeighbourSK, iSparseStart, img2CentCell, rCellVecs, iCellVec, recVecs2p,&
-      & cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord, latVecs, hybridXc,&
+      & cellVec, electronicSolver, parallelKS, tHelical, orb, species, coord, hybridXc,&
       & densityMatrix, nNeighbourCamSym, HSqrCplx, SSqrCplx, eigvecsCplx, eigen, errStatus)
 
     !> Environment settings
@@ -3309,9 +3309,6 @@ contains
     !> Atomic coordinates
     real(dp), intent(in) :: coord(:,:)
 
-    !> Lattice vectors
-    real(dp), intent(in) :: latVecs(:,:)
-
     !> Data for hybrid xc-functional calculation
     class(THybridXcFunc), intent(inout), allocatable :: hybridXc
 
@@ -3357,10 +3354,6 @@ contains
           call unpackHS(SSqrCplxCam(:,:, iK), ints%overlap, kPoint(:, iK),&
               & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart,&
               & iSparseStart, img2CentCell)
-          ! call unpackHS(SSqrCplxCam(:,:, iK), ints%overlap, kPoint(:, iK),&
-          !     & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart,&
-          !     & img2CentCell, iSparseStart, 1)
-          call hermitianSquareMatrix(SSqrCplxCam(:,:, iK))
           call blockHermitianHS(SSqrCplxCam(:,:, iK), denseDesc%iAtomStart)
         end do
       end if
@@ -3368,7 +3361,7 @@ contains
       ! Get CAM-Hamiltonian contribution for all spins/k-points
       call hybridXc%getCamHamiltonian_kpts(env, parallelKS, densityMatrix, symNeighbourList,&
           & nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb, kPoint, kWeight,&
-          & latVecs, SSqrCplxCam, HSqrCplxCam, errStatus)
+          & SSqrCplxCam, HSqrCplxCam, errStatus)
       @:PROPAGATE_ERROR(errStatus)
     end if
 

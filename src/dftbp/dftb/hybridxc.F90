@@ -18,12 +18,11 @@ module dftbp_dftb_hybridxc
   use dftbp_dftb_densitymatrix, only : TDensityMatrix
   use dftbp_dftb_nonscc, only : TNonSccDiff
   use dftbp_dftb_slakocont, only : TSlakoCont
-  use dftbp_dftb_sparse2dense, only : blockSymmetrizeHS, symmetrizeHS, hermitianSquareMatrix,&
-      & realSpaceSquareOverlapFromSparse
+  use dftbp_dftb_sparse2dense, only : blockSymmetrizeHS, symmetrizeHS, hermitianSquareMatrix
   use dftbp_math_blasroutines, only : gemm, symm
   use dftbp_math_sorting, only : index_heap_sort
   use dftbp_type_commontypes, only : TOrbitals, TParallelKS
-  use dftbp_dftb_periodic, only : TSymNeighbourList, getCellTranslations, cart2frac, frac2cart
+  use dftbp_dftb_periodic, only : TSymNeighbourList, getCellTranslations, cart2frac
   use dftbp_dftb_nonscc, only : buildS
   use dftbp_math_simplealgebra, only : determinant33
   use dftbp_common_parallel, only : getStartAndEndIndex
@@ -1433,8 +1432,8 @@ contains
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (k-point version)
   subroutine getCamHamiltonian_kpts(this, env, parallelKS, densityMatrix, symNeighbourList,&
-      & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, latVecs,&
-      & SSqrCplxCam, HSqrCplxCam, errStatus)
+      & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, SSqrCplxCam,&
+      & HSqrCplxCam, errStatus)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
@@ -1471,9 +1470,6 @@ contains
 
     !> The k-point weights
     real(dp), intent(in) :: kWeights(:)
-
-    !> Lattice vectors of (periodic) geometry
-    real(dp), intent(in) :: latVecs(:,:)
 
     !> Temporary storage for square, k-space overlap
     complex(dp), intent(in), allocatable :: SSqrCplxCam(:,:,:)
@@ -3726,7 +3722,7 @@ contains
   end function getCamGammaGSum
 
 
-  !>
+  !> Calculates pseudo Fourier transform of square CAM y-matrix with shape [nOrb, nOrb].
   subroutine getCamGammaFourierSqr(this, iSquare, cellVecsG, rCellVecsG, rShift, kPoint,&
       & kPointPrime, camGammaSqr)
 
