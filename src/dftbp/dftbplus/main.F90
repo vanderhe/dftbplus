@@ -850,15 +850,23 @@ contains
       if (.not. this%tRealHS) then
         if (this%hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
           ! denseSubtractDensityOfAtoms_cmplx_periodic_global()
+          ! print *, 'deltaRhoOutCplx(1,1,1)', this%densityMatrix%deltaRhoOutCplx(1,1,1)
+          ! print *, 'deltaRhoOutCplx(3,5,3)', this%densityMatrix%deltaRhoOutCplx(3,5,3)
           call denseSubtractDensityOfAtoms(env, this%ints, this%denseDesc, this%neighbourList,&
               & this%kPoint, this%densityMatrix%iKiSToiGlobalKS, this%nNeighbourSK, this%iCellVec,&
               & this%cellVec, this%iSparseStart, this%img2CentCell, this%q0,&
               & this%densityMatrix%deltaRhoOutCplx)
+          ! print *, 'deltaRhoOutCplx(1,1,1)', this%densityMatrix%deltaRhoOutCplx(1,1,1)
+          ! print *, 'deltaRhoOutCplx(3,5,3)', this%densityMatrix%deltaRhoOutCplx(3,5,3)
         else
           ! denseSubtractDensityOfAtoms_cmplx_periodic()
+          ! print *, 'deltaRhoOutCplx(1,1,1)', this%densityMatrix%deltaRhoOutCplx(1,1,1)
+          ! print *, 'deltaRhoOutCplx(3,5,3)', this%densityMatrix%deltaRhoOutCplx(3,5,3)
           call denseSubtractDensityOfAtoms(env, this%ints, this%denseDesc, this%parallelKS,&
               & this%neighbourList, this%kPoint, this%nNeighbourSK, this%iCellVec, this%cellVec,&
               & this%iSparseStart, this%img2CentCell, this%q0, this%densityMatrix%deltaRhoOutCplx)
+          ! print *, 'deltaRhoOutCplx(1,1,1)', this%densityMatrix%deltaRhoOutCplx(1,1,1)
+          ! print *, 'deltaRhoOutCplx(3,5,3)', this%densityMatrix%deltaRhoOutCplx(3,5,3)
           ! Build real-space delta rho from k-space density matrix:
           ! Also, zero-out deltaRhoOutCplxHS, because of internal summation.
           this%densityMatrix%deltaRhoOutCplxHS(:,:,:,:,:,:) = 0.0_dp
@@ -3173,6 +3181,8 @@ contains
 
     integer :: iKS, iSpin
 
+    real(dp), allocatable :: HSqrRealBefore(:,:)
+
     eigen(:,:) = 0.0_dp
 
     do iKS = 1, parallelKS%nLocalKS
@@ -3221,9 +3231,12 @@ contains
 
       ! Add hybrid xc-functional contribution to Hamiltonian of current spin-channel
       if (allocated(hybridXc)) then
+        HSqrRealBefore = HSqrReal
         call hybridXc%addCamHamiltonian_real(env, deltaRhoIn(:,:, iKS), SSqrReal, ints%overlap,&
             & neighbourList%iNeighbour, nNeighbourCam, denseDesc%iAtomStart, iSparseStart, orb,&
             & img2CentCell, tPeriodic, HSqrReal, errStatus)
+        HSqrRealBefore = HSqrReal - HSqrRealBefore
+        ! print *, 'HSqrCplxCam(1,1,1)', HSqrRealBefore(1,1)
         @:PROPAGATE_ERROR(errStatus)
       end if
 
@@ -3367,10 +3380,18 @@ contains
       end if
 
       ! Get CAM-Hamiltonian contribution for all spins/k-points
+      ! print *, 'start Ham'
+      ! print *, 'SSqrCplxCam(1,1,1)', SSqrCplxCam(1,1,1)
+      ! print *, 'SSqrCplxCam(3,5,3)', SSqrCplxCam(3,5,3)
+      ! print *, 'densityMatrix%deltaRhoInCplx(1,1,1)', densityMatrix%deltaRhoInCplx(1,1,1)
+      ! print *, 'densityMatrix%deltaRhoInCplx(3,5,3)', densityMatrix%deltaRhoInCplx(3,5,3)
       call hybridXc%getCamHamiltonian_kpts(env, densityMatrix, symNeighbourList, nNeighbourCamSym,&
           & rCellVecs, cellVec, denseDesc%iAtomStart, orb, kPoint, kWeight, HSqrCplxCam, errStatus,&
           & SSqrCplxCam=SSqrCplxCam)
       @:PROPAGATE_ERROR(errStatus)
+      ! print *, 'HSqrCplxCam(1,1,1)', HSqrCplxCam(1,1,1)
+      ! print *, 'HSqrCplxCam(3,5,3)', HSqrCplxCam(3,5,3)
+      ! print *, 'end Ham'
     end if
 
     ! Loop over all spins/k-points associated with MPI group

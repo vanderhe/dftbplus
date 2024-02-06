@@ -949,12 +949,12 @@ contains
     scale = populationScalingFactor(nSpin)
 
     do iK = 1, size(kPoint, dim=2)
+      ! Get full complex, square, k-space overlap and store for later q0 substraction
+      call env%globalTimer%startTimer(globalTimers%sparseToDense)
+      call unpackHS(SSqrCplx, ints%overlap, kPoint(:, iK), neighbourList%iNeighbour,&
+          & nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart, img2CentCell)
+      call env%globalTimer%stopTimer(globalTimers%sparseToDense)
       do iSpin = 1, nSpin
-        ! Get full complex, square, k-space overlap and store for later q0 substraction
-        call env%globalTimer%startTimer(globalTimers%sparseToDense)
-        call unpackHS(SSqrCplx, ints%overlap, kPoint(:, iK), neighbourList%iNeighbour,&
-            & nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart, img2CentCell)
-        call env%globalTimer%stopTimer(globalTimers%sparseToDense)
         do iAtom = 1, nAtom
           iStart = denseDesc%iAtomStart(iAtom)
           iEnd = denseDesc%iAtomStart(iAtom + 1) - 1

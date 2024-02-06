@@ -1472,6 +1472,7 @@ contains
         this%tRealHS = .false.
       end if
     end if
+    ! this%tRealHS = .false.
 
   #:if WITH_MPI
     if (input%ctrl%parallelOpts%nGroup > this%nIndepSpin * this%nKPoint&

@@ -1206,7 +1206,7 @@ contains
     integer, intent(out), allocatable :: iKSComposite(:,:)
 
     !! Indices of spins/k-points
-    integer :: iS, iK, iSp, iKp
+    integer :: iS, iK, iKp
 
     !! Loop counters for global and local composite index
     integer :: indGlobal, indLocal
@@ -1215,32 +1215,29 @@ contains
     integer :: iParallelStart, iParallelEnd
 
   #:if WITH_MPI
-    call getStartAndEndIndex((nS * nK)**2, env%mpi%globalComm%size, env%mpi%globalComm%rank,&
+    call getStartAndEndIndex(nS * nK**2, env%mpi%globalComm%size, env%mpi%globalComm%rank,&
         & iParallelStart, iParallelEnd)
   #:else
     iParallelStart = 1
-    iParallelEnd = (nS * nK)**2
+    iParallelEnd = nS * nK**2
   #:endif
 
     ! Composite index needs to be allocated on all ranks
-    allocate(iKSComposite(4, iParallelEnd - iParallelStart + 1))
+    allocate(iKSComposite(3, iParallelEnd - iParallelStart + 1))
 
     ! Build up composite index iKSComposite for collapsing iKS-iKSPrime summations
     indGlobal = 1
     indLocal = 1
     do iS = 1, nS
       do iK = 1, nK
-        do iSp = 1, nS
-          do iKp = 1, nK
-            if (indGlobal >= iParallelStart .and. indGlobal <= iParallelEnd) then
-              iKSComposite(1, indLocal) = iS
-              iKSComposite(2, indLocal) = iK
-              iKSComposite(3, indLocal) = iSp
-              iKSComposite(4, indLocal) = iKp
-              indLocal = indLocal + 1
-            end if
-            indGlobal = indGlobal + 1
-          end do
+        do iKp = 1, nK
+          if (indGlobal >= iParallelStart .and. indGlobal <= iParallelEnd) then
+            iKSComposite(1, indLocal) = iS
+            iKSComposite(2, indLocal) = iK
+            iKSComposite(3, indLocal) = iKp
+            indLocal = indLocal + 1
+          end if
+          indGlobal = indGlobal + 1
         end do
       end do
     end do
@@ -2520,8 +2517,8 @@ contains
     !! K-point indices
     integer :: iK, iKPrime
 
-    !! Spin indices
-    integer :: iS, iSPrime
+    !! Spin index
+    integer :: iS
 
     !! Number of k-points and spins
     integer :: nK, nS
@@ -2540,8 +2537,11 @@ contains
 
     squareSize = size(deltaRhoSqr, dim=1)
     nS = size(iKiSToiGlobalKS, dim=2)
+    print *, 'nS', nS
     nK = size(kPoints, dim=2)
+    print *, 'nK', nK
     nKS = size(deltaRhoSqr, dim=3)
+    print *, 'nKS', nKS
 
     ! check and initialize screening
     if (.not. this%tScreeningInited) then
@@ -2572,9 +2572,8 @@ contains
       iK = iKSComposite(2, ii)
       iGlobalKS = iKiSToiGlobalKS(iK, iS)
 
-      iSPrime = iKSComposite(3, ii)
-      iKPrime = iKSComposite(4, ii)
-      iGlobalKSprime = iKiSToiGlobalKS(iKPrime, iSPrime)
+      iKPrime = iKSComposite(3, ii)
+      iGlobalKSprime = iKiSToiGlobalKS(iKPrime, iS)
 
       Sp_dPp(:,:) = matmul(SSqrCplxCam(:,:, iKPrime), deltaRhoSqr(:,:, iGlobalKSprime))
       dPp_Sp(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime), SSqrCplxCam(:,:, iKPrime))
@@ -2584,6 +2583,7 @@ contains
       dPp_Sp_cc(:,:) = matmul(conjg(deltaRhoSqr(:,:, iGlobalKSprime)),&
           & conjg(SSqrCplxCam(:,:, iKPrime)))
 
+      ! spin-polarized case: y-matrix constructed even if k and k' do not change
       call getCamGammaFourierSqr(this, iSquare, this%cellVecsG, this%rCellVecsG, kPoints(:, iK),&
           & kPoints(:, iKPrime), gammaSqr)
       call getCamGammaFourierSqr(this, iSquare, this%cellVecsG, this%rCellVecsG, kPoints(:, iK),&
