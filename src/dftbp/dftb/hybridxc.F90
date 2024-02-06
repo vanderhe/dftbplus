@@ -1432,8 +1432,8 @@ contains
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (k-point version)
   subroutine getCamHamiltonian_kpts(this, env, parallelKS, densityMatrix, symNeighbourList,&
-      & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, SSqrCplxCam,&
-      & HSqrCplxCam, errStatus)
+      & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, HSqrCplxCam,&
+      & errStatus, SSqrCplxCam)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
@@ -1471,14 +1471,14 @@ contains
     !> The k-point weights
     real(dp), intent(in) :: kWeights(:)
 
-    !> Temporary storage for square, k-space overlap
-    complex(dp), intent(in), allocatable :: SSqrCplxCam(:,:,:)
-
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices to be updated
     complex(dp), intent(out), allocatable :: HSqrCplxCam(:,:,:)
 
     !> Error status
     type(TStatus), intent(inout) :: errStatus
+
+    !> Temporary storage for square, k-space overlap
+    complex(dp), intent(in), optional :: SSqrCplxCam(:,:,:)
 
     call env%globalTimer%startTimer(globalTimers%hybridXcH)
 
@@ -1499,6 +1499,10 @@ contains
       @:PROPAGATE_ERROR(errStatus)
       end if
     case (hybridXcAlgo%matrixBased)
+      if (.not. present(SSqrCplxCam)) then
+        @:RAISE_ERROR(errStatus, -1, "Missing expected array(s) for matrix-multiplication based CAM&
+            & Hamiltonian construction.")
+      end if
       call addCamHamiltonianMatrix_kpts(this, env, parallelKS, iSquare,&
           & densityMatrix%deltaRhoInCplx, kPoints, kWeights, densityMatrix%iKiSToiGlobalKS,&
           & SSqrCplxCam, HSqrCplxCam)
@@ -2449,7 +2453,7 @@ contains
     integer, intent(in) :: iKiSToiGlobalKS(:,:)
 
     !> Temporary storage for square, k-space overlap
-    complex(dp), intent(in), allocatable :: SSqrCplxCam(:,:,:)
+    complex(dp), intent(in) :: SSqrCplxCam(:,:,:)
 
     !> Square (unpacked) Hamiltonian for all k-point/spin composite indices
     complex(dp), intent(out), allocatable :: HSqrCplxCam(:,:,:)
@@ -2463,14 +2467,14 @@ contains
     !! Number of k-point-spin compound indices
     integer :: nKS
 
-    !! K-point index
+    !! K-point indices
     integer :: iK, iKPrime
 
-    !! Spin index
+    !! Spin indices
     integer :: iS, iSPrime
 
-    !! Composite index (iK, iS)
-    integer :: iKS, iKSprime
+    !! Composite index (iKPrime, iSPrime)
+    integer :: iKSprime
 
     !! Number of k-points and spins
     integer :: nK, nS
@@ -2525,7 +2529,7 @@ contains
           Sp_dPp(:,:) = matmul(SSqrCplxCam(:,:, iKPrime), deltaRhoSqr(:,:, iGlobalKSprime))
           dPp_Sp(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime), SSqrCplxCam(:,:, iKPrime))
 
-          call getCamGammaFourierSqr(this, iSquare, this%cellVecsG, this%rCellVecsG, zeros,&
+          call getCamGammaFourierSqr(this, iSquare, this%cellVecsG, this%rCellVecsG,&
               & kPoints(:, iK), kPoints(:, iKPrime), gammaSqr)
 
           ! term 1
@@ -3723,8 +3727,8 @@ contains
 
 
   !> Calculates pseudo Fourier transform of square CAM y-matrix with shape [nOrb, nOrb].
-  subroutine getCamGammaFourierSqr(this, iSquare, cellVecsG, rCellVecsG, rShift, kPoint,&
-      & kPointPrime, camGammaSqr)
+  subroutine getCamGammaFourierSqr(this, iSquare, cellVecsG, rCellVecsG, kPoint, kPointPrime,&
+      & camGammaSqr)
 
     !> Class instance
     class(THybridXcFunc), intent(in) :: this
@@ -3737,9 +3741,6 @@ contains
 
     !> Vectors to unit cells in absolute units
     real(dp), intent(in) :: rCellVecsG(:,:)
-
-    !> Absolute shift of atom position (Gamma arguments)
-    real(dp), intent(in) :: rShift(:)
 
     !> First and second k-point in relative coordinates
     real(dp), intent(in) :: kPoint(:), kPointPrime(:)
@@ -3772,8 +3773,8 @@ contains
         iOrbStart1 = iSquare(iAt1)
         iOrbEnd1 = iSquare(iAt1 + 1) - 1
         camGammaSqr(iOrbStart1:iOrbEnd1, iOrbStart2:iOrbEnd2)&
-            & = getCamGammaFourier(this, iAt1, iAt2, iSp1, iSp2, cellVecsG, rCellVecsG, rShift,&
-            & kPoint, kPointPrime)
+            & = getCamGammaFourier(this, iAt1, iAt2, iSp1, iSp2, cellVecsG, rCellVecsG, kPoint,&
+            & kPointPrime)
       end do
     end do
 
@@ -3781,7 +3782,7 @@ contains
 
 
   !> Returns pseudo Fourier transform of long-range and full-range Hartree-Fock gamma's.
-  function getCamGammaFourier(this, iAt1, iAt2, iSp1, iSp2, cellVecsG, rCellVecsG, rShift, kPoint,&
+  function getCamGammaFourier(this, iAt1, iAt2, iSp1, iSp2, cellVecsG, rCellVecsG, kPoint,&
       & kPointPrime) result(gamma)
 
     !> Class instance
@@ -3799,9 +3800,6 @@ contains
     !> Vectors to unit cells in absolute units
     real(dp), intent(in) :: rCellVecsG(:,:)
 
-    !> Absolute shift of atom position (Gamma arguments)
-    real(dp), intent(in) :: rShift(:)
-
     !> First and second k-point in relative coordinates
     real(dp), intent(in) :: kPoint(:), kPointPrime(:)
 
@@ -3811,31 +3809,31 @@ contains
     !! Phase factor
     complex(dp) :: phase
 
-    !! Total shift of atom position (Gamma arguments) in absolute coordinates
-    real(dp) :: rTotshift(3)
-
     !! Distance between the two atoms
     real(dp) :: dist
 
+    !! k-point in relative coordinates multiplied by 2pi
+    real(dp) :: kPoint2p(3)
+
     !! Index of real-space \vec{g} summation
     integer :: iG
+
+    kPoint2p(:) = 2.0_dp * pi * (kPoint - kPointPrime)
 
     gamma = (0.0_dp, 0.0_dp)
 
     if (this%hybridXcType == hybridXcFunc%lc .or. this%hybridXcType == hybridXcFunc%cam) then
       loopGLr: do iG = 1, size(rCellVecsG, dim=2)
-        rTotshift(:) = rCellVecsG(:, iG) + rShift
-        dist = norm2(this%rCoords(:, iAt2) - (this%rCoords(:, iAt1) + rTotshift))
-        phase = exp(imag * dot_product(2.0_dp * pi * (kPoint - kPointPrime), cellVecsG(:, iG)))
+        dist = norm2(this%rCoords(:, iAt2) - (this%rCoords(:, iAt1) + rCellVecsG(:, iG)))
+        phase = exp(imag * dot_product(kPoint2p, cellVecsG(:, iG)))
         gamma = gamma + this%camBeta * this%getLrGammaValue(iSp1, iSp2, dist) * phase
       end do loopGLr
     end if
 
     if (this%hybridXcType == hybridXcFunc%hyb .or. this%hybridXcType == hybridXcFunc%cam) then
       loopGHf: do iG = 1, size(rCellVecsG, dim=2)
-        rTotshift(:) = rCellVecsG(:, iG) + rShift
-        dist = norm2(this%rCoords(:, iAt2) - (this%rCoords(:, iAt1) + rTotshift))
-        phase = exp(imag * dot_product(2.0_dp * pi * (kPoint - kPointPrime), cellVecsG(:, iG)))
+        dist = norm2(this%rCoords(:, iAt2) - (this%rCoords(:, iAt1) + rCellVecsG(:, iG)))
+        phase = exp(imag * dot_product(kPoint2p, cellVecsG(:, iG)))
         gamma = gamma + this%camAlpha * this%getHfGammaValue(iSp1, iSp2, dist) * phase
       end do loopGHf
     end if
@@ -4395,8 +4393,8 @@ contains
   !> Interface routine to add gradients due to CAM range-separated contributions.
   !! (non-periodic and Gamma-only version)
   subroutine addCamGradients_real(this, deltaRhoSqr, SSqrReal, skOverCont, orb, iSquare,&
-      & iNeighbour, nNeighbourSK, derivator, img2CentCell, species, rCoordsAsym, tPeriodic,&
-      & gradients, errStatus, symNeighbourList, nNeighbourCamSym)
+      & iNeighbour, nNeighbourSK, derivator, tPeriodic, gradients, errStatus, symNeighbourList,&
+      & nNeighbourCamSym)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
@@ -4424,16 +4422,6 @@ contains
 
     !> Differentiation object
     class(TNonSccDiff), intent(in) :: derivator
-
-    !> Map images of atoms to the central cell
-    integer, intent(in) :: img2CentCell(:)
-
-    !> Species of all atoms in the system, potentially including periodic images
-    integer, intent(in) :: species(:)
-
-    !> Real-space coordinates of atoms (absolute units), potentially including periodic images
-    !! (asymmetric neighbour list)
-    real(dp), intent(in) :: rCoordsAsym(:,:)
 
     !> True, if system is periodic (i.e. Gamma-only)
     logical, intent(in) :: tPeriodic

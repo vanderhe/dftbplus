@@ -3350,18 +3350,23 @@ contains
         ! Pre-generate overlap matrix on all MPI processes
         allocate(SSqrCplxCam(size(densityMatrix%deltaRhoInCplx, dim=1),&
             & size(densityMatrix%deltaRhoInCplx, dim=2), size(kPoint, dim=2)))
-        do iK = 1, size(kPoint, dim=2)
+        do iKS = 1, parallelKS%nLocalKS
+          iK = parallelKS%localKS(1, iKS)
           call unpackHS(SSqrCplxCam(:,:, iK), ints%overlap, kPoint(:, iK),&
               & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart,&
               & iSparseStart, img2CentCell)
           call blockHermitianHS(SSqrCplxCam(:,:, iK), denseDesc%iAtomStart)
         end do
+      #:if WITH_SCALAPACK
+        ! Distribute all eigenvalues to all nodes via global summation
+        call mpifx_allreduceip(env%mpi%globalComm, SSqrCplxCam, MPI_SUM)
+      #:endif
       end if
 
       ! Get CAM-Hamiltonian contribution for all spins/k-points
       call hybridXc%getCamHamiltonian_kpts(env, parallelKS, densityMatrix, symNeighbourList,&
           & nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb, kPoint, kWeight,&
-          & SSqrCplxCam, HSqrCplxCam, errStatus)
+          & HSqrCplxCam, errStatus, SSqrCplxCam=SSqrCplxCam)
       @:PROPAGATE_ERROR(errStatus)
     end if
 
@@ -6572,8 +6577,8 @@ contains
         end if
         call hybridXc%addCamGradients_real(deltaRhoOut, SSqrReal, skOverCont, orb,&
             & denseDesc%iAtomStart, neighbourList%iNeighbour, nNeighbourSK, nonSccDeriv,&
-            & img2CentCell, species, coord, tPeriodic, derivs, errStatus,&
-            & symNeighbourList=symNeighbourList, nNeighbourCamSym=nNeighbourCamSym)
+            & tPeriodic, derivs, errStatus, symNeighbourList=symNeighbourList,&
+            & nNeighbourCamSym=nNeighbourCamSym)
       #:endif
         @:PROPAGATE_ERROR(errStatus)
       else
