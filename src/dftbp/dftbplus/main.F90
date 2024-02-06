@@ -3352,9 +3352,11 @@ contains
             & size(densityMatrix%deltaRhoInCplx, dim=2), size(kPoint, dim=2)))
         do iKS = 1, parallelKS%nLocalKS
           iK = parallelKS%localKS(1, iKS)
+          call env%globalTimer%startTimer(globalTimers%sparseToDense)
           call unpackHS(SSqrCplxCam(:,:, iK), ints%overlap, kPoint(:, iK),&
               & neighbourList%iNeighbour, nNeighbourSK, iCellVec, cellVec, denseDesc%iAtomStart,&
               & iSparseStart, img2CentCell)
+          call env%globalTimer%stopTimer(globalTimers%sparseToDense)
           call blockHermitianHS(SSqrCplxCam(:,:, iK), denseDesc%iAtomStart)
         end do
       #:if WITH_SCALAPACK
@@ -3364,9 +3366,9 @@ contains
       end if
 
       ! Get CAM-Hamiltonian contribution for all spins/k-points
-      call hybridXc%getCamHamiltonian_kpts(env, parallelKS, densityMatrix, symNeighbourList,&
-          & nNeighbourCamSym, rCellVecs, cellVec, denseDesc%iAtomStart, orb, kPoint, kWeight,&
-          & HSqrCplxCam, errStatus, SSqrCplxCam=SSqrCplxCam)
+      call hybridXc%getCamHamiltonian_kpts(env, densityMatrix, symNeighbourList, nNeighbourCamSym,&
+          & rCellVecs, cellVec, denseDesc%iAtomStart, orb, kPoint, kWeight, HSqrCplxCam, errStatus,&
+          & SSqrCplxCam=SSqrCplxCam)
       @:PROPAGATE_ERROR(errStatus)
     end if
 
@@ -4764,8 +4766,13 @@ contains
     nSpin = size(qOutput, dim=3)
 
     if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
-      deltaRhoDiffSqrCplx = densityMatrix%deltaRhoOutCplx - densityMatrix%deltaRhoInCplx
-      sccErrorQ = maxval(abs(deltaRhoDiffSqrCplx))
+      if (env%tGlobalLead) then
+        deltaRhoDiffSqrCplx = densityMatrix%deltaRhoOutCplx - densityMatrix%deltaRhoInCplx
+        sccErrorQ = maxval(abs(deltaRhoDiffSqrCplx))
+      end if
+    #:if WITH_MPI
+      call mpifx_bcast(env%mpi%globalComm, sccErrorQ)
+    #:endif
     else
       deltaRhoDiffSqrCplxHS = densityMatrix%deltaRhoOutCplxHS - densityMatrix%deltaRhoInCplxHS
       sccErrorQ = maxval(abs(deltaRhoDiffSqrCplxHS))
@@ -4785,7 +4792,12 @@ contains
       else
 
         if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
-          call TMixerCmplx_mix(pChrgMixerCmplx, densityMatrix%deltaRhoInCplx, deltaRhoDiffSqrCplx)
+          if (env%tGlobalLead) then
+            call TMixerCmplx_mix(pChrgMixerCmplx, densityMatrix%deltaRhoInCplx, deltaRhoDiffSqrCplx)
+          end if
+        #:if WITH_MPI
+          call mpifx_bcast(env%mpi%globalComm, densityMatrix%deltaRhoInCplx)
+        #:endif
 
           ! Construct sparse density matrix for later Mulliken analysis
           call getSparseSize(neighbourList%iNeighbour, nNeighbourSK, img2CentCell, orb,&

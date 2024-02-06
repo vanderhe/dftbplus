@@ -801,8 +801,8 @@ module dftbp_dftbplus_initprogram
     !> Holds real and complex delta density matrices and pointers
     type(TDensityMatrix) :: densityMatrix
 
-    !> Linear response calculation with range-separated functional
-    logical :: isRS_LinResp
+    !> Linear response calculation with hybrid xc-functional
+    logical :: isHybLinResp
 
     !> If initial charges/dens mtx. from external file.
     logical :: tReadChrg
@@ -1485,10 +1485,23 @@ contains
 
     call env%initMpi(input%ctrl%parallelOpts%nGroup)
 
+    if (this%isHybridXc .and. (.not. this%tRealHS) .and. (input%ctrl%hybridXcInp%hybridXcAlg&
+        & == hybridXcAlgo%matrixBased) .and. (input%ctrl%parallelOpts%nGroup > (this%nIndepSpin&
+        & * this%nKPoint)**2)) then
+      ! General k-point case, matrix-multiplication based algorithm
+      ! (parallelized over iKS-iKSPrime summation)
+      write(tmpStr, "(A,I0,A,I0,A)") 'For hybrid calculations beyond the Gamma point using the&
+          & matrix-multiplication based algorithm, the number of MPI' // NEW_LINE('A')&
+          & // '   groups may not exceed (nSpin * nKpoint)^2 processes.' // NEW_LINE('A')&
+          & // '   Obtained (', input%ctrl%parallelOpts%nGroup, ') groups, upper bound is (',&
+          & (this%nIndepSpin * this%nKPoint)**2, ') groups!'
+      call error(trim(tmpStr))
+    end if
+
     if (this%isHybridXc .and. (.not. this%tRealHS)&
         & .and. (input%ctrl%parallelOpts%nGroup /= env%mpi%globalComm%size)) then
       ! General k-point case (parallelized over k-points)
-      write(tmpStr, "(A,I0,A,I0,A)") 'For range-separated calculations beyond the Gamma point, the&
+      write(tmpStr, "(A,I0,A,I0,A)") 'For hybrid calculations beyond the Gamma point, the&
           & number of MPI' // NEW_LINE('A') // '   groups must match the total number of MPI&
           & processes.' // NEW_LINE('A') // '   Obtained (', input%ctrl%parallelOpts%nGroup, ')&
           & groups for (', env%mpi%globalComm%size, ') total MPI processes!'
@@ -1497,8 +1510,8 @@ contains
   #:endif
 
   #:if WITH_SCALAPACK
-    call initBlacs(input%ctrl%parallelOpts%blacsOpts, this%nAtom, this%nOrb,&
-        & this%t2Component, env, errStatus)
+    call initBlacs(input%ctrl%parallelOpts%blacsOpts, this%nAtom, this%nOrb, this%t2Component, env,&
+        & errStatus)
     if (errStatus%hasError()) then
       if (errStatus%code == -1) then
         call warning("Insufficient atoms for this number of MPI processors")
@@ -2482,7 +2495,7 @@ contains
     end if
 
     ! turn on if LinResp and RangSep turned on, no extra input required for now
-    this%isRS_LinResp = this%isLinResp .and. this%isHybridXc
+    this%isHybLinResp = this%isLinResp .and. this%isHybridXc
 
     if (this%isLinResp) then
 
@@ -2493,7 +2506,7 @@ contains
       end if
       isOnsiteCorrected = allocated(this%onSiteElements)
       call ensureLinRespConditions(this%tSccCalc, this%t3rd .or. this%t3rdFull, this%tRealHS,&
-          & this%tPeriodic, this%tCasidaForces, this%solvation, this%isRS_LinResp, this%nSpin,&
+          & this%tPeriodic, this%tCasidaForces, this%solvation, this%isHybLinResp, this%nSpin,&
           & this%tHelical, this%tSpinOrbit, allocated(this%dftbU), this%tempElec,&
           & isOnsiteCorrected, input)
 
@@ -2800,7 +2813,7 @@ contains
         if (any(abs(input%ctrl%supercellFoldingMatrix&
             & - this%supercellFoldingMatrix) > 1e-06_dp)) then
           write(tmpStr, "(A,3I5,A,3I5,A,3I5,A,3F10.6)")&
-              & 'Error while processing k-point sampling for range-separated run.'&
+              & 'Error while processing k-point sampling for hybrid run.'&
               & // NEW_LINE('A')&
               & // '   When restarting, only identical k-point samplings to previous run are'&
               & // NEW_LINE('A') // '   supported. In this case this would correspond to the&
@@ -3913,14 +3926,14 @@ contains
 
       if (this%isHybridXc) then
         if (input%ctrl%elecDynInp%spType == tdSpinTypes%triplet) then
-          call error("Triplet perturbations currently disabled for electron dynamics with&
-              & range-separated functionals")
+          call error("Triplet perturbations currently disabled for electron dynamics with hybrid&
+              & xc-functionals.")
         end if
         if (input%ctrl%elecDynInp%tForces) then
-          call error("Forces for time propagation currently disabled for range-separated")
+          call error("Forces for time propagation currently disabled for hybrid xc-functionals.")
         end if
         if (input%ctrl%elecDynInp%tIons) then
-          call error("Ion dynamics time propagation currently disabled for range-separated")
+          call error("Ion dynamics time propagation currently disabled for hybrid xc-functionals.")
         end if
       end if
 
@@ -5785,11 +5798,11 @@ contains
       call error("Hybrid calculations not currently implemented for 3rd-order DFTB.")
     end if
 
-    if (this%isRS_LinResp .and. hybridXcInp%hybridXcType == hybridXcFunc%cam) then
+    if (this%isHybLinResp .and. hybridXcInp%hybridXcType == hybridXcFunc%cam) then
       call error("General CAM functionals not currently implemented for linear response.")
     end if
 
-    if (this%isRS_LinResp .and. hybridXcInp%hybridXcType == hybridXcFunc%hyb) then
+    if (this%isHybLinResp .and. hybridXcInp%hybridXcType == hybridXcFunc%hyb) then
       call error("Global hybrid functionals not currently implemented for linear response.")
     end if
 
@@ -5799,7 +5812,7 @@ contains
   !> Stop if linear response module can not be invoked due to unimplemented combinations of
   !! features.
   subroutine ensureLinRespConditions(tSccCalc, t3rd, tRealHS, tPeriodic, tCasidaForces, solvation,&
-      & isRS_LinResp, nSpin, tHelical, tSpinOrbit, isDftbU, tempElec, isOnsiteCorrected, input)
+      & isHybLinResp, nSpin, tHelical, tSpinOrbit, isDftbU, tempElec, isOnsiteCorrected, input)
 
     !> Is the calculation SCC?
     logical, intent(in) :: tSccCalc
@@ -5820,7 +5833,7 @@ contains
     class(TSolvation), allocatable :: solvation
 
     !> Is this an excited state calculation with range separation
-    logical, intent(in) :: isRS_LinResp
+    logical, intent(in) :: isHybLinResp
 
     !> Number of spin components, 1 is unpolarised, 2 is polarised, 4 is noncolinear / spin-orbit
     integer, intent(in) :: nSpin
@@ -5906,7 +5919,7 @@ contains
       call error("Onsite corrections not implemented for Stratmann diagonaliser.")
     end if
 
-    if (isRS_LinResp) then
+    if (isHybLinResp) then
       if (input%ctrl%lrespini%iLinRespSolver /= linRespSolverTypes%Stratmann) then
         call error("TD-LC-DFTB implemented only for Stratmann diagonaliser.")
       end if
@@ -5943,13 +5956,13 @@ contains
     real(dp), intent(in) :: cutoffRed
 
     if (cutoffRed < 0.0_dp) then
-      call error("Cutoff reduction for range-separated neighbours should be zero or positive.")
+      call error("Cutoff reduction for hybrid xc-functional neighbours should be zero or positive.")
     end if
 
     cutOff%camCutOff = cutOff%skCutOff - cutoffRed
 
     if (cutOff%camCutOff < 0.0_dp) then
-      call error("Screening cutoff for range-separated neighbours too short.")
+      call error("Screening cutoff for hybrid xc-functional neighbours too short.")
     end if
 
     cutOff%mCutoff = max(cutOff%mCutOff, cutoff%camCutOff)
@@ -5984,13 +5997,13 @@ contains
     type(TStatus) :: errStatus
 
     if (cutoffRed < 0.0_dp) then
-      call error("Cutoff reduction for range-separated neighbours should be zero or positive.")
+      call error("Cutoff reduction for hybrid xc-functional neighbours should be zero or positive.")
     end if
 
     cutOff%camCutOff = cutOff%skCutOff - cutoffRed
 
     if (cutOff%camCutOff < 0.0_dp) then
-      call error("Screening cutoff for range-separated neighbours too short.")
+      call error("Screening cutoff for hybrid xc-functional neighbours too short.")
     end if
 
     cutOff%mCutoff = max(cutOff%mCutOff, cutoff%camCutOff)
@@ -6044,13 +6057,13 @@ contains
     type(TStatus) :: errStatus
 
     if (cutoffRed < 0.0_dp) then
-      call error("Cutoff reduction for range-separated neighbours should be zero or positive.")
+      call error("Cutoff reduction for hybrid xc-functional neighbours should be zero or positive.")
     end if
 
     cutOff%camCutOff = cutOff%skCutOff - cutoffRed
 
     if (cutOff%camCutOff < 0.0_dp) then
-      call error("Screening cutoff for range-separated neighbours too short.")
+      call error("Screening cutoff for hybrid xc-functional neighbours too short.")
     end if
 
     cutOff%mCutoff = max(cutOff%mCutOff, cutoff%camCutOff)

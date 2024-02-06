@@ -1190,6 +1190,45 @@ contains
   end subroutine getTwoCentralCellLoopCompositeIndex
 
 
+  !> Builds simple composite index for two nested loops over atoms in the central cell.
+  subroutine getiKSiKSPrimeCompositeIndex(nS, nK, iKSComposite)
+
+    !> Total number of spin channels
+    integer, intent(in) :: nS
+
+    !> Total number of k-points
+    integer, intent(in) :: nK
+
+    !> Composite index for two nested loops over central cell
+    integer, intent(out), allocatable :: iKSComposite(:,:)
+
+    !! Indices of spins/k-points
+    integer :: iS, iK, iSp, iKp
+
+    !! Auxiliary variable
+    integer :: ind
+
+    allocate(iKSComposite(4, (nS * nK)**2))
+
+    ! Build up composite index iKSComposite for collapsing iKS-iKSPrime summations
+    ind = 1
+    do iS = 1, nS
+      do iK = 1, nK
+        do iSp = 1, nS
+          do iKp = 1, nK
+            iKSComposite(1, ind) = iS
+            iKSComposite(2, ind) = iK
+            iKSComposite(3, ind) = iSp
+            iKSComposite(4, ind) = iKp
+            ind = ind + 1
+          end do
+        end do
+      end do
+    end do
+
+  end subroutine getiKSiKSPrimeCompositeIndex
+
+
   !> Builds MPI rank dependent composite index for nested HFX loops.
   subroutine getFourLoopCompositeIndex(this, env, nNeighbourCamSym, pMax, compositeIndex, errStatus)
 
@@ -1431,18 +1470,14 @@ contains
 
   !> Interface routine for adding CAM range-separated contributions to the Hamiltonian.
   !! (k-point version)
-  subroutine getCamHamiltonian_kpts(this, env, parallelKS, densityMatrix, symNeighbourList,&
-      & nNeighbourCamSym, rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, HSqrCplxCam,&
-      & errStatus, SSqrCplxCam)
+  subroutine getCamHamiltonian_kpts(this, env, densityMatrix, symNeighbourList, nNeighbourCamSym,&
+      & rCellVecs, cellVecs, iSquare, orb, kPoints, kWeights, HSqrCplxCam, errStatus, SSqrCplxCam)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
-
-    !> The k-points and spins to process
-    type(TParallelKS), intent(in) :: parallelKS
 
     !> Holds real and complex delta density matrices and pointers
     type(TDensityMatrix), intent(in) :: densityMatrix
@@ -1503,9 +1538,8 @@ contains
         @:RAISE_ERROR(errStatus, -1, "Missing expected array(s) for matrix-multiplication based CAM&
             & Hamiltonian construction.")
       end if
-      call addCamHamiltonianMatrix_kpts(this, env, parallelKS, iSquare,&
-          & densityMatrix%deltaRhoInCplx, kPoints, kWeights, densityMatrix%iKiSToiGlobalKS,&
-          & SSqrCplxCam, HSqrCplxCam)
+      call addCamHamiltonianMatrix_kpts(this, env, iSquare, densityMatrix%deltaRhoInCplx, kPoints,&
+          & kWeights, densityMatrix%iKiSToiGlobalKS, SSqrCplxCam, HSqrCplxCam)
     end select
 
     call env%globalTimer%stopTimer(globalTimers%hybridXcH)
@@ -2425,17 +2459,14 @@ contains
 
   !> Adds range-separated contributions to Hamiltonian, using matrix based algorithm.
   !! (k-point version)
-  subroutine addCamHamiltonianMatrix_kpts(this, env, parallelKS, iSquare, deltaRhoSqr, kPoints,&
-      & kWeights, iKiSToiGlobalKS, SSqrCplxCam, HSqrCplxCam)
+  subroutine addCamHamiltonianMatrix_kpts(this, env, iSquare, deltaRhoSqr, kPoints, kWeights,&
+      & iKiSToiGlobalKS, SSqrCplxCam, HSqrCplxCam)
 
     !> Class instance
     class(THybridXcFunc), intent(inout) :: this
 
     !> Environment settings
     type(TEnvironment), intent(inout) :: env
-
-    !> The k-points and spins to process
-    type(TParallelKS), intent(in) :: parallelKS
 
     !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
     integer, intent(in) :: iSquare(:)
@@ -2459,7 +2490,7 @@ contains
     complex(dp), intent(out), allocatable :: HSqrCplxCam(:,:,:)
 
     !! Temporary y-storage
-    complex(dp), allocatable :: gammaSqr(:,:)
+    complex(dp), allocatable :: gammaSqr(:,:), gammaSqrCc(:,:)
 
     !! Size of square matrices (e.g. Hamiltonian)
     integer :: squareSize
@@ -2473,9 +2504,6 @@ contains
     !! Spin indices
     integer :: iS, iSPrime
 
-    !! Composite index (iKPrime, iSPrime)
-    integer :: iKSprime
-
     !! Number of k-points and spins
     integer :: nK, nS
 
@@ -2483,12 +2511,13 @@ contains
     integer :: iGlobalKS, iGlobalKSprime
 
     !! Temporary storage
-    complex(dp), allocatable :: tmp1(:,:), tmp2(:,:), Sp_dPp(:,:), dPp_Sp(:,:)
+    complex(dp), allocatable :: tmp(:,:), Sp_dPp(:,:), dPp_Sp(:,:), Sp_dPp_cc(:,:), dPp_Sp_cc(:,:)
 
-    !! Dummy array with zeros
-    real(dp) :: zeros(3)
+    !! Composite index for two nested loops over central cell
+    integer, allocatable :: iKSComposite(:,:)
 
-    zeros(:) = 0.0_dp
+    !! Auxiliary variable
+    integer :: ii
 
     squareSize = size(deltaRhoSqr, dim=1)
     nS = size(iKiSToiGlobalKS, dim=2)
@@ -2507,51 +2536,78 @@ contains
     ! skip whole procedure if delta density matrix is close to zero, e.g. in the first SCC iteration
     if (maxval(abs(deltaRhoSqr)) < 1e-16_dp) return
 
-    allocate(tmp1(squareSize, squareSize))
-    allocate(tmp2(squareSize, squareSize))
+    allocate(tmp(squareSize, squareSize))
 
     allocate(Sp_dPp(squareSize, squareSize))
     allocate(dPp_Sp(squareSize, squareSize))
+    allocate(Sp_dPp_cc(squareSize, squareSize))
+    allocate(dPp_Sp_cc(squareSize, squareSize))
 
     allocate(gammaSqr(squareSize, squareSize))
+    allocate(gammaSqrCc(squareSize, squareSize))
 
-    loopS: do iS = 1, nS
-      loopK: do iK = 1, nK
-        iGlobalKS = iKiSToiGlobalKS(iK, iS)
-        ! Loop over all spins/k-points associated with MPI group
-        loopKSprime: do iKSPrime = 1, parallelKS%nLocalKS
-          ! Get global k-point index from local iKSPmrime composite
-          iKPrime = parallelKS%localKS(1, iKSPrime)
-          ! Get global spin index from local iKSPrime composite
-          iSPrime = parallelKS%localKS(2, iKSPrime)
-          iGlobalKSprime = iKiSToiGlobalKS(iKPrime, iSPrime)
+    call getiKSiKSPrimeCompositeIndex(nS, nK, iKSComposite)
 
-          Sp_dPp(:,:) = matmul(SSqrCplxCam(:,:, iKPrime), deltaRhoSqr(:,:, iGlobalKSprime))
-          dPp_Sp(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime), SSqrCplxCam(:,:, iKPrime))
+    do ii = 1, size(iKSComposite, dim=2)
+      iS = iKSComposite(1, ii)
+      iK = iKSComposite(2, ii)
+      iGlobalKS = iKiSToiGlobalKS(iK, iS)
 
-          call getCamGammaFourierSqr(this, iSquare, this%cellVecsG, this%rCellVecsG,&
-              & kPoints(:, iK), kPoints(:, iKPrime), gammaSqr)
+      iSPrime = iKSComposite(3, ii)
+      iKPrime = iKSComposite(4, ii)
+      iGlobalKSprime = iKiSToiGlobalKS(iKPrime, iSPrime)
 
-          ! term 1
-          tmp1(:,:) = matmul(Sp_dPp, SSqrCplxCam(:,:, iKPrime)) * gammaSqr
-          HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + kWeights(iKPrime) * tmp1
+      Sp_dPp(:,:) = matmul(SSqrCplxCam(:,:, iKPrime), deltaRhoSqr(:,:, iGlobalKSprime))
+      dPp_Sp(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime), SSqrCplxCam(:,:, iKPrime))
 
-          ! term 2
-          tmp1(:,:) = matmul(Sp_dPp * gammaSqr, SSqrCplxCam(:,:, iK))
-          HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + kWeights(iKPrime) * tmp1
+      Sp_dPp_cc(:,:) = matmul(conjg(SSqrCplxCam(:,:, iKPrime)),&
+          & conjg(deltaRhoSqr(:,:, iGlobalKSprime)))
+      dPp_Sp_cc(:,:) = matmul(conjg(deltaRhoSqr(:,:, iGlobalKSprime)),&
+          & conjg(SSqrCplxCam(:,:, iKPrime)))
 
-          ! term 3
-          tmp1(:,:) = matmul(SSqrCplxCam(:,:, iK), dPp_Sp * gammaSqr)
-          HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + kWeights(iKPrime) * tmp1
+      call getCamGammaFourierSqr(this, iSquare, this%cellVecsG, this%rCellVecsG, kPoints(:, iK),&
+          & kPoints(:, iKPrime), gammaSqr)
+      call getCamGammaFourierSqr(this, iSquare, this%cellVecsG, this%rCellVecsG, kPoints(:, iK),&
+          & -kPoints(:, iKPrime), gammaSqrCc)
 
-          ! term 4
-          tmp1(:,:) = matmul(deltaRhoSqr(:,:, iGlobalKSprime) * gammaSqr, SSqrCplxCam(:,:, iK))
-          tmp2(:,:) = matmul(SSqrCplxCam(:,:, iK), tmp1)
-          HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + kWeights(iKPrime) * tmp2
+      ! Term 1
+      tmp(:,:) = matmul(Sp_dPp, SSqrCplxCam(:,:, iKPrime)) * gammaSqr
+      ! Term 1 (complex conjugated for inverse k-points)
+      tmp(:,:) = tmp + matmul(Sp_dPp_cc, conjg(SSqrCplxCam(:,:, iKPrime))) * gammaSqrCc
 
-        end do loopKSprime
-      end do loopK
-    end do loopS
+      ! Term 2
+      tmp(:,:) = tmp + matmul(Sp_dPp * gammaSqr, SSqrCplxCam(:,:, iK))
+      ! Term 2 (complex conjugated for inverse k-points)
+      tmp(:,:) = tmp + matmul(Sp_dPp_cc * gammaSqrCc, SSqrCplxCam(:,:, iK))
+
+      ! Term 3
+      tmp(:,:) = tmp + matmul(SSqrCplxCam(:,:, iK), dPp_Sp * gammaSqr)
+      ! Term 3 (complex conjugated for inverse k-points)
+      tmp(:,:) = tmp + matmul(SSqrCplxCam(:,:, iK), dPp_Sp_cc * gammaSqrCc)
+
+      ! Add terms 1-3
+      ! (the factor 0.5 accounts for the additional -k' points)
+      HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + 0.5_dp * kWeights(iKPrime) * tmp
+
+      ! Term 4
+      tmp(:,:) = deltaRhoSqr(:,:, iGlobalKSprime) * gammaSqr
+      tmp(:,:) = matmul(tmp, SSqrCplxCam(:,:, iK))
+      tmp(:,:) = matmul(SSqrCplxCam(:,:, iK), tmp)
+
+      ! Add term 4
+      ! (the factor 0.5 accounts for the additional -k' points)
+      HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + 0.5_dp * kWeights(iKPrime) * tmp
+
+      ! Term 4 (complex conjugated for inverse k-points)
+      tmp(:,:) = conjg(deltaRhoSqr(:,:, iGlobalKSprime)) * gammaSqrCc
+      tmp(:,:) = matmul(tmp, SSqrCplxCam(:,:, iK))
+      tmp(:,:) = matmul(SSqrCplxCam(:,:, iK), tmp)
+
+      ! Add term 4
+      ! (the factor 0.5 accounts for the additional -k' points)
+      HSqrCplxCam(:,:, iGlobalKS) = HSqrCplxCam(:,:, iGlobalKS) + 0.5_dp * kWeights(iKPrime) * tmp
+
+    end do
 
     if (this%tSpin .or. this%tREKS) then
       HSqrCplxCam(:,:,:) = -0.25_dp * HSqrCplxCam
