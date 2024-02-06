@@ -40,12 +40,7 @@ Hamiltonian = DFTB {
 
 }
 
-Analysis {
-  PrintForces = Yes
-}
-
 Options {
-  WriteResultsTag = No
   WriteAutotestTag = Yes
 }
 

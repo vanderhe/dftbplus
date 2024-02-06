@@ -970,7 +970,7 @@ contains
           @:PROPAGATE_ERROR(errStatus)
         else
           call getNextInputDensityCplx(env, this%ints, this%neighbourList, this%nNeighbourSK,&
-              & this%denseDesc%iAtomStart, this%iSparseStart, this%img2CentCell, this%pChrgMixer,&
+              & this%denseDesc, this%iSparseStart, this%img2CentCell, this%pChrgMixer,&
               & this%pChrgMixerCmplx, this%qOutput, this%orb, this%parallelKS, this%kPoint,&
               & this%kWeight, iGeoStep, iSccIter, this%minSccIter, this%maxSccIter, this%sccTol,&
               & tStopScc, this%tReadChrg, this%q0, this%iCellVec, this%cellVec, this%hybridXc,&
@@ -3349,7 +3349,8 @@ contains
       if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
         ! Pre-generate overlap matrix on all MPI processes
         allocate(SSqrCplxCam(size(densityMatrix%deltaRhoInCplx, dim=1),&
-            & size(densityMatrix%deltaRhoInCplx, dim=2), size(kPoint, dim=2)))
+            & size(densityMatrix%deltaRhoInCplx, dim=2), size(kPoint, dim=2)),&
+            & source=(0.0_dp, 0.0_dp))
         do iKS = 1, parallelKS%nLocalKS
           iK = parallelKS%localKS(1, iKS)
           call env%globalTimer%startTimer(globalTimers%sparseToDense)
@@ -3360,7 +3361,7 @@ contains
           call blockHermitianHS(SSqrCplxCam(:,:, iK), denseDesc%iAtomStart)
         end do
       #:if WITH_SCALAPACK
-        ! Distribute all eigenvalues to all nodes via global summation
+        ! Distribute overlap matrices to all nodes via global summation
         call mpifx_allreduceip(env%mpi%globalComm, SSqrCplxCam, MPI_SUM)
       #:endif
       end if
@@ -4647,7 +4648,7 @@ contains
 
 
   !> Update delta density matrix rather than merely q for hybrid xc-functionals.
-  subroutine getNextInputDensityCplx(env, ints, neighbourList, nNeighbourSK, iAtomStart,&
+  subroutine getNextInputDensityCplx(env, ints, neighbourList, nNeighbourSK, denseDesc,&
       & iSparseStart, img2CentCell, pChrgMixer, pChrgMixerCmplx, qOutput, orb, parallelKS, kPoint,&
       & kWeight, iGeoStep, iSccIter, minSccIter, maxSccIter, sccTol, tStopScc, tReadChrg, q0,&
       & iCellVec, cellVec, hybridXc, qInput, sccErrorQ, tConverged, densityMatrix, qBlockIn,&
@@ -4665,8 +4666,8 @@ contains
     !> Number of neighbours for each of the atoms
     integer, intent(in) :: nNeighbourSK(:)
 
-    !> Start of atomic blocks in dense arrays
-    integer, intent(in), allocatable :: iAtomStart(:)
+    !> Dense matrix descriptor
+    type(TDenseDescr), intent(in) :: denseDesc
 
     !> Index array for the start of atomic blocks in sparse arrays
     integer, intent(in) :: iSparseStart(:,:)
@@ -4819,7 +4820,7 @@ contains
             call packHS(rhoPrim(:, iSpin),&
                 & densityMatrix%deltaRhoInCplx(:,:, densityMatrix%iKiSToiGlobalKS(iK, iSpin)),&
                 & kPoint(:, iK), kWeight(iK), neighbourList%iNeighbour, nNeighbourSK, orb%mOrb,&
-                & iCellVec, cellVec, iAtomStart, iSparseStart, img2CentCell)
+                & iCellVec, cellVec, denseDesc%iAtomStart, iSparseStart, img2CentCell)
             call env%globalTimer%stopTimer(globalTimers%denseToSparse)
           #:endif
           end do
@@ -4838,8 +4839,8 @@ contains
         else ! hybridXc%hybridXcAlg /= hybridXcAlgo%matrixBased
           call mix(pChrgMixer, densityMatrix%deltaRhoInCplxHS, deltaRhoDiffSqrCplxHS)
           call mulliken(qInput, ints%overlap, densityMatrix%deltaRhoInCplxHS, orb,&
-              & neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart, iAtomStart,&
-              & iCellVec, cellVec, hybridXc)
+              & neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSparseStart,&
+              & denseDesc%iAtomStart, iCellVec, cellVec, hybridXc)
         end if
 
         ! HybridXc: for spin-unrestricted calculation the initial guess should be equally

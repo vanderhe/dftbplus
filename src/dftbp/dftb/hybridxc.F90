@@ -1191,7 +1191,10 @@ contains
 
 
   !> Builds simple composite index for two nested loops over atoms in the central cell.
-  subroutine getiKSiKSPrimeCompositeIndex(nS, nK, iKSComposite)
+  subroutine getiKSiKSPrimeCompositeIndex(env, nS, nK, iKSComposite)
+
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
 
     !> Total number of spin channels
     integer, intent(in) :: nS
@@ -1205,22 +1208,38 @@ contains
     !! Indices of spins/k-points
     integer :: iS, iK, iSp, iKp
 
-    !! Auxiliary variable
-    integer :: ind
+    !! Loop counters for global and local composite index
+    integer :: indGlobal, indLocal
 
-    allocate(iKSComposite(4, (nS * nK)**2))
+    !! Start and end index for MPI parallelization, if applicable
+    integer :: iParallelStart, iParallelEnd
+
+  #:if WITH_MPI
+    call getStartAndEndIndex((nS * nK)**2, env%mpi%globalComm%size, env%mpi%globalComm%rank,&
+        & iParallelStart, iParallelEnd)
+  #:else
+    iParallelStart = 1
+    iParallelEnd = (nS * nK)**2
+  #:endif
+
+    ! Composite index needs to be allocated on all ranks
+    allocate(iKSComposite(4, iParallelEnd - iParallelStart + 1))
 
     ! Build up composite index iKSComposite for collapsing iKS-iKSPrime summations
-    ind = 1
+    indGlobal = 1
+    indLocal = 1
     do iS = 1, nS
       do iK = 1, nK
         do iSp = 1, nS
           do iKp = 1, nK
-            iKSComposite(1, ind) = iS
-            iKSComposite(2, ind) = iK
-            iKSComposite(3, ind) = iSp
-            iKSComposite(4, ind) = iKp
-            ind = ind + 1
+            if (indGlobal >= iParallelStart .and. indGlobal <= iParallelEnd) then
+              iKSComposite(1, indLocal) = iS
+              iKSComposite(2, indLocal) = iK
+              iKSComposite(3, indLocal) = iSp
+              iKSComposite(4, indLocal) = iKp
+              indLocal = indLocal + 1
+            end if
+            indGlobal = indGlobal + 1
           end do
         end do
       end do
@@ -2546,7 +2565,7 @@ contains
     allocate(gammaSqr(squareSize, squareSize))
     allocate(gammaSqrCc(squareSize, squareSize))
 
-    call getiKSiKSPrimeCompositeIndex(nS, nK, iKSComposite)
+    call getiKSiKSPrimeCompositeIndex(env, nS, nK, iKSComposite)
 
     do ii = 1, size(iKSComposite, dim=2)
       iS = iKSComposite(1, ii)
@@ -2617,7 +2636,7 @@ contains
 
   #:if WITH_MPI
     ! Sum up contributions of current MPI group
-    call mpifx_allreduceip(env%mpi%globalComm, HSqrCplxCam, MPI_SUM)
+    call mpifx_allreduceip(env%mpi%interGroupComm, HSqrCplxCam, MPI_SUM)
   #:endif
 
     if (env%tGlobalLead) then

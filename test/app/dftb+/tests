@@ -141,7 +141,8 @@ hybrid/periodic/Benzene-box-spin-matrix-ct-kpts-mpi   #? MPI_PROCS == 2
 hybrid/periodic/Benzene-gamma-matrix-spin-force-grp1  #? MPI_PROCS <= 9 and MPI_PROCS != 5 and MPI_PROCS != 7
 hybrid/periodic/Benzene-gamma-matrix-spin-force-grp2  #? MPI_PROCS == 2 or MPI_PROCS == 4
 hybrid/periodic/Benzene-gamma-neigh-spin-force        #? not WITH_MPI
-hybrid/periodic/CN-chain_transl-inv-ct                #? MPI_PROCS <= 1
+hybrid/periodic/CN-chain_transl-inv-neigh-ct          #? MPI_PROCS <= 1
+hybrid/periodic/CN-chain_transl-inv-matrix-ct         #? MPI_PROCS <= 1
 hybrid/periodic/GaAs-gamma-matrix                     #? MPI_PROCS <= 1
 hybrid/periodic/GaAs-gamma-neigh                      #? not WITH_MPI
 hybrid/periodic/GaAs-gamma-restart                    #? not WITH_MPI
