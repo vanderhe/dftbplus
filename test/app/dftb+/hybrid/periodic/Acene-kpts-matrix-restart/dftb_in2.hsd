@@ -9,6 +9,8 @@ Hamiltonian = DFTB {
   ReadInitialCharges = Yes
   MaxSccIterations = 1
 
+  Mixer = Simple {MixingParameter = 0.85}
+
   Filling = Fermi {
     Temperature [K] = 0.0
   }

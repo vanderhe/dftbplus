@@ -16,8 +16,9 @@ module dftbp_dftb_sccinit
   use dftbp_io_message, only : error
   use dftbp_type_commontypes, only : TOrbitals
   use dftbp_type_multipole, only : TMultipole
-  use dftbp_dftb_hybridxc, only : checkSupercellFoldingMatrix, hybridXcAlgo
   use dftbp_dftb_densitymatrix, onLy : TDensityMatrix
+  use dftbp_dftb_hybridxc, only : checkSupercellFoldingMatrix, hybridXcAlgo
+  use dftbp_dftb_periodic, only : getSuperSampling
   implicit none
 
   private
@@ -180,7 +181,7 @@ contains
   !> Should test of the input, if the number of orbital charges per atom match the number from the
   !> angular momentum.
   subroutine initQFromFile(qq, fileName, tReadAscii, orb, qBlock, qiBlock, densityMatrix, tRealHS,&
-      & nKpoint, errStatus, magnetisation, nEl, hybridXcAlg, coeffsAndShifts, multipoles)
+      & errStatus, magnetisation, nEl, hybridXcAlg, coeffsAndShifts, multipoles)
 
     !> The charges per lm,atom,spin
     real(dp), intent(out) :: qq(:,:,:)
@@ -208,9 +209,6 @@ contains
 
     !> True, if overlap and Hamiltonian are real-valued
     logical, intent(in) :: tRealHS
-
-    !> Number of k-points
-    integer, intent(in) :: nKpoint
 
     !> Error status
     type(TStatus), intent(inout) :: errStatus
@@ -564,7 +562,10 @@ contains
           call checkSupercellFoldingMatrix(coeffsAndShifts, errStatus,&
               & supercellFoldingDiagOut=supercellFoldingDiag)
           if (hybridXcAlg == hybridXcAlgo%matrixBased) then
-            allocate(densityMatrix%deltaRhoInCplx(orb%nOrb, orb%nOrb, nKpoint * nSpin))
+            call getSuperSampling(coeffsAndShifts(:,1:3), modulo(coeffsAndShifts(:,4), 1.0_dp),&
+                & densityMatrix%kPointPrime, densityMatrix%kWeightPrime, reduceByInversion=.true.)
+            allocate(densityMatrix%deltaRhoInCplx(orb%nOrb, orb%nOrb,&
+                & size(densityMatrix%kPointPrime, dim=2) * nSpin))
           else
             allocate(densityMatrix%deltaRhoInCplxHS(orb%nOrb, orb%nOrb, supercellFoldingDiag(1),&
                 & supercellFoldingDiag(2), supercellFoldingDiag(3), nSpin))

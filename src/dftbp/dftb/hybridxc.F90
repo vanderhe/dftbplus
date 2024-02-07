@@ -2565,6 +2565,8 @@ contains
     allocate(gammaSqr(squareSize, squareSize))
     allocate(gammaSqrCc(squareSize, squareSize))
 
+    ! this is why the number of MPI groups may not exceed nSpin * nKpoint^2 processes
+    ! (there wouldn't be any additional speedup)
     call getiKSiKSPrimeCompositeIndex(env, nS, nK, iKSComposite)
 
     do ii = 1, size(iKSComposite, dim=2)

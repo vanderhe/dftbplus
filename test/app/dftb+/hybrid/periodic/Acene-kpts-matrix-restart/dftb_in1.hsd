@@ -6,7 +6,9 @@ Hamiltonian = DFTB {
 
   SCC = Yes
   SccTolerance = 1e-10
-  MaxSccIterations = 50
+  MaxSccIterations = 60
+
+  Mixer = Simple {MixingParameter = 0.85}
 
   Filling = Fermi {
     Temperature [K] = 0.0

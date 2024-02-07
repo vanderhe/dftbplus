@@ -5,9 +5,10 @@ Geometry = GenFormat {
 Hamiltonian = DFTB {
 
   SCC = Yes
-  ConvergentSCCOnly = No
-  ReadInitialCharges = Yes
-  MaxSccIterations = 1
+  SccTolerance = 1e-10
+  MaxSccIterations = 60
+
+  Mixer = Simple {MixingParameter = 0.85}
 
   Filling = Fermi {
     Temperature [K] = 0.0
@@ -25,13 +26,18 @@ Hamiltonian = DFTB {
   }
 
   Hybrid = LC {
-    CoulombMatrix = Truncated {}
+    CoulombMatrix = Truncated {
+      CoulombCutoff = 0.162772E+02
+      GSummationCutoff = 0.325543E+02
+    }
     Screening = MatrixBased {}
   }
 
-  KPointsAndWeights = Klines {
-      1 0.0 0.0 -0.5
-     20 0.0 0.0 +0.5
+  KPointsAndWeights = SupercellFolding {
+     1   0   0
+     0   1   0
+     0   0   7
+    0.0 0.0 0.0
   }
 
 }
@@ -45,10 +51,12 @@ Options {
 }
 
 ParserOptions {
-    ParserVersion = 14
+  ParserVersion = 14
 }
 
 Parallel {
+  Groups = 3
+  # Allow OMP threads explicitely to test for hybrid parallelisation with
+  # MPI-binary. (Check the manual before using this in production runs!)
   UseOmpThreads = Yes
-  Groups = 1
 }

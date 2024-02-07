@@ -1472,7 +1472,6 @@ contains
         this%tRealHS = .false.
       end if
     end if
-    ! this%tRealHS = .false.
 
   #:if WITH_MPI
     if (input%ctrl%parallelOpts%nGroup > this%nIndepSpin * this%nKPoint&
@@ -1487,15 +1486,15 @@ contains
     call env%initMpi(input%ctrl%parallelOpts%nGroup)
 
     if (this%isHybridXc .and. (.not. this%tRealHS) .and. (input%ctrl%hybridXcInp%hybridXcAlg&
-        & == hybridXcAlgo%matrixBased) .and. (input%ctrl%parallelOpts%nGroup > (this%nIndepSpin&
-        & * this%nKPoint)**2)) then
+        & == hybridXcAlgo%matrixBased) .and. (input%ctrl%parallelOpts%nGroup > this%nIndepSpin&
+        & * this%nKPoint**2)) then
       ! General k-point case, matrix-multiplication based algorithm
       ! (parallelized over iKS-iKSPrime summation)
       write(tmpStr, "(A,I0,A,I0,A)") 'For hybrid calculations beyond the Gamma point using the&
           & matrix-multiplication based algorithm, the number of MPI' // NEW_LINE('A')&
-          & // '   groups may not exceed (nSpin * nKpoint)^2 processes.' // NEW_LINE('A')&
+          & // '   groups may not exceed nSpin * nKpoint^2 processes.' // NEW_LINE('A')&
           & // '   Obtained (', input%ctrl%parallelOpts%nGroup, ') groups, upper bound is (',&
-          & (this%nIndepSpin * this%nKPoint)**2, ') groups!'
+          & this%nIndepSpin * this%nKPoint**2, ') groups!'
       call error(trim(tmpStr))
     end if
 
@@ -4256,7 +4255,7 @@ contains
       if (this%tFixEf .or. this%tSkipChrgChecksum) then
         ! do not check charge or magnetisation from file
         call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-            & this%qiBlockIn, this%densityMatrix, this%tRealHS, this%nKpoint, errStatus,&
+            & this%qiBlockIn, this%densityMatrix, this%tRealHS, errStatus,&
             & multipoles=this%multipoleInp, hybridXcAlg=hybridXcAlg,&
             & coeffsAndShifts=this%supercellFoldingMatrix)
         @:PROPAGATE_ERROR(errStatus)
@@ -4264,17 +4263,16 @@ contains
         ! check number of electrons in file
         if (this%nSpin /= 2) then
           call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-              & this%qiBlockIn, this%densityMatrix, this%tRealHS, this%nKpoint, errStatus,&
-              & nEl=sum(this%nEl), multipoles=this%multipoleInp, hybridXcAlg=hybridXcAlg,&
+              & this%qiBlockIn, this%densityMatrix, this%tRealHS, errStatus, nEl=sum(this%nEl),&
+              & multipoles=this%multipoleInp, hybridXcAlg=hybridXcAlg,&
               & coeffsAndShifts=this%supercellFoldingMatrix)
           @:PROPAGATE_ERROR(errStatus)
         else
           ! check magnetisation in addition
           call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-              & this%qiBlockIn, this%densityMatrix, this%tRealHS, this%nKpoint, errStatus,&
-              & nEl=sum(this%nEl), magnetisation=this%nEl(1)-this%nEl(2),&
-              & multipoles=this%multipoleInp, hybridXcAlg=hybridXcAlg,&
-              & coeffsAndShifts=this%supercellFoldingMatrix)
+              & this%qiBlockIn, this%densityMatrix, this%tRealHS, errStatus, nEl=sum(this%nEl),&
+              & magnetisation=this%nEl(1)-this%nEl(2), multipoles=this%multipoleInp,&
+              & hybridXcAlg=hybridXcAlg, coeffsAndShifts=this%supercellFoldingMatrix)
           @:PROPAGATE_ERROR(errStatus)
         end if
       end if
@@ -5754,6 +5752,12 @@ contains
           & beyond the Gamma point for CoulombMatrix settings other than 'Truncated'.")
     end if
 
+    if ((.not. this%tRealHS) .and. this%tForces&
+        & .and. (hybridXcInp%hybridXcAlg /= hybridXcAlgo%neighbourBased)) then
+      call error("Hybrid functionals don't yet support gradient calculations for periodic systems&
+          & beyond the Gamma point for HFX construction algorithms other than 'NeighbourBased'.")
+    end if
+
     if (this%tPeriodic .and. this%tRealHS&
         & .and. hybridXcInp%gammaType /= hybridXcGammaTypes%truncated&
         & .and. hybridXcInp%gammaType /= hybridXcGammaTypes%truncatedAndDamped) then
@@ -6138,10 +6142,12 @@ contains
     elseif (this%tReadChrg .and. (.not. allocated(this%supercellFoldingDiag))) then
       ! in case of k-points and restart from file, we have to wait until charges.bin was read
       if (hybridXcAlg == hybridXcAlgo%matrixBased) then
+        print *, '#1'
         if (.not. allocated(this%densityMatrix%deltaRhoInCplx)) then
           allocate(this%densityMatrix%deltaRhoInCplx(0, 0, 0), source=(0.0_dp, 0.0_dp))
         end if
-        allocate(this%densityMatrix%deltaRhoOutCplx(0, 0, 0), source=(0.0_dp, 0.0_dp))
+        print *, '#2'
+        print *, '#3'
       else
         if (.not. allocated(this%densityMatrix%deltaRhoInCplxHS)) then
           allocate(this%densityMatrix%deltaRhoInCplxHS(0, 0, 0, 0, 0, 0), source=0.0_dp)
@@ -6171,8 +6177,10 @@ contains
     if (.not. this%tRealHS) then
 
       if (hybridXcAlg == hybridXcAlgo%matrixBased) then
+        print *, '#4'
         allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb, this%nOrb,&
             & this%nKPoint * this%nSpin), source=(0.0_dp, 0.0_dp))
+        print *, '#5'
       else
         allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb, this%nOrb,&
             & size(this%parallelKS%localKS, dim=2)), source=(0.0_dp, 0.0_dp))
