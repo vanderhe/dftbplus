@@ -5,7 +5,7 @@ Geometry = GenFormat {
 Hamiltonian = DFTB {
 
   SCC = Yes
-  SCCTolerance = 1e-10
+  SCCTolerance = 1e-08
 
   Charge = 2
 
@@ -21,15 +21,15 @@ Hamiltonian = DFTB {
   }
 
   SpinPolarisation = Colinear {
-      UnpairedElectrons = 2
-      RelaxTotalSpin = Yes
+    UnpairedElectrons = 2
+    RelaxTotalSpin = Yes
   }
 
   Filling = Fermi {Temperature [K] = 0.0}
 
   Hybrid = LC {
     CoulombMatrix = Truncated {}
-    Screening = NeighbourBased {Threshold = 1e-100}
+    Screening = MatrixBased {}
   }
 
   KPointsAndWeights = SupercellFolding {
@@ -40,22 +40,22 @@ Hamiltonian = DFTB {
   }
 
   SpinConstants = {
-      C = {-0.023} # HOMO Wpp
-      H = {-0.072} # HOMO Wss
+    C = {-0.023} # HOMO Wpp
+    H = {-0.072} # HOMO Wss
   }
 
 }
 
 ParserOptions {
-    ParserVersion = 14
+  ParserVersion = 14
 }
 
 Options {
-    WriteAutotestTag = Yes
+  WriteAutotestTag = Yes
 }
 
 Parallel {
-  Groups = 2
+  Groups = 4
   # Allow OMP threads explicitely to test for hybrid parallelisation with
   # MPI-binary. (Check the manual before using this in production runs!)
   UseOmpThreads = Yes

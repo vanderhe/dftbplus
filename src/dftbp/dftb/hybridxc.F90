@@ -2537,11 +2537,8 @@ contains
 
     squareSize = size(deltaRhoSqr, dim=1)
     nS = size(iKiSToiGlobalKS, dim=2)
-    print *, 'nS', nS
     nK = size(kPoints, dim=2)
-    print *, 'nK', nK
     nKS = size(deltaRhoSqr, dim=3)
-    print *, 'nKS', nKS
 
     ! check and initialize screening
     if (.not. this%tScreeningInited) then

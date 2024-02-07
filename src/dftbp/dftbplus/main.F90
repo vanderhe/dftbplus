@@ -3365,6 +3365,9 @@ contains
             & size(densityMatrix%deltaRhoInCplx, dim=2), size(kPoint, dim=2)),&
             & source=(0.0_dp, 0.0_dp))
         do iKS = 1, parallelKS%nLocalKS
+          iSpin = parallelKS%localKS(2, iKS)
+          ! cycling in this case is crucial, since we allow more MPI groups than k-points
+          if (iSpin == 2) cycle
           iK = parallelKS%localKS(1, iKS)
           call env%globalTimer%startTimer(globalTimers%sparseToDense)
           call unpackHS(SSqrCplxCam(:,:, iK), ints%overlap, kPoint(:, iK),&
@@ -3382,15 +3385,15 @@ contains
       ! Get CAM-Hamiltonian contribution for all spins/k-points
       ! print *, 'start Ham'
       ! print *, 'SSqrCplxCam(1,1,1)', SSqrCplxCam(1,1,1)
-      ! print *, 'SSqrCplxCam(3,5,3)', SSqrCplxCam(3,5,3)
+      ! print *, 'SSqrCplxCam(3,5,2)', SSqrCplxCam(3,5,2)
       ! print *, 'densityMatrix%deltaRhoInCplx(1,1,1)', densityMatrix%deltaRhoInCplx(1,1,1)
-      ! print *, 'densityMatrix%deltaRhoInCplx(3,5,3)', densityMatrix%deltaRhoInCplx(3,5,3)
+      ! print *, 'densityMatrix%deltaRhoInCplx(3,5,2)', densityMatrix%deltaRhoInCplx(3,5,2)
       call hybridXc%getCamHamiltonian_kpts(env, densityMatrix, symNeighbourList, nNeighbourCamSym,&
           & rCellVecs, cellVec, denseDesc%iAtomStart, orb, kPoint, kWeight, HSqrCplxCam, errStatus,&
           & SSqrCplxCam=SSqrCplxCam)
       @:PROPAGATE_ERROR(errStatus)
       ! print *, 'HSqrCplxCam(1,1,1)', HSqrCplxCam(1,1,1)
-      ! print *, 'HSqrCplxCam(3,5,3)', HSqrCplxCam(3,5,3)
+      ! print *, 'HSqrCplxCam(3,5,2)', HSqrCplxCam(3,5,2)
       ! print *, 'end Ham'
     end if
 
@@ -4816,6 +4819,9 @@ contains
         if (hybridXc%hybridXcAlg == hybridXcAlgo%matrixBased) then
           if (env%tGlobalLead) then
             call TMixerCmplx_mix(pChrgMixerCmplx, densityMatrix%deltaRhoInCplx, deltaRhoDiffSqrCplx)
+            do iKS = 1, size(densityMatrix%deltaRhoInCplx, dim=3)
+              call blockHermitianHS(densityMatrix%deltaRhoInCplx(:,:, iKS), denseDesc%iAtomStart)
+            end do
           end if
         #:if WITH_MPI
           call mpifx_bcast(env%mpi%globalComm, densityMatrix%deltaRhoInCplx)
