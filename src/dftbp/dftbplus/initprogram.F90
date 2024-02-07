@@ -2800,7 +2800,8 @@ contains
 
     end if
 
-    call this%initializeCharges(errStatus, input%ctrl%initialSpins, input%ctrl%initialCharges)
+    call this%initializeCharges(errStatus, initialSpins=input%ctrl%initialSpins,&
+        & initialCharges=input%ctrl%initialCharges, hybridXcAlg=input%ctrl%hybridXcInp%hybridXcAlg)
     if (errStatus%hasError()) then
       call error(errStatus%message)
     end if
@@ -4157,8 +4158,7 @@ contains
 
 
   !> Initialise partial charges
-  !>
-  subroutine initializeCharges(this, errStatus, initialSpins, initialCharges)
+  subroutine initializeCharges(this, errStatus, initialSpins, initialCharges, hybridXcAlg)
 
     !> Instance
     class(TDftbPlusMain), intent(inout) :: this
@@ -4171,6 +4171,9 @@ contains
 
     !> Set of atom-resolved atomic charges
     real(dp), optional, intent(in) :: initialCharges(:)
+
+    !> Hybrid Hamiltonian construction algorithm
+    integer, intent(in), optional :: hybridXcAlg
 
     !> Tolerance in difference between total charge and sum of initial charges
     real(dp), parameter :: deltaChargeTol = 1.e-4_dp
@@ -4253,21 +4256,24 @@ contains
       if (this%tFixEf .or. this%tSkipChrgChecksum) then
         ! do not check charge or magnetisation from file
         call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-            & this%qiBlockIn, this%densityMatrix, this%tRealHS, errStatus,&
-            & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
+            & this%qiBlockIn, this%densityMatrix, this%tRealHS, this%nKpoint, errStatus,&
+            & multipoles=this%multipoleInp, hybridXcAlg=hybridXcAlg,&
+            & coeffsAndShifts=this%supercellFoldingMatrix)
         @:PROPAGATE_ERROR(errStatus)
       else
         ! check number of electrons in file
         if (this%nSpin /= 2) then
           call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-              & this%qiBlockIn, this%densityMatrix, this%tRealHS, errStatus, nEl=sum(this%nEl),&
-              & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
+              & this%qiBlockIn, this%densityMatrix, this%tRealHS, this%nKpoint, errStatus,&
+              & nEl=sum(this%nEl), multipoles=this%multipoleInp, hybridXcAlg=hybridXcAlg,&
+              & coeffsAndShifts=this%supercellFoldingMatrix)
           @:PROPAGATE_ERROR(errStatus)
         else
           ! check magnetisation in addition
           call initQFromFile(this%qInput, fCharges, this%tReadChrgAscii, this%orb, this%qBlockIn,&
-              & this%qiBlockIn, this%densityMatrix, this%tRealHS, errStatus, nEl=sum(this%nEl),&
-              & magnetisation=this%nEl(1)-this%nEl(2), multipoles=this%multipoleInp,&
+              & this%qiBlockIn, this%densityMatrix, this%tRealHS, this%nKpoint, errStatus,&
+              & nEl=sum(this%nEl), magnetisation=this%nEl(1)-this%nEl(2),&
+              & multipoles=this%multipoleInp, hybridXcAlg=hybridXcAlg,&
               & coeffsAndShifts=this%supercellFoldingMatrix)
           @:PROPAGATE_ERROR(errStatus)
         end if
@@ -6113,11 +6119,9 @@ contains
     !! Spin and k-point indices
     integer :: iSpin, iK
 
-    ! deallocate arrays, if already allocated
+    ! Deallocate arrays, if already allocated
     if (allocated(this%densityMatrix%deltaRhoOut))&
         & deallocate(this%densityMatrix%deltaRhoOut)
-    if (allocated(this%densityMatrix%deltaRhoInCplx))&
-        & deallocate(this%densityMatrix%deltaRhoInCplx)
     if (allocated(this%densityMatrix%deltaRhoOutCplx))&
         & deallocate(this%densityMatrix%deltaRhoOutCplx)
     if (allocated(this%densityMatrix%iKiSToiGlobalKS))&
@@ -6133,27 +6137,40 @@ contains
       allocate(this%densityMatrix%deltaRhoOut(nLocalRows, nLocalCols, nLocalKS), source=0.0_dp)
     elseif (this%tReadChrg .and. (.not. allocated(this%supercellFoldingDiag))) then
       ! in case of k-points and restart from file, we have to wait until charges.bin was read
-      if (.not. allocated(this%densityMatrix%deltaRhoInCplxHS)) then
-        allocate(this%densityMatrix%deltaRhoInCplxHS(0, 0, 0, 0, 0, 0), source=0.0_dp)
+      if (hybridXcAlg == hybridXcAlgo%matrixBased) then
+        if (.not. allocated(this%densityMatrix%deltaRhoInCplx)) then
+          allocate(this%densityMatrix%deltaRhoInCplx(0, 0, 0), source=(0.0_dp, 0.0_dp))
+        end if
+        allocate(this%densityMatrix%deltaRhoOutCplx(0, 0, 0), source=(0.0_dp, 0.0_dp))
+      else
+        if (.not. allocated(this%densityMatrix%deltaRhoInCplxHS)) then
+          allocate(this%densityMatrix%deltaRhoInCplxHS(0, 0, 0, 0, 0, 0), source=0.0_dp)
+        end if
+        allocate(this%densityMatrix%deltaRhoOutCplxHS(0, 0, 0, 0, 0, 0), source=0.0_dp)
       end if
-      allocate(this%densityMatrix%deltaRhoOutCplxHS(0, 0, 0, 0, 0, 0), source=0.0_dp)
     else
-      ! normal k-point case, without restart from file
-      if (.not. allocated(this%densityMatrix%deltaRhoInCplxHS)) then
-        allocate(this%densityMatrix%deltaRhoInCplxHS(this%nOrb, this%nOrb,&
-            & this%supercellFoldingDiag(1), this%supercellFoldingDiag(2),&
-            & this%supercellFoldingDiag(3), this%nIndepSpin), source=0.0_dp)
-      end if
+      ! Normal k-point case, without restart from file
+      if (hybridXcAlg == hybridXcAlgo%matrixBased) then
+        if (.not. allocated(this%densityMatrix%deltaRhoInCplx)) then
+          allocate(this%densityMatrix%deltaRhoInCplx(this%nOrb, this%nOrb,&
+              & this%nKPoint * this%nSpin), source=(0.0_dp, 0.0_dp))
+        end if
+      else
+        if (.not. allocated(this%densityMatrix%deltaRhoInCplxHS)) then
+          allocate(this%densityMatrix%deltaRhoInCplxHS(this%nOrb, this%nOrb,&
+              & this%supercellFoldingDiag(1), this%supercellFoldingDiag(2),&
+              & this%supercellFoldingDiag(3), this%nIndepSpin), source=0.0_dp)
+        end if
         allocate(this%densityMatrix%deltaRhoOutCplxHS(this%nOrb, this%nOrb,&
             & this%supercellFoldingDiag(1), this%supercellFoldingDiag(2),&
             & this%supercellFoldingDiag(3), this%nIndepSpin), source=0.0_dp)
+      end if
     end if
 
+    ! For all complex cases, allocate required deltaRhoOut
     if (.not. this%tRealHS) then
 
       if (hybridXcAlg == hybridXcAlgo%matrixBased) then
-        allocate(this%densityMatrix%deltaRhoInCplx(this%nOrb, this%nOrb,&
-            & this%nKPoint * this%nSpin), source=(0.0_dp, 0.0_dp))
         allocate(this%densityMatrix%deltaRhoOutCplx(this%nOrb, this%nOrb,&
             & this%nKPoint * this%nSpin), source=(0.0_dp, 0.0_dp))
       else

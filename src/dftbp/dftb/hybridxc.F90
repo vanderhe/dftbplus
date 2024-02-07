@@ -85,14 +85,17 @@ module dftbp_dftb_hybridxc
   !> Enumerator for algorithms to build up the Fock-type exchange contribution to the Hamiltonian.
   type :: THybridXcAlgoEnum
 
+    !> None
+    integer :: none = 0
+
     !> Neighbour based
-    integer :: neighbourBased = 0
+    integer :: neighbourBased = 1
 
     !> Threshold based
-    integer :: thresholdBased = 1
+    integer :: thresholdBased = 2
 
     !> Matrix based
-    integer :: matrixBased = 2
+    integer :: matrixBased = 3
 
   end type THybridXcAlgoEnum
 

@@ -8056,6 +8056,7 @@ contains
     else
 
       hybridXcInputTag = hybridXcFunc%none
+      input%hybridXcAlg = hybridXcAlgo%none
 
     end if
 

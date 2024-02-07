@@ -305,7 +305,8 @@ contains
       if (tWriteCharges) then
         call writeCharges(fCharges, this%tWriteChrgAscii, this%orb, this%qInput, this%qBlockIn,&
             & this%qiBlockIn, this%densityMatrix, this%tRealHS, size(this%iAtInCentralRegion),&
-            & multipoles=this%multipoleInp, coeffsAndShifts=this%supercellFoldingMatrix)
+            & this%hybridXc%hybridXcAlg, coeffsAndShifts=this%supercellFoldingMatrix,&
+            & multipoles=this%multipoleInp)
       end if
 
       if (this%tDipole.and.allocated(this%derivDriver)) then
@@ -1011,7 +1012,8 @@ contains
       if (tWriteSccRestart) then
         call writeCharges(fCharges, this%tWriteChrgAscii, this%orb, this%qInput, this%qBlockIn,&
             & this%qiBlockIn, this%densityMatrix, this%tRealHS, size(this%iAtInCentralRegion),&
-            & coeffsAndShifts=this%supercellFoldingMatrix, multipoles=this%multipoleInp)
+            & this%hybridXc%hybridXcAlg, coeffsAndShifts=this%supercellFoldingMatrix,&
+            & multipoles=this%multipoleInp)
       end if
 
     end if
