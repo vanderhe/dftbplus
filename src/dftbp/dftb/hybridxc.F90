@@ -103,6 +103,9 @@ module dftbp_dftb_hybridxc
   !> Enumerator for gamma function types.
   type :: THybridXcGammaTypesEnum
 
+    !> None
+    integer :: none = 0
+
     !> Full, unaltered gamma function (full)
     integer :: full = 1
 

@@ -2812,7 +2812,7 @@ contains
     end if
 
     call this%initializeCharges(errStatus, initialSpins=input%ctrl%initialSpins,&
-        & initialCharges=input%ctrl%initialCharges, hybridXcAlg=input%ctrl%hybridXcInp%hybridXcAlg)
+        & initialCharges=input%ctrl%initialCharges, hybridXcAlg=this%hybridXcAlg)
     if (errStatus%hasError()) then
       call error(errStatus%message)
     end if
