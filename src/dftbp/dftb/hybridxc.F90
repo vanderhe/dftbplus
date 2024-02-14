@@ -208,7 +208,7 @@ module dftbp_dftb_hybridxc
     logical :: tREKS
 
     !> Algorithm for RSH-Hamiltonian construction (and, if applicable, force calculation)
-    integer :: hybridXcAlg
+    integer :: hybridXcAlg = hybridXcFunc%none
 
     !> Hybrid xc-functional type, as extracted from SK-file(s)
     integer :: hybridXcType
@@ -248,7 +248,7 @@ module dftbp_dftb_hybridxc
     integer, allocatable :: coeffsDiag(:)
 
     !> Gamma function type (mostly for periodic cases; 'full' for non-periodic systems)
-    integer :: gammaType
+    integer :: gammaType = hybridXcGammaTypes%none
 
     !> Wigner-Seitz grid points in units of lattice vectors
     integer, allocatable :: wsVectors(:,:)
