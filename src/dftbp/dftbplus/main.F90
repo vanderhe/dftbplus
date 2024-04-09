@@ -1089,6 +1089,8 @@ contains
 
     integer :: iKS, iConstrIter, nConstrIter
 
+    real(dp) :: startTimeScc, endTimeScc
+
     if (this%tDipole) allocate(dipoleTmp(3))
 
     call env%globalTimer%startTimer(globalTimers%preSccInit)
@@ -1346,6 +1348,7 @@ contains
       ! Standard spin free or unrestricted DFTB
 
       lpSCC: do iSccIter = 1, this%maxSccIter
+        call cpu_time(startTimeScc)
 
         if (allocated(this%elecConstraint)) then
           nConstrIter = this%elecConstraint%getMaxIter()
@@ -1460,6 +1463,11 @@ contains
         call sumEnergies(this%dftbEnergy(this%deltaDftb%iDeterminant))
 
         call sccLoopWriting(this, iGeoStep, iLatGeoStep, iSccIter, diffElec, sccErrorQ)
+        call cpu_time(endTimeScc)
+        print *, ''
+        print *, 'CPU-time SCC cycle:', iSccIter
+        print *, endTimeScc - startTimeScc
+        print *, ''
 
         if (tConverged .or. tStopScc) exit lpSCC
 

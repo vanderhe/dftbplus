@@ -1454,6 +1454,8 @@ contains
     !> Error status
     type(TStatus), intent(inout) :: errStatus
 
+    real(dp) :: startTimeHam, endTimeHam
+
     call env%globalTimer%startTimer(globalTimers%hybridXcH)
 
     select case(this%hybridXcAlg)
@@ -1469,7 +1471,14 @@ contains
       call addCamHamiltonianNeighbour_real(this, deltaRhoSqr, overSparse, iNeighbour,&
           & nNeighbourCam, iSquare, iPair, orb, img2CentCell, HSqrReal)
     case (hybridXcAlgo%matrixBased)
+      print *, ''
+      print *, 'Start Hamiltonian construction (matrix-based)...'
+      call cpu_time(startTimeHam)
       call addCamHamiltonianMatrix_real(this, iSquare, SSqrReal, deltaRhoSqr, HSqrReal)
+      call cpu_time(endTimeHam)
+      print *, 'Hamiltonian construction (matrix-based):'
+      print *, endTimeHam - startTimeHam
+      print *, ''
     end select
 
     call env%globalTimer%stopTimer(globalTimers%hybridXcH)
@@ -4897,6 +4906,12 @@ contains
     !> Nr. of neighbours for each atom
     integer, intent(in), optional :: nNeighbourCamSym(:)
 
+    real(dp) :: startTimeMat, endTimeMat
+
+    print *, ''
+    print *, 'Start force evaluation (matrix-based)...'
+    call cpu_time(startTimeMat)
+
     if (tPeriodic) then
       call this%tabulateCamdGammaEval0_gamma()
     else
@@ -4918,6 +4933,11 @@ contains
       call addCamGradientsMatrix_real(this, deltaRhoSqr, SSqrReal, skOverCont,&
           & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, gradients)
     end select
+
+    call cpu_time(endTimeMat)
+    print *, 'CPU-time force evaluation (matrix-based):'
+    print *, endTimeMat - startTimeMat
+    print *, ''
 
   end subroutine addCamGradients_real
 
