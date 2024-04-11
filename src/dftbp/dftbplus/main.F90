@@ -1464,10 +1464,12 @@ contains
 
         call sccLoopWriting(this, iGeoStep, iLatGeoStep, iSccIter, diffElec, sccErrorQ)
         call cpu_time(endTimeScc)
-        print *, ''
-        print *, 'CPU-time SCC cycle:', iSccIter
-        print *, endTimeScc - startTimeScc
-        print *, ''
+        if (env%tGlobalLead) then
+          print *, ''
+          print *, 'CPU-time SCC cycle:', iSccIter
+          print *, endTimeScc - startTimeScc
+          print *, ''
+        end if
 
         if (tConverged .or. tStopScc) exit lpSCC
 
