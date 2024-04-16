@@ -3173,6 +3173,8 @@ contains
 
     integer :: iKS, iSpin
 
+    real(dp) :: startTimeDiag, endTimeDiag
+
     eigen(:,:) = 0.0_dp
 
     do iKS = 1, parallelKS%nLocalKS
@@ -3228,8 +3230,16 @@ contains
       end if
 
       ! Warning: SSqrReal gets overwritten here
+      call cpu_time(startTimeDiag)
       call diagDenseMtx(env, electronicSolver, 'V', HSqrReal, SSqrReal, eigen(:, iSpin),&
           & errStatus)
+      call cpu_time(endTimeDiag)
+      if (env%tGlobalLead) then
+        print *, ''
+        print *, 'CPU-time diagonalization:'
+        print *, endTimeDiag - startTimeDiag
+        print *, ''
+      end if
       @:PROPAGATE_ERROR(errStatus)
       eigvecsReal(:,:,iKS) = HSqrReal
     #:endif
