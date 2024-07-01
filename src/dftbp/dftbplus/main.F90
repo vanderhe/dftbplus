@@ -1747,10 +1747,12 @@ contains
               & this%orb, this%potential, this%coord, this%latVec, this%invLatVec,&
               & this%cellVol, this%coord0, this%totalStress, this%totalLatDeriv,&
               & this%intPressure, this%iRhoPrim, this%solvation, this%dispersion,&
-              & this%halogenXCorrection, this%deltaDftb, this%tripletStress, this%mixedStress)
+              & this%halogenXCorrection, this%deltaDftb, this%hybridXc, this%densityMatrix,&
+              & this%SSqrReal, this%ints, this%denseDesc, this%symNeighbourList,&
+              & this%nNeighbourCamSym, this%tRealHS, this%tPeriodic, errStatus,&
+              & tripletStress=this%tripletStress, mixedStress=this%mixedStress)
         end if
         call env%globalTimer%stopTimer(globalTimers%stressCalc)
-
       end if
 
     end if
@@ -6785,7 +6787,9 @@ contains
       & ERhoPrim, qOutput, q0, skHamCont, skOverCont, repulsive, neighbourList, nNeighbourSk,&
       & species, img2CentCell, iSparseStart, orb, potential, coord, latVec, invLatVec,&
       & cellVol, coord0, totalStress, totalLatDeriv, intPressure, iRhoPrim, solvation,&
-      & dispersion, halogenXCorrection, deltaDftb, tripletStress, mixedStress)
+      & dispersion, halogenXCorrection, deltaDftb, hybridXc, densityMatrix, SSqrReal, ints,&
+      & denseDesc, symNeighbourList, nNeighbourCamSym, tRealHS, tPeriodic, errStatus,&
+      & tripletStress, mixedStress)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -6886,6 +6890,36 @@ contains
     !> Determinant derived type
     type(TDftbDeterminants), intent(in) :: deltaDftb
 
+    !> Data from hybrid xc-functional calculations
+    class(THybridXcFunc), intent(inout), allocatable :: hybridXc
+
+    !> Holds real and complex delta density matrices
+    type(TDensityMatrix), intent(in) :: densityMatrix
+
+    !> Dense overlap matrix, required for hybridXc
+    real(dp), intent(inout), allocatable :: SSqrReal(:,:)
+
+    !> Integral container
+    type(TIntegral), intent(in) :: ints
+
+    !> Dense matrix descriptor, required for hybridXc
+    type(TDenseDescr), intent(in) :: denseDesc
+
+    !> List of neighbouring atoms (symmetric version)
+    type(TSymNeighbourList), intent(in), allocatable :: symNeighbourList
+
+    !> Symmetric neighbour list version of nNeighbourCam
+    integer, intent(in), allocatable :: nNeighbourCamSym(:)
+
+    !> Is the hamiltonian real (no k-points/molecule/gamma point)?
+    logical, intent(in) :: tRealHS
+
+    !> Is the geometry periodic
+    logical, intent(in) :: tPeriodic
+
+    !> Error status
+    type(TStatus), intent(inout) :: errStatus
+
     !> Stress tensor in triplet state (TI-DFTB excited states)
     real(dp), intent(inout), optional :: tripletStress(:,:)
 
@@ -6927,6 +6961,21 @@ contains
               & skOverCont, coord, species, neighbourList%iNeighbour, nNeighbourSK, img2CentCell,&
               & iSparseStart, orb, cellVol)
         end if
+      end if
+    end if
+
+    if (allocated(hybridXc)) then
+      if (tRealHS .and. tPeriodic) then
+      #:if WITH_SCALAPACK
+        @:RAISE_ERROR(errStatus, -1, "Range-separated stress does not support MPI parallelism.")
+      #:else
+        call unpackHS(SSqrReal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK,&
+            & denseDesc%iAtomStart, iSparseStart, img2CentCell)
+        call hybridXc%addCamStress_real(densityMatrix%deltaRhoOut, SSqrReal, skOverCont, orb,&
+            & denseDesc%iAtomStart, nonSccDeriv, symNeighbourList, nNeighbourCamSym, cellVol,&
+            & totalStress, errStatus)
+        @:PROPAGATE_ERROR(errStatus)
+      #:endif
       end if
     end if
 
