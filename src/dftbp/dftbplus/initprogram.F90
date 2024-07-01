@@ -1514,7 +1514,7 @@ contains
     if (input%ctrl%parallelOpts%nGroup > 1 .and. this%isLinResp) then
       call error("Multiple MPI groups not available for excited state calculations")
     end if
-    
+
     call env%initMpi(input%ctrl%parallelOpts%nGroup)
 
     if (this%isHybridXc) then
@@ -2110,8 +2110,15 @@ contains
 
     ! requires stress to already be possible and it being a periodic calculation
     ! with forces
-    this%tStress = (this%tPeriodic .and. this%tForces .and. .not.this%tNegf .and. this%tStress&
-        & .and. .not. this%isHybridXc)
+    this%tStress = (this%tPeriodic .and. this%tForces .and. .not.this%tNegf .and. this%tStress)
+
+    ! hybrid stress only supported for Gamma-only and the matrix-based algorithm
+    if (this%isHybridXc) then
+      if ((.not. this%tRealHS)&
+          & .or. input%ctrl%hybridXcInp%hybridXcAlg /= hybridXcAlgo%matrixBased) then
+        this%tStress = .false.
+      end if
+    end if
 
     this%nMovedAtom = input%ctrl%nrMoved
     this%nMovedCoord = 3 * this%nMovedAtom
