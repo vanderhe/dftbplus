@@ -2952,6 +2952,7 @@ contains
     if (this%tPeriodic .or. this%tHelical) then
       call getCellTranslations(this%cellVec, this%rCellVec, this%latVec, this%invLatVec,&
           & this%cutOff%mCutOff)
+      print *, 'this%cutOff%mCutOff', this%cutOff%mCutOff
     else
       allocate(this%cellVec(3, 1), source=0.0_dp)
       allocate(this%rCellVec(3, 1), source=0.0_dp)

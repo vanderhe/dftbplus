@@ -11,7 +11,7 @@
 
 !> Contains hybrid xc-functional related routines.
 module dftbp_dftb_hybridxc
-  use dftbp_common_accuracy, only : dp
+  use dftbp_common_accuracy, only : dp, tolSameDist
   use dftbp_common_constants, only : pi, imag
   use dftbp_common_environment, only : TEnvironment, globalTimers
   use dftbp_common_schedule, only : getStartAndEndIndex
@@ -4531,6 +4531,7 @@ contains
       loopGLr: do iG = 1, size(rCellVecsG, dim=2)
         distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
         dist = norm2(distVect)
+        if (dist < tolSameDist) cycle
         distVect(:) = distVect * distVect(iCoordDist) / dist
         dGamma(:) = dGamma + distVect * this%camBeta * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
       end do loopGLr
@@ -4540,6 +4541,7 @@ contains
       loopGHf: do iG = 1, size(rCellVecsG, dim=2)
         distVect(:) = this%rCoords(:, iAt1) - (this%rCoords(:, iAt2) + rCellVecsG(:, iG))
         dist = norm2(distVect)
+        if (dist < tolSameDist) cycle
         distVect(:) = distVect * distVect(iCoordDist) / dist
         dGamma(:) = dGamma + distVect * this%camAlpha * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
       end do loopGHf
@@ -6105,6 +6107,11 @@ contains
     !! Number of orbitals in square matrices
     integer :: nOrb
 
+    integer :: descAt1(descLen), descAt2(descLen)
+    integer :: iAt2fold, iNeigh
+    real(dp) :: distVect
+    real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3)
+
     @:ASSERT(all(shape(st) == [3, 3]))
 
     nAtom0 = size(this%species0)
@@ -6122,8 +6129,6 @@ contains
     do iSpin = 1, nSpin
       call adjointLowerTriangle(deltaRhoSqrSym(:,:, iSpin))
     end do
-
-    print *, maxval(abs(deltaRhoSqrSym))
 
     ! get CAM \tilde{gamma} super-matrix
     do iAt2 = 1, nAtom0
@@ -6174,32 +6179,80 @@ contains
 
     allocate(overSqrPrime(3, nOrb, nOrb))
     tmpSt(:,:) = 0.0_dp
+    iSpin = 1
+
+    ! do iCoordAlpha = 1, 3
+    !   do iCoordBeta = 1, 3
+    !     overSqrPrime(:,:,:) = 0.0_dp
+    !     do iAtStress = 1, nAtom0
+    !       call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
+    !           & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
+    !     end do
+    !     tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+    !         & - sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
+    !   end do
+    ! end do
 
     loopStressAtom: do iAtStress = 1, nAtom0
+
       do iCoordAlpha = 1, 3
-        ! return beta-resolved derivatives for distance vector component alpha
-        call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
-            & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
-        call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
-        do iSpin = 1, nSpin
+
+        descAt1 = getDescriptor(iAtStress, iSquare)
+        do iNeigh = 1, nNeighbourCamSym(iAtStress)
+          iAt2 = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtStress)
+          iAt2fold = symNeighbourList%img2CentCell(iAt2)
+          descAt2 = getDescriptor(iAt2fold, iSquare)
+          distVect = this%rCoords(iCoordAlpha, iAtStress) - this%rCoords(iCoordAlpha, iAt2)
+          ! distVect = 1.0_dp
+          overPrime(:,:,:) = 0.0_dp
+          overSqrPrime(:,:,:) = 0.0_dp
+          call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords, symNeighbourList%species,&
+              & iAtStress, iAt2, orb)
           do iCoordBeta = 1, 3
-            ! first term of Eq.(B5)
-            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-                & - sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
-            ! second term of Eq.(B5)
-            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-                & - 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
+            overSqrPrime(iCoordBeta, descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd))&
+                & = distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), iCoordBeta)
           end do
+
+          do iCoordBeta = 1, 3
+            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+                & + 0.5_dp * sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
+            if (iCoordBeta == 3 .and. iCoordAlpha == 3) then
+              print *, 'Distance vector component:', distVect
+              print *, 'Force:', 0.5_dp * sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
+            end if
+          end do
+
         end do
       end do
+
+
+
+      ! do iCoordAlpha = 1, 3
+      !   ! return beta-resolved derivatives for distance vector component alpha
+      !   call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
+      !       & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
+      !   call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
+      !   do iSpin = 1, nSpin
+      !     do iCoordBeta = 1, 3
+      !       ! first term of Eq.(B5)
+      !       tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+      !           & + sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
+      !       ! second term of Eq.(B5)
+      !       tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+      !           & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
+      !     end do
+      !   end do
+      ! end do
     end do loopStressAtom
 
+    print *, 'cellVol', cellVol
+
     ! we absorbed an additional factor of 0.5 from the forces
-    tmpSt(:,:) = -0.25_dp * nSpin * tmpSt / cellVol
+    tmpSt(:,:) = -0.5_dp * nSpin * tmpSt / cellVol
 
     ! add hybrid stress contribution to the total stress
     print *, tmpSt
-    st(:,:) = st + tmpSt
+    ! st(:,:) = st + tmpSt
 
   end subroutine addCamStressMatrix_real
 
@@ -6253,7 +6306,7 @@ contains
     descAt1 = getDescriptor(iAtomPrime, iSquare)
     iSpPrime = this%species0(iAtomPrime)
     do iAt2 = 1, nAtom0
-      if (iAtomPrime == iAt2) cycle
+      ! if (iAtomPrime == iAt2) cycle
       iSp2 = this%species0(iAt2)
       descAt2 = getDescriptor(iAt2, iSquare)
       dGammaStress(:) = getCamGammaStressGSum(this, iCoordDist, iAtomPrime, iAt2, iSpPrime, iSp2,&
