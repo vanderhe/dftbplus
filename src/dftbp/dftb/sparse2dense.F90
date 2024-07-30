@@ -3384,9 +3384,6 @@ contains
     !! Atom to calculate energy gradient components for
     integer :: iAt2, iAt2fold, iNeigh
 
-    !! Iterates over coordinates
-    integer :: iCoord
-
     overSqrPrime(:,:,:) = 0.0_dp
 
     descAt1 = getDescriptor(iAtomPrime, iSquare)
@@ -3400,11 +3397,9 @@ contains
       overPrime(:,:,:) = 0.0_dp
       call derivator%getFirstDeriv(overPrime, skOverCont, rCoords, symNeighbourList%species,&
             & iAtomPrime, iAt2, orb)
-      do iCoord = 1, 3
-        overSqrPrime(iCoord, descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd))&
-            & = overSqrPrime(iCoord, descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd))&
-            & + distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), iCoord)
-      end do
+      overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), :)&
+          & = overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), :)&
+          & + distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), :)
     end do
 
   end subroutine getUnpackedOverlapStress_real

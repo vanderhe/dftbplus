@@ -207,8 +207,8 @@ def calculate_forces(binary, disp, coords, specienames, species, origin,
                 fp = open("autotest.tag", "r")
                 txt = fp.read()
                 fp.close()
-                match = ENERGY_PATTERN.search(txt)
                 print("iat: %2d, dir: %s, delta: %s" % (iat + 1, cart[coord], delta[jj]))
+                match = ENERGY_PATTERN.search(txt)
                 if match:
                     energy[jj] = float(match.group("value"))
                     print("energy:", energy[jj])
@@ -242,11 +242,11 @@ def calculate_latderivs(binary, disp, coords, latvecs, specienames, species,
                 fp = open("autotest.tag", "r")
                 txt = fp.read()
                 fp.close()
-                match = ENERGY_PATTERN.search(txt)
                 print("dir: %s, ilatvec: %2d, delta: %s" % (cart[coord], jj + 1, delta[kk]))
-                print("energy:", energy[kk])
+                match = ENERGY_PATTERN.search(txt)
                 if match:
                     energy[kk] = float(match.group("value"))
+                    print("energy:", energy[kk])
                 else:
                     raise ValueError("No energy match found in autotest.tag!")
             latderivs[jj][ii] = (energy[1] - energy[0]) / (2.0 * disp)
