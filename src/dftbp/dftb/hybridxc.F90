@@ -5628,10 +5628,10 @@ contains
     !! Overlap derivative
     real(dp), allocatable :: overSqrPrime(:,:,:)
 
-    !! Atom indices (central cell)
-    integer :: iAtForce, iAt1, iAt2
+    !! Atom index (central cell)
+    integer :: iAtForce
 
-    !! CAM gamma matrix, including periodic images
+    !! CAM gamma (derivative) matrix, including periodic images
     real(dp), allocatable :: camGammaAO(:,:), camdGammaAO(:,:,:)
 
     !! Temporary storages
@@ -5801,6 +5801,110 @@ contains
 
 #:else
 
+  !> Auxiliary routine to construct the two symmetrized matrices of the force evaluation.
+  !! (non-periodic and Gamma-only version)
+  !!
+  !! See Eq.(B5) of Phys. Rev. Materials 7, 063802 (DOI: 10.1103/PhysRevMaterials.7.063802)
+  subroutine getSymGradMats(camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
+
+    !> Evaluated (long-range + HF full-range) gamma of Atom1 and Atom2 (central cell only)
+    real(dp), intent(in) :: camGammaEval0(:,:)
+
+    !> Square (unpacked) delta density matrix
+    real(dp), intent(in) :: deltaRhoSqr(:,:,:)
+
+    !> Square (unpacked) overlap matrix
+    real(dp), intent(in) :: overlap(:,:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> Symmetrized matrices entering the gradient/force evaluation
+    real(dp), intent(out), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    !! Atom indices (central cell)
+    integer :: iAt1, iAt2
+
+    !! CAM gamma matrix, including periodic images
+    real(dp), allocatable :: camGammaAO(:,:)
+
+    !! Symmetrized, square (unpacked) overlap matrix
+    real(dp), allocatable :: overlapSym(:,:)
+
+    !! Symmetrized, square (unpacked) delta density matrix
+    real(dp), allocatable :: deltaRhoSqrSym(:,:,:)
+
+    !! Temporary storages
+    real(dp), allocatable :: symSqrMat2Tmp(:,:), deltaRhoOverlap(:,:,:)
+
+    !! Spin index and total number of spin channels
+    integer :: iSpin, nSpin
+
+    !! Number of orbitals in square matrices
+    integer :: nOrb
+
+    nAtom0 = size(camGammaEval0, dim=1)
+    nSpin = size(deltaRhoSqr, dim=3)
+    nOrb = size(overlap, dim=1)
+
+    ! allocate CAM \tilde{gamma}
+    allocate(camGammaAO(nOrb, nOrb))
+
+    ! symmetrize square overlap and density matrix
+    overlapSym = overlap
+    call adjointLowerTriangle(overlapSym)
+    deltaRhoSqrSym = deltaRhoSqr
+    do iSpin = 1, nSpin
+      call adjointLowerTriangle(deltaRhoSqrSym(:,:, iSpin))
+    end do
+
+    ! get CAM \tilde{gamma} super-matrix
+    do iAt2 = 1, nAtom0
+      do iAt1 = 1, nAtom0
+        camGammaAO(iSquare(iAt1):iSquare(iAt1 + 1) - 1, iSquare(iAt2):iSquare(iAt2 + 1) - 1)&
+            & = camGammaEval0(iAt1, iAt2)
+      end do
+    end do
+
+    ! pre-calculate deltaRho * overlap
+    allocate(deltaRhoOverlap, mold=deltaRhoSqrSym)
+    do iSpin = 1, nSpin
+      call symm(deltaRhoOverlap(:,:, iSpin), "l", deltaRhoSqrSym(:,:, iSpin), overlapSym)
+    end do
+
+    ! calculate first symmetrized square matrix of Eq.(B5)
+    allocate(symSqrMat1, mold=deltaRhoSqrSym)
+    do iSpin = 1, nSpin
+      call gemm(symSqrMat1(:,:, iSpin),&
+          & deltaRhoOverlap(:,:, iSpin),&
+          & deltaRhoSqrSym(:,:, iSpin) * camGammaAO)
+      call gemm(symSqrMat1(:,:, iSpin),&
+          & deltaRhoOverlap(:,:, iSpin) * camGammaAO,&
+          & deltaRhoSqrSym(:,:, iSpin),&
+          & beta=1.0_dp)
+      ! symmetrize temporary storage
+      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+    end do
+
+    ! free some memory
+    deallocate(camGammaAO)
+
+    ! calculate second symmetrized square matrix of Eq.(B5)
+    ! this term is already symmetric, therefore drop the symmetrization operation at the end
+    allocate(symSqrMat2, mold=deltaRhoSqrSym)
+    allocate(symSqrMat2Tmp(size(symSqrMat2, dim=1), size(symSqrMat2, dim=1)))
+    do iSpin = 1, nSpin
+      symSqrMat2(:,:, iSpin) = transpose(deltaRhoOverlap(:,:, iSpin)) * deltaRhoOverlap(:,:, iSpin)
+      call gemm(symSqrMat2Tmp, overlapSym, deltaRhoOverlap(:,:, iSpin))
+      symSqrMat2(:,:, iSpin) = symSqrMat2(:,:, iSpin) + symSqrMat2Tmp * deltaRhoSqrSym(:,:, iSpin)
+    end do
+
+  end subroutine getSymGradMats
+
+
   !> Adds CAM gradients due to CAM range-separated contributions, using a matrix-based formulation.
   !! (non-periodic and Gamma-only version)
   !!
@@ -5855,21 +5959,14 @@ contains
     !! Overlap derivative
     real(dp), allocatable :: overSqrPrime(:,:,:)
 
-    !! Atom indices (central cell)
-    integer :: iAtForce, iAt1, iAt2
+    !! Atom index (central cell)
+    integer :: iAtForce
 
-    !! CAM gamma matrix, including periodic images
-    real(dp), allocatable :: camGammaAO(:,:), camdGammaAO(:,:,:)
-
-    !! Symmetrized, square (unpacked) overlap matrix
-    real(dp), allocatable :: overlapSym(:,:)
-
-    !! Symmetrized, square (unpacked) delta density matrix
-    real(dp), allocatable :: deltaRhoSqrSym(:,:,:)
+    !! CAM gamma derivative matrix, including periodic images
+    real(dp), allocatable :: camdGammaAO(:,:,:)
 
     !! Temporary storages
-    real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:), symSqrMat2Tmp(:,:)
-    real(dp), allocatable :: deltaRhoOverlap(:,:,:)
+    real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
 
     !! Spin index and total number of spin channels
     integer :: iSpin, nSpin
@@ -5884,64 +5981,10 @@ contains
     nSpin = size(deltaRhoSqr, dim=3)
     nOrb = size(overlap, dim=1)
 
-    ! allocate CAM \tilde{gamma}
-    allocate(camGammaAO(nOrb, nOrb))
+    call getSymGradMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
+
+    ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
-
-    ! symmetrize square overlap and density matrix
-    overlapSym = overlap
-    call adjointLowerTriangle(overlapSym)
-    deltaRhoSqrSym = deltaRhoSqr
-    do iSpin = 1, nSpin
-      call adjointLowerTriangle(deltaRhoSqrSym(:,:, iSpin))
-    end do
-
-    ! get CAM \tilde{gamma} super-matrix
-    do iAt2 = 1, nAtom0
-      do iAt1 = 1, nAtom0
-        camGammaAO(iSquare(iAt1):iSquare(iAt1 + 1) - 1, iSquare(iAt2):iSquare(iAt2 + 1) - 1)&
-            & = this%camGammaEval0(iAt1, iAt2)
-      end do
-    end do
-
-    ! pre-calculate deltaRho * overlap
-    allocate(deltaRhoOverlap, mold=deltaRhoSqrSym)
-    do iSpin = 1, nSpin
-      call symm(deltaRhoOverlap(:,:, iSpin), "l", deltaRhoSqrSym(:,:, iSpin), overlapSym)
-    end do
-
-    ! calculate first symmetrized square matrix of Eq.(B5)
-    allocate(symSqrMat1, mold=deltaRhoSqrSym)
-    do iSpin = 1, nSpin
-      call gemm(symSqrMat1(:,:, iSpin),&
-          & deltaRhoOverlap(:,:, iSpin),&
-          & deltaRhoSqrSym(:,:, iSpin) * camGammaAO)
-      call gemm(symSqrMat1(:,:, iSpin),&
-          & deltaRhoOverlap(:,:, iSpin) * camGammaAO,&
-          & deltaRhoSqrSym(:,:, iSpin),&
-          & beta=1.0_dp)
-      ! symmetrize temporary storage
-      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
-    end do
-
-    ! free some memory
-    deallocate(camGammaAO)
-
-    ! calculate second symmetrized square matrix of Eq.(B5)
-    ! this term is already symmetric, therefore drop the symmetrization operation at the end
-    allocate(symSqrMat2, mold=deltaRhoSqrSym)
-    allocate(symSqrMat2Tmp(size(symSqrMat2, dim=1), size(symSqrMat2, dim=1)))
-    do iSpin = 1, nSpin
-      symSqrMat2(:,:, iSpin) = transpose(deltaRhoOverlap(:,:, iSpin)) * deltaRhoOverlap(:,:, iSpin)
-      call gemm(symSqrMat2Tmp, overlapSym, deltaRhoOverlap(:,:, iSpin))
-      symSqrMat2(:,:, iSpin) = symSqrMat2(:,:, iSpin) + symSqrMat2Tmp * deltaRhoSqrSym(:,:, iSpin)
-    end do
-
-    ! free some memory
-    deallocate(overlapSym)
-    deallocate(deltaRhoSqrSym)
-    deallocate(symSqrMat2Tmp)
-    deallocate(deltaRhoOverlap)
 
     allocate(overSqrPrime(3, nOrb, nOrb))
     allocate(tmpGradients, mold=gradients)
@@ -6027,21 +6070,14 @@ contains
     !! Cartesian direction indices (central cell)
     integer :: iCoordAlpha, iCoordBeta
 
-    !! Atom indices (central cell)
-    integer :: iAtStress, iAt1, iAt2
+    !! Atom index (central cell)
+    integer :: iAtStress
 
-    !! CAM gamma matrix, including periodic images
-    real(dp), allocatable :: camGammaAO(:,:), camdGammaAO(:,:,:)
-
-    !! Symmetrized, square (unpacked) overlap matrix
-    real(dp), allocatable :: overlapSym(:,:)
-
-    !! Symmetrized, square (unpacked) delta density matrix
-    real(dp), allocatable :: deltaRhoSqrSym(:,:,:)
+    !! CAM gamma derivative matrix, including periodic images
+    real(dp), allocatable :: camdGammaAO(:,:,:)
 
     !! Temporary storages
-    real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:), symSqrMat2Tmp(:,:)
-    real(dp), allocatable :: deltaRhoOverlap(:,:,:)
+    real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
 
     !! Spin index and total number of spin channels
     integer :: iSpin, nSpin
@@ -6049,10 +6085,10 @@ contains
     !! Number of orbitals in square matrices
     integer :: nOrb
 
-    integer :: descAt1(descLen), descAt2(descLen)
-    integer :: iAt2fold, iNeigh
-    real(dp) :: distVect
-    real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3)
+    ! integer :: descAt1(descLen), descAt2(descLen)
+    ! integer :: iAt2fold, iNeigh
+    ! real(dp) :: distVect
+    ! real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3)
 
     @:ASSERT(all(shape(st) == [3, 3]))
 
@@ -6060,68 +6096,14 @@ contains
     nSpin = size(deltaRhoSqr, dim=3)
     nOrb = size(overlap, dim=1)
 
-    ! allocate CAM \tilde{gamma}
-    allocate(camGammaAO(nOrb, nOrb))
+    call getSymGradMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
+
+    ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
-
-    ! symmetrize square overlap and density matrix
-    overlapSym = overlap
-    call adjointLowerTriangle(overlapSym)
-    deltaRhoSqrSym = deltaRhoSqr
-    do iSpin = 1, nSpin
-      call adjointLowerTriangle(deltaRhoSqrSym(:,:, iSpin))
-    end do
-
-    ! get CAM \tilde{gamma} super-matrix
-    do iAt2 = 1, nAtom0
-      do iAt1 = 1, nAtom0
-        camGammaAO(iSquare(iAt1):iSquare(iAt1 + 1) - 1, iSquare(iAt2):iSquare(iAt2 + 1) - 1)&
-            & = this%camGammaEval0(iAt1, iAt2)
-      end do
-    end do
-
-    ! pre-calculate deltaRho * overlap
-    allocate(deltaRhoOverlap, mold=deltaRhoSqrSym)
-    do iSpin = 1, nSpin
-      call symm(deltaRhoOverlap(:,:, iSpin), "l", deltaRhoSqrSym(:,:, iSpin), overlapSym)
-    end do
-
-    ! calculate first symmetrized square matrix of Eq.(B5)
-    allocate(symSqrMat1, mold=deltaRhoSqrSym)
-    do iSpin = 1, nSpin
-      call gemm(symSqrMat1(:,:, iSpin),&
-          & deltaRhoOverlap(:,:, iSpin),&
-          & deltaRhoSqrSym(:,:, iSpin) * camGammaAO)
-      call gemm(symSqrMat1(:,:, iSpin),&
-          & deltaRhoOverlap(:,:, iSpin) * camGammaAO,&
-          & deltaRhoSqrSym(:,:, iSpin),&
-          & beta=1.0_dp)
-      ! symmetrize temporary storage
-      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
-    end do
-
-    ! free some memory
-    deallocate(camGammaAO)
-
-    ! calculate second symmetrized square matrix of Eq.(B5)
-    ! this term is already symmetric, therefore drop the symmetrization operation at the end
-    allocate(symSqrMat2, mold=deltaRhoSqrSym)
-    allocate(symSqrMat2Tmp(size(symSqrMat2, dim=1), size(symSqrMat2, dim=1)))
-    do iSpin = 1, nSpin
-      symSqrMat2(:,:, iSpin) = transpose(deltaRhoOverlap(:,:, iSpin)) * deltaRhoOverlap(:,:, iSpin)
-      call gemm(symSqrMat2Tmp, overlapSym, deltaRhoOverlap(:,:, iSpin))
-      symSqrMat2(:,:, iSpin) = symSqrMat2(:,:, iSpin) + symSqrMat2Tmp * deltaRhoSqrSym(:,:, iSpin)
-    end do
-
-    ! free some memory
-    deallocate(overlapSym)
-    deallocate(deltaRhoSqrSym)
-    deallocate(symSqrMat2Tmp)
-    deallocate(deltaRhoOverlap)
 
     allocate(overSqrPrime(3, nOrb, nOrb))
     tmpSt(:,:) = 0.0_dp
-    iSpin = 1
+    ! iSpin = 1
 
     ! do iCoordAlpha = 1, 3
     !   do iCoordBeta = 1, 3
@@ -6137,60 +6119,60 @@ contains
 
     loopStressAtom: do iAtStress = 1, nAtom0
 
-      do iCoordAlpha = 1, 3
-
-        descAt1 = getDescriptor(iAtStress, iSquare)
-        do iNeigh = 1, nNeighbourCamSym(iAtStress)
-          iAt2 = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtStress)
-          iAt2fold = symNeighbourList%img2CentCell(iAt2)
-          descAt2 = getDescriptor(iAt2fold, iSquare)
-          distVect = this%rCoords(iCoordAlpha, iAtStress) - this%rCoords(iCoordAlpha, iAt2)
-          ! distVect = 1.0_dp
-          overPrime(:,:,:) = 0.0_dp
-          overSqrPrime(:,:,:) = 0.0_dp
-          call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords, symNeighbourList%species,&
-              & iAtStress, iAt2, orb)
-          do iCoordBeta = 1, 3
-            overSqrPrime(iCoordBeta, descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd))&
-                & = distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), iCoordBeta)
-          end do
-
-          do iCoordBeta = 1, 3
-            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-                & + 0.5_dp * sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
-            if (iCoordBeta == 3 .and. iCoordAlpha == 3) then
-              print *, 'Distance vector component:', distVect
-              print *, 'Force:', 0.5_dp * sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
-            end if
-          end do
-
-        end do
-      end do
-
-
-
       ! do iCoordAlpha = 1, 3
-      !   ! return beta-resolved derivatives for distance vector component alpha
-      !   call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
-      !       & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
-      !   call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
-      !   do iSpin = 1, nSpin
+
+      !   descAt1 = getDescriptor(iAtStress, iSquare)
+      !   do iNeigh = 1, nNeighbourCamSym(iAtStress)
+      !     iAt2 = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtStress)
+      !     iAt2fold = symNeighbourList%img2CentCell(iAt2)
+      !     descAt2 = getDescriptor(iAt2fold, iSquare)
+      !     distVect = this%rCoords(iCoordAlpha, iAtStress) - this%rCoords(iCoordAlpha, iAt2)
+      !     ! distVect = 1.0_dp
+      !     overPrime(:,:,:) = 0.0_dp
+      !     overSqrPrime(:,:,:) = 0.0_dp
+      !     call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords, symNeighbourList%species,&
+      !         & iAtStress, iAt2, orb)
       !     do iCoordBeta = 1, 3
-      !       ! first term of Eq.(B5)
-      !       tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-      !           & + sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
-      !       ! second term of Eq.(B5)
-      !       tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-      !           & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
+      !       overSqrPrime(iCoordBeta, descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd))&
+      !           & = distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), iCoordBeta)
       !     end do
+
+      !     do iCoordBeta = 1, 3
+      !       tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+      !           & + 0.5_dp * sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
+      !       if (iCoordBeta == 3 .and. iCoordAlpha == 3) then
+      !         print *, 'Distance vector component:', distVect
+      !         print *, 'Force:', 0.5_dp * sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
+      !       end if
+      !     end do
+
       !   end do
       ! end do
+
+
+
+      do iCoordAlpha = 1, 3
+        ! return beta-resolved derivatives for distance vector component alpha
+        call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
+            & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
+        call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
+        do iSpin = 1, nSpin
+          do iCoordBeta = 1, 3
+            ! first term of Eq.(B5)
+            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+                & + sum(overSqrPrime(iCoordBeta, :,:) * symSqrMat1(:,:, iSpin))
+            ! second term of Eq.(B5)
+            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+                & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
+          end do
+        end do
+      end do
     end do loopStressAtom
 
-    print *, 'cellVol', cellVol
+    ! print *, 'cellVol', cellVol
 
     ! we absorbed an additional factor of 0.5 from the forces
-    tmpSt(:,:) = -0.5_dp * nSpin * tmpSt / cellVol
+    tmpSt(:,:) = -0.25_dp * nSpin * tmpSt / cellVol
 
     ! add hybrid stress contribution to the total stress
     print *, tmpSt
