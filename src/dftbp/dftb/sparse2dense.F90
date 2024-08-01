@@ -3398,6 +3398,8 @@ contains
       ! if (iAtomPrime == iAt2fold) cycle
       descAt2 = getDescriptor(iAt2fold, iSquare)
       distVect = rCoords(iCoordDist, iAtomPrime) - rCoords(iCoordDist, iAt2)
+      ! ########### DEBUG #############
+      ! distVect = 1.0_dp
       overPrime(:,:,:) = 0.0_dp
       call derivator%getFirstDeriv(overPrime, skOverCont, rCoords, symNeighbourList%species,&
             & iAtomPrime, iAt2, orb)

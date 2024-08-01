@@ -4437,6 +4437,7 @@ contains
         dist = norm2(distVect)
         if (dist < tolSameDist) cycle
         distVect(:) = distVect * distVect(iCoordDist) / dist
+        ! distVect(:) = distVect / dist
         dGamma(:) = dGamma + distVect * this%camBeta * this%getLrGammaPrimeValue(iSp1, iSp2, dist)
       end do loopGLr
     end if
@@ -4447,6 +4448,7 @@ contains
         dist = norm2(distVect)
         if (dist < tolSameDist) cycle
         distVect(:) = distVect * distVect(iCoordDist) / dist
+        ! distVect(:) = distVect / dist
         dGamma(:) = dGamma + distVect * this%camAlpha * this%getHfGammaPrimeValue(iSp1, iSp2, dist)
       end do loopGHf
     end if
@@ -5977,6 +5979,9 @@ contains
     !! Iterates over coordinates
     integer :: iCoord
 
+    integer :: iAt1, iAt2, iCoordAlpha, iCoordBeta
+    real(dp) :: virial(3, 3)
+
     nAtom0 = size(this%species0)
     nSpin = size(deltaRhoSqr, dim=3)
     nOrb = size(overlap, dim=1)
@@ -6006,11 +6011,33 @@ contains
       end do
     end do loopForceAtom
 
+    print *, 'Force routine (virial)'
+    ! print *, 0.5_dp * nSpin * tmpGradients
+
     if (this%tREKS) then
       gradients(:,:) = gradients + tmpGradients
     else
       gradients(:,:) = gradients + 0.5_dp * nSpin * tmpGradients
     end if
+
+    ! ####### DEBUG ######
+    tmpGradients(:,:) = 0.5_dp * nSpin * tmpGradients
+
+    virial(:,:) = 0.0_dp
+
+    do iAt1 = 1, nAtom0
+      do iAt2 = 1, nAtom0
+        do iCoordAlpha = 1, 3
+          do iCoordBeta = 1, 3
+            virial(iCoordBeta, iCoordAlpha) = virial(iCoordBeta, iCoordAlpha)&
+                & - 0.5_dp * (this%rCoords(iCoordAlpha, iAt1) - this%rCoords(iCoordAlpha, iAt2))&
+                & * (-tmpGradients(iCoordBeta, iAt1)) ! we need force, not gradients for virial
+          end do
+        end do
+      end do
+    end do
+
+    print *, virial
 
   end subroutine addCamGradientsMatrix_real
 
@@ -6085,6 +6112,9 @@ contains
     !! Number of orbitals in square matrices
     integer :: nOrb
 
+    ! real(dp), allocatable :: tmpGradients(:,:)
+    ! real(dp) :: pref
+
     @:ASSERT(all(shape(st) == [3, 3]))
 
     nAtom0 = size(this%species0)
@@ -6099,8 +6129,12 @@ contains
     allocate(overSqrPrime(nOrb, nOrb, 3))
     tmpSt(:,:) = 0.0_dp
 
+    ! pref = -0.5_dp * nSpin
+    ! allocate(tmpGradients(3, nAtom0), source=0.0_dp)
+
     loopStressAtom: do iAtStress = 1, nAtom0
       do iCoordAlpha = 1, 3
+      ! do iCoordAlpha = 1, 1
         ! return beta-resolved derivatives for distance vector component alpha
         call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
             & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
@@ -6108,6 +6142,7 @@ contains
         do iSpin = 1, nSpin
           do iCoordBeta = 1, 3
             ! first term of Eq.(B5)
+            ! print *, iCoordAlpha, iCoordBeta, sum(overSqrPrime(:,:, iCoordBeta) * symSqrMat1(:,:, iSpin))
             tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
                 & + sum(overSqrPrime(:,:, iCoordBeta) * symSqrMat1(:,:, iSpin))
             ! second term of Eq.(B5)
@@ -6118,11 +6153,16 @@ contains
       end do
     end do loopStressAtom
 
+    print *, 'Stress routine (virial)'
+    ! print *, tmpGradients
+
     ! we absorbed an additional factor of 0.5 from the gradients
     tmpSt(:,:) = -0.25_dp / cellVol * nSpin * tmpSt
 
+    print *, tmpSt * cellVol
+
     ! add hybrid stress contribution to the total stress
-    st(:,:) = st + tmpSt
+    ! st(:,:) = st + tmpSt
 
   end subroutine addCamStressMatrix_real
 
