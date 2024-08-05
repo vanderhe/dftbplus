@@ -5926,7 +5926,7 @@ contains
           & deltaRhoSqrSym(:,:, iSpin),&
           & beta=1.0_dp)
       ! symmetrize temporary storage
-      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+      ! symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
     end do
 
     ! free some memory
@@ -6023,6 +6023,11 @@ contains
 
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
+    ! symmetrize temporary storage
+    do iSpin = 1, nSpin
+      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+    end do
+
     ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
 
@@ -6117,6 +6122,7 @@ contains
     integer :: descAtM(descLen), descAtN(descLen)
     real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3)
     real(dp) :: distVect(3)
+    real(dp), allocatable :: symSqrMat1T(:,:,:), gradients1(:,:,:), gradients1T(:,:,:)
 
     @:ASSERT(all(shape(st) == [3, 3]))
 
@@ -6125,8 +6131,20 @@ contains
     maxNeighbour = maxval(symNeighbourList%neighbourList%nNeighbour)
 
     allocate(gradients(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
+    allocate(gradients1(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
+    allocate(gradients1T(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
 
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
+
+    ! symmetrize temporary storage
+    do iSpin = 1, nSpin
+      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+    end do
+
+    allocate(symSqrMat1T, mold=symSqrMat1)
+    do iSpin = 1, nSpin
+      symSqrMat1T(:,:, iSpin) = transpose(symSqrMat1(:,:, iSpin))
+    end do
 
     do iAtM = 1, nAtom0
       descAtM = getDescriptor(iAtM, iSquare)
@@ -6139,9 +6157,15 @@ contains
           call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords,&
               & symNeighbourList%species, iAtM, iAtN, orb)
           do iSpin = 1, nSpin
+            ! symSqrMat1
             gradients(iCoord, iNeigh, iAtM) = gradients(iCoord, iNeigh, iAtM)&
                 & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
                 & * symSqrMat1(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
+
+            ! ! symSqrMat1^T
+            ! gradients1T(iCoord, iNeigh, iAtM) = gradients1T(iCoord, iNeigh, iAtM)&
+            !     & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
+            !     & * symSqrMat1T(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
           end do
         end do
       end do
@@ -6149,6 +6173,10 @@ contains
 
     ! multiply with factor of 0.5 at the very end
     gradients(:,:,:) = 0.5_dp * nSpin * gradients
+    ! gradients1(:,:,:) = 0.5_dp * nSpin * gradients1
+    ! gradients1T(:,:,:) = 0.5_dp * nSpin * gradients1T
+
+    ! gradients = gradients1 + gradients1T
 
     ! get stress
     st(:,:) = 0.0_dp
@@ -6370,6 +6398,11 @@ contains
     nOrb = size(overlap, dim=1)
 
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
+
+    ! symmetrize temporary storage
+    do iSpin = 1, nSpin
+      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+    end do
 
     ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
