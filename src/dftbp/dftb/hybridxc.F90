@@ -6194,13 +6194,14 @@ contains
 
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
-    ! symmetrize temporary storage
-    do iSpin = 1, nSpin
-      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
-    end do
+    ! ! symmetrize temporary storage
+    ! do iSpin = 1, nSpin
+    !   symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+    ! end do
 
     allocate(symSqrMat1T, mold=symSqrMat1)
     do iSpin = 1, nSpin
+      symSqrMat1(:,:, iSpin) = 0.5_dp * symSqrMat1(:,:, iSpin)
       symSqrMat1T(:,:, iSpin) = transpose(symSqrMat1(:,:, iSpin))
     end do
 
@@ -6216,25 +6217,25 @@ contains
               & symNeighbourList%species, iAtM, iAtN, orb)
           do iSpin = 1, nSpin
             ! symSqrMat1
-            gradients(iCoord, iNeigh, iAtM) = gradients(iCoord, iNeigh, iAtM)&
+            gradients1(iCoord, iNeigh, iAtM) = gradients1(iCoord, iNeigh, iAtM)&
                 & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
                 & * symSqrMat1(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
 
-            ! ! symSqrMat1^T
-            ! gradients1T(iCoord, iNeigh, iAtM) = gradients1T(iCoord, iNeigh, iAtM)&
-            !     & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
-            !     & * symSqrMat1T(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
+            ! symSqrMat1^T
+            gradients1T(iCoord, iNeigh, iAtM) = gradients1T(iCoord, iNeigh, iAtM)&
+                & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
+                & * symSqrMat1T(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
           end do
         end do
       end do
     end do
 
     ! multiply with factor of 0.5 at the very end
-    gradients(:,:,:) = 0.5_dp * nSpin * gradients
-    ! gradients1(:,:,:) = 0.5_dp * nSpin * gradients1
-    ! gradients1T(:,:,:) = 0.5_dp * nSpin * gradients1T
+    ! gradients(:,:,:) = 0.5_dp * nSpin * gradients
+    gradients1(:,:,:) = 0.5_dp * nSpin * gradients1
+    gradients1T(:,:,:) = 0.5_dp * nSpin * gradients1T
 
-    ! gradients = gradients1 + gradients1T
+    gradients = gradients1 + gradients1T
 
     ! get stress
     st(:,:) = 0.0_dp
@@ -6246,7 +6247,9 @@ contains
         do iCoordAlpha = 1, 3
           do iCoordBeta = 1, 3
             st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
-                & + distVect(iCoordAlpha) * (-gradients(iCoordBeta, iNeigh, iAtM))
+                & + distVect(iCoordAlpha) * (-gradients1(iCoordBeta, iNeigh, iAtM))
+            st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
+                & + distVect(iCoordAlpha) * (-gradients1T(iCoordBeta, iNeigh, iAtM))
           end do
         end do
       end do
