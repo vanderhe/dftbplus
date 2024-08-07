@@ -6969,8 +6969,10 @@ contains
       #:if WITH_SCALAPACK
         @:RAISE_ERROR(errStatus, -1, "Range-separated stress does not support MPI parallelism.")
       #:else
+        ! call env%globalTimer%startTimer(globalTimers%sparseToDense)
         call unpackHS(SSqrReal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK,&
             & denseDesc%iAtomStart, iSparseStart, img2CentCell)
+        ! call env%globalTimer%startTimer(globalTimers%sparseToDense)
         call hybridXc%addCamStress_real(densityMatrix%deltaRhoOut, SSqrReal, skOverCont, orb,&
             & denseDesc%iAtomStart, nonSccDeriv, symNeighbourList, nNeighbourCamSym, cellVol,&
             & totalStress, errStatus)
