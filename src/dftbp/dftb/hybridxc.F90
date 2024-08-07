@@ -4978,7 +4978,9 @@ contains
       ! st1(:,:) = 0.0_dp
       print *, 'stress total (before)'
       print *, st
-      call addCamStressMatrix_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
+      ! call addCamStressMatrix1_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
+      !     & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
+      call addCamStressMatrix2_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
           & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
       ! print *, 'HFX stress routine (total)'
       ! print *, st1
@@ -6388,7 +6390,7 @@ contains
   !! (non-periodic and Gamma-only version)
   !!
   !! Eq.(B5) of Phys. Rev. Materials 7, 063802 (DOI: 10.1103/PhysRevMaterials.7.063802)
-  subroutine addCamStressMatrix_real(this, deltaRhoSqr, overlap, skOverCont, symNeighbourList,&
+  subroutine addCamStressMatrix1_real(this, deltaRhoSqr, overlap, skOverCont, symNeighbourList,&
       & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
 
     !> Class instance
@@ -6462,11 +6464,6 @@ contains
 
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
-    ! ! symmetrize temporary storage
-    ! do iSpin = 1, nSpin
-    !   symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
-    ! end do
-
     ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
 
@@ -6498,7 +6495,131 @@ contains
     ! add hybrid stress contribution to the total stress
     st(:,:) = st + tmpSt
 
-  end subroutine addCamStressMatrix_real
+  end subroutine addCamStressMatrix1_real
+
+
+  !> Adds CAM stress due to CAM range-separated contributions, using a matrix-based formulation.
+  !! (non-periodic and Gamma-only version)
+  !!
+  !! Eq.(B5) of Phys. Rev. Materials 7, 063802 (DOI: 10.1103/PhysRevMaterials.7.063802)
+  subroutine addCamStressMatrix2_real(this, deltaRhoSqr, overlap, skOverCont, symNeighbourList,&
+      & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
+
+    !> Class instance
+    class(THybridXcFunc), intent(inout), target :: this
+
+    !> Square (unpacked) delta density matrix
+    real(dp), intent(in) :: deltaRhoSqr(:,:,:)
+
+    !> Square (unpacked) overlap matrix
+    real(dp), intent(in) :: overlap(:,:)
+
+    !> Sparse overlap container
+    type(TSlakoCont), intent(in) :: skOverCont
+
+    !> List of neighbours for each atom (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
+
+    !> Nr. of neighbours for each atom.
+    integer, intent(in) :: nNeighbourCamSym(:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> Orbital information.
+    type(TOrbitals), intent(in) :: orb
+
+    !> Differentiation object
+    class(TNonSccDiff), intent(in) :: derivator
+
+    !> Cell volume
+    real(dp), intent(in) :: cellVol
+
+    !> Stress tensor
+    real(dp), intent(inout) :: st(:,:)
+
+    !! Temporary stress tensor
+    real(dp) :: tmpSt(3, 3)
+
+    !! Dense matrix descriptor indices
+    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
+
+    !! Number of atoms in central cell
+    integer :: nAtom0
+
+    !! Cartesian direction indices (central cell)
+    integer :: iCoordAlpha, iCoordBeta
+
+    !! Atom index (central cell)
+    integer :: iAtStress
+
+    !! CAM gamma derivative matrix, including periodic images
+    real(dp), allocatable :: camdGammaAO(:,:,:)
+
+    !! Temporary storages
+    real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
+
+    !! Spin index and total number of spin channels
+    integer :: iSpin, nSpin
+
+    !! Number of orbitals in square matrices
+    integer :: nOrb
+
+    real(dp) :: intermed(3), distVect(3)
+    real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3)
+    integer :: descAt1(descLen), descAt2(descLen), iNeigh, iAt2, iAt2fold
+
+    @:ASSERT(all(shape(st) == [3, 3]))
+
+    nAtom0 = size(this%species0)
+    nSpin = size(deltaRhoSqr, dim=3)
+    nOrb = size(overlap, dim=1)
+
+    call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
+
+    ! allocate CAM \partial\tilde{gamma}
+    allocate(camdGammaAO(nOrb, nOrb, 3))
+
+    tmpSt(:,:) = 0.0_dp
+
+    do iAtStress = 1, nAtom0
+      descAt1 = getDescriptor(iAtStress, iSquare)
+      do iNeigh = 1, nNeighbourCamSym(iAtStress)
+        iAt2 = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtStress)
+        iAt2fold = symNeighbourList%img2CentCell(iAt2)
+        if (iAtStress == iAt2) cycle
+        descAt2 = getDescriptor(iAt2fold, iSquare)
+        call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords, symNeighbourList%species,&
+            & iAtStress, iAt2, orb)
+
+        intermed(:) = 0.0_dp
+        do iCoordBeta = 1, 3
+          do iSpin = 1, nSpin
+            intermed(iCoordBeta) = intermed(iCoordBeta)&
+                & + 0.5_dp * sum(overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), iCoordBeta)&
+                & * symSqrMat1(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), iSpin))
+          end do
+        end do
+
+        distVect(:) = this%rCoords(:, iAtStress) - this%rCoords(:, iAt2)
+        do iCoordAlpha = 1, 3
+          do iCoordBeta = 1, 3
+            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+                & + intermed(iCoordBeta) * distVect(iCoordAlpha)
+          end do
+        end do
+
+      end do
+    end do
+
+    ! we absorbed an additional factor of 0.5 from the gradients
+    ! tmpSt(:,:) = -0.5_dp * tmpSt/ cellVol * nSpin
+    tmpSt(:,:) = -0.5_dp * tmpSt/ cellVol
+
+    ! add hybrid stress contribution to the total stress
+    st(:,:) = st + tmpSt
+
+  end subroutine addCamStressMatrix2_real
 
 
   !> Calculates derivative of the (long-range + HF full-range) gamma interaction w.r.t. given atom,
