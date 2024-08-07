@@ -4875,40 +4875,42 @@ contains
     !> Error status
     type(TStatus), intent(inout) :: errStatus
 
-    real(dp), allocatable :: gradientsSum1(:,:), gradientsSum2(:,:)
-    real(dp), allocatable :: gradientsComp1(:,:,:), gradientsComp2(:,:,:)
-    real(dp) :: st1(3, 3), st2(3, 3)
+    ! real(dp), allocatable :: gradientsSum1(:,:), gradientsSum2(:,:)
+    ! real(dp), allocatable :: gradientsComp1(:,:,:), gradientsComp2(:,:,:)
+    ! real(dp) :: st1(3, 3), st2(3, 3)
 
     select case(this%hybridXcAlg)
     case (hybridXcAlgo%thresholdBased, hybridXcAlgo%neighbourBased)
       @:RAISE_ERROR(errStatus, -1, "HybridXc Module: MPI parallelized force evaluation not&
           & supported, choose matrix-based algorithm instead.")
     case (hybridXcAlgo%matrixBased)
-      st1(:,:) = 0.0_dp
-      call addCamStressMatrix_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
-          & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st1)
-      print *, 'HFX stress routine (total)'
-      print *, st1
-      st1(:,:) = 0.0_dp
-      call addCamGradientsMatrixComp1_real(this, deltaRhoSqr, SSqrReal, skOverCont,&
-          & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, st1,&
-          & gradientsComp1)
-      gradientsSum1 = sum(gradientsComp1, dim=2)
-      call addCamGradientsMatrixComp2_real(this, deltaRhoSqr, SSqrReal, skOverCont,&
-          & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, st2,&
-          & gradientsComp2)
-      gradientsSum2 = sum(gradientsComp2, dim=2)
-      print *, 'gradientsSum'
-      print *, gradientsSum1 + gradientsSum2
-      print *, 'st1'
-      print *, st1
-      print *, 'st2'
-      print *, st2
-      print *, 'HFX stress comp routine (total)'
-      print *, (st1 + st2)
+      ! st1(:,:) = 0.0_dp
       print *, 'stress total (before)'
       print *, st
-      st(:,:) = st + (st1 + st2)
+      call addCamStressMatrix_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
+          & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
+      ! print *, 'HFX stress routine (total)'
+      ! print *, st1
+      ! st1(:,:) = 0.0_dp
+      ! call addCamGradientsMatrixComp1_real(this, deltaRhoSqr, SSqrReal, skOverCont,&
+      !     & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, st1,&
+      !     & gradientsComp1)
+      ! gradientsSum1 = sum(gradientsComp1, dim=2)
+      ! call addCamGradientsMatrixComp2_real(this, deltaRhoSqr, SSqrReal, skOverCont,&
+      !     & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, st2,&
+      !     & gradientsComp2)
+      ! gradientsSum2 = sum(gradientsComp2, dim=2)
+      ! print *, 'gradientsSum'
+      ! print *, gradientsSum1 + gradientsSum2
+      ! print *, 'st1'
+      ! print *, st1
+      ! print *, 'st2'
+      ! print *, st2
+      ! print *, 'HFX stress comp routine (total)'
+      ! print *, (st1 + st2)
+      ! print *, 'stress total (before)'
+      ! print *, st
+      ! st(:,:) = st + (st1 + st2)
       print *, 'stress total (after)'
       print *, st
     end select
@@ -5926,7 +5928,7 @@ contains
           & deltaRhoSqrSym(:,:, iSpin),&
           & beta=1.0_dp)
       ! symmetrize temporary storage
-      ! symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
     end do
 
     ! free some memory
@@ -6023,10 +6025,10 @@ contains
 
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
-    ! symmetrize temporary storage
-    do iSpin = 1, nSpin
-      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
-    end do
+    ! ! symmetrize temporary storage
+    ! do iSpin = 1, nSpin
+    !   symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+    ! end do
 
     ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
@@ -6060,268 +6062,268 @@ contains
   end subroutine addCamGradientsMatrix_real
 
 
-  !> Adds CAM gradients due to CAM range-separated contributions, using a matrix-based formulation.
-  !! (non-periodic and Gamma-only version)
-  !!
-  !! Eq.(B5) of Phys. Rev. Materials 7, 063802 (DOI: 10.1103/PhysRevMaterials.7.063802)
-  subroutine addCamGradientsMatrixComp1_real(this, deltaRhoSqr, overlap, skOverCont,&
-      & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, st, gradients)
+  ! !> Adds CAM gradients due to CAM range-separated contributions, using a matrix-based formulation.
+  ! !! (non-periodic and Gamma-only version)
+  ! !!
+  ! !! Eq.(B5) of Phys. Rev. Materials 7, 063802 (DOI: 10.1103/PhysRevMaterials.7.063802)
+  ! subroutine addCamGradientsMatrixComp1_real(this, deltaRhoSqr, overlap, skOverCont,&
+  !     & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, st, gradients)
 
-    !> Class instance
-    class(THybridXcFunc), intent(inout), target :: this
+  !   !> Class instance
+  !   class(THybridXcFunc), intent(inout), target :: this
 
-    !> Square (unpacked) delta density matrix
-    real(dp), intent(in) :: deltaRhoSqr(:,:,:)
+  !   !> Square (unpacked) delta density matrix
+  !   real(dp), intent(in) :: deltaRhoSqr(:,:,:)
 
-    !> Square (unpacked) overlap matrix
-    real(dp), intent(in) :: overlap(:,:)
+  !   !> Square (unpacked) overlap matrix
+  !   real(dp), intent(in) :: overlap(:,:)
 
-    !> Sparse overlap container
-    type(TSlakoCont), intent(in) :: skOverCont
+  !   !> Sparse overlap container
+  !   type(TSlakoCont), intent(in) :: skOverCont
 
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
+  !   !> List of neighbours for each atom (symmetric version)
+  !   type(TSymNeighbourList), intent(in) :: symNeighbourList
 
-    !> Nr. of neighbours for each atom.
-    integer, intent(in) :: nNeighbourCamSym(:)
+  !   !> Nr. of neighbours for each atom.
+  !   integer, intent(in) :: nNeighbourCamSym(:)
 
-    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
-    integer, intent(in) :: iSquare(:)
+  !   !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+  !   integer, intent(in) :: iSquare(:)
 
-    !> Orbital information.
-    type(TOrbitals), intent(in) :: orb
+  !   !> Orbital information.
+  !   type(TOrbitals), intent(in) :: orb
 
-    !> Differentiation object
-    class(TNonSccDiff), intent(in) :: derivator
+  !   !> Differentiation object
+  !   class(TNonSccDiff), intent(in) :: derivator
 
-    !> Cell volume
-    real(dp), intent(in) :: cellVol
+  !   !> Cell volume
+  !   real(dp), intent(in) :: cellVol
 
-    !> Stress tensor
-    real(dp), intent(out) :: st(:,:)
+  !   !> Stress tensor
+  !   real(dp), intent(out) :: st(:,:)
 
-    !> Energy gradients
-    real(dp), intent(out), allocatable :: gradients(:,:,:)
+  !   !> Energy gradients
+  !   real(dp), intent(out), allocatable :: gradients(:,:,:)
 
-    !! Dense matrix descriptor indices
-    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
+  !   !! Dense matrix descriptor indices
+  !   integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
 
-    !! Number of atoms in central cell
-    integer :: nAtom0
+  !   !! Number of atoms in central cell
+  !   integer :: nAtom0
 
-    !! Temporary storages
-    real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
+  !   !! Temporary storages
+  !   real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
 
-    !! Spin index and total number of spin channels
-    integer :: iSpin, nSpin
+  !   !! Spin index and total number of spin channels
+  !   integer :: iSpin, nSpin
 
-    !! Iterates over coordinates
-    integer :: iCoord
+  !   !! Iterates over coordinates
+  !   integer :: iCoord
 
-    integer :: iAtM, iAtN, iAtNfold, maxNeighbour, iNeigh, iCoordAlpha, iCoordBeta
-    integer :: descAtM(descLen), descAtN(descLen)
-    real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3)
-    real(dp) :: distVect(3)
-    real(dp), allocatable :: symSqrMat1T(:,:,:), gradients1(:,:,:), gradients1T(:,:,:)
+  !   integer :: iAtM, iAtN, iAtNfold, maxNeighbour, iNeigh, iCoordAlpha, iCoordBeta
+  !   integer :: descAtM(descLen), descAtN(descLen)
+  !   real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3)
+  !   real(dp) :: distVect(3)
+  !   real(dp), allocatable :: symSqrMat1T(:,:,:), gradients1(:,:,:), gradients1T(:,:,:)
 
-    @:ASSERT(all(shape(st) == [3, 3]))
+  !   @:ASSERT(all(shape(st) == [3, 3]))
 
-    nAtom0 = size(this%species0)
-    nSpin = size(deltaRhoSqr, dim=3)
-    maxNeighbour = maxval(symNeighbourList%neighbourList%nNeighbour)
+  !   nAtom0 = size(this%species0)
+  !   nSpin = size(deltaRhoSqr, dim=3)
+  !   maxNeighbour = maxval(symNeighbourList%neighbourList%nNeighbour)
 
-    allocate(gradients(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
-    allocate(gradients1(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
-    allocate(gradients1T(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
+  !   allocate(gradients(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
+  !   allocate(gradients1(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
+  !   allocate(gradients1T(3, 0:maxNeighbour, nAtom0), source=0.0_dp)
 
-    call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
+  !   call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
-    ! ! symmetrize temporary storage
-    ! do iSpin = 1, nSpin
-    !   symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
-    ! end do
+  !   ! ! symmetrize temporary storage
+  !   ! do iSpin = 1, nSpin
+  !   !   symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+  !   ! end do
 
-    allocate(symSqrMat1T, mold=symSqrMat1)
-    do iSpin = 1, nSpin
-      symSqrMat1(:,:, iSpin) = 0.5_dp * symSqrMat1(:,:, iSpin)
-      symSqrMat1T(:,:, iSpin) = transpose(symSqrMat1(:,:, iSpin))
-    end do
+  !   allocate(symSqrMat1T, mold=symSqrMat1)
+  !   do iSpin = 1, nSpin
+  !     symSqrMat1(:,:, iSpin) = 0.5_dp * symSqrMat1(:,:, iSpin)
+  !     symSqrMat1T(:,:, iSpin) = transpose(symSqrMat1(:,:, iSpin))
+  !   end do
 
-    do iAtM = 1, nAtom0
-      descAtM = getDescriptor(iAtM, iSquare)
-      do iNeigh = 1, nNeighbourCamSym(iAtM)
-        iAtN = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtM)
-        iAtNfold = symNeighbourList%img2CentCell(iAtN)
-        descAtN = getDescriptor(iAtNfold, iSquare)
-        do iCoord = 1, 3
-          overPrime(:,:,:) = 0.0_dp
-          call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords,&
-              & symNeighbourList%species, iAtM, iAtN, orb)
-          do iSpin = 1, nSpin
-            ! symSqrMat1
-            gradients1(iCoord, iNeigh, iAtM) = gradients1(iCoord, iNeigh, iAtM)&
-                & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
-                & * symSqrMat1(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
+  !   do iAtM = 1, nAtom0
+  !     descAtM = getDescriptor(iAtM, iSquare)
+  !     do iNeigh = 1, nNeighbourCamSym(iAtM)
+  !       iAtN = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtM)
+  !       iAtNfold = symNeighbourList%img2CentCell(iAtN)
+  !       descAtN = getDescriptor(iAtNfold, iSquare)
+  !       do iCoord = 1, 3
+  !         overPrime(:,:,:) = 0.0_dp
+  !         call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords,&
+  !             & symNeighbourList%species, iAtM, iAtN, orb)
+  !         do iSpin = 1, nSpin
+  !           ! symSqrMat1
+  !           gradients1(iCoord, iNeigh, iAtM) = gradients1(iCoord, iNeigh, iAtM)&
+  !               & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
+  !               & * symSqrMat1(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
 
-            ! symSqrMat1^T
-            gradients1T(iCoord, iNeigh, iAtM) = gradients1T(iCoord, iNeigh, iAtM)&
-                & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
-                & * symSqrMat1T(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
-          end do
-        end do
-      end do
-    end do
+  !           ! symSqrMat1^T
+  !           gradients1T(iCoord, iNeigh, iAtM) = gradients1T(iCoord, iNeigh, iAtM)&
+  !               & - sum(overPrime(1:descAtN(iNOrb), 1:descAtM(iNOrb), iCoord)&
+  !               & * symSqrMat1T(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd), iSpin))
+  !         end do
+  !       end do
+  !     end do
+  !   end do
 
-    ! multiply with factor of 0.5 at the very end
-    ! gradients(:,:,:) = 0.5_dp * nSpin * gradients
-    gradients1(:,:,:) = 0.5_dp * nSpin * gradients1
-    gradients1T(:,:,:) = 0.5_dp * nSpin * gradients1T
+  !   ! multiply with factor of 0.5 at the very end
+  !   ! gradients(:,:,:) = 0.5_dp * nSpin * gradients
+  !   gradients1(:,:,:) = 0.5_dp * nSpin * gradients1
+  !   gradients1T(:,:,:) = 0.5_dp * nSpin * gradients1T
 
-    gradients = gradients1 + gradients1T
+  !   gradients = gradients1 + gradients1T
 
-    ! get stress
-    st(:,:) = 0.0_dp
+  !   ! get stress
+  !   st(:,:) = 0.0_dp
 
-    do iAtM = 1, nAtom0
-      do iNeigh = 1, nNeighbourCamSym(iAtM)
-        iAtN = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtM)
-        distVect(:) = this%rCoords(:, iAtM) - this%rCoords(:, iAtN)
-        do iCoordAlpha = 1, 3
-          do iCoordBeta = 1, 3
-            st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
-                & + distVect(iCoordAlpha) * (-gradients1(iCoordBeta, iNeigh, iAtM))
-            st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
-                & + distVect(iCoordAlpha) * (-gradients1T(iCoordBeta, iNeigh, iAtM))
-          end do
-        end do
-      end do
-    end do
+  !   do iAtM = 1, nAtom0
+  !     do iNeigh = 1, nNeighbourCamSym(iAtM)
+  !       iAtN = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtM)
+  !       distVect(:) = this%rCoords(:, iAtM) - this%rCoords(:, iAtN)
+  !       do iCoordAlpha = 1, 3
+  !         do iCoordBeta = 1, 3
+  !           st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
+  !               & + distVect(iCoordAlpha) * (-gradients1(iCoordBeta, iNeigh, iAtM))
+  !           st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
+  !               & + distVect(iCoordAlpha) * (-gradients1T(iCoordBeta, iNeigh, iAtM))
+  !         end do
+  !       end do
+  !     end do
+  !   end do
 
-    ! multiply with remaining factors at the very end
-    st(:,:) = -0.5_dp / cellVol * st
+  !   ! multiply with remaining factors at the very end
+  !   st(:,:) = -0.5_dp / cellVol * st
 
-  end subroutine addCamGradientsMatrixComp1_real
+  ! end subroutine addCamGradientsMatrixComp1_real
 
 
-  !> Adds CAM gradients due to CAM range-separated contributions, using a matrix-based formulation.
-  !! (non-periodic and Gamma-only version)
-  !!
-  !! Eq.(B5) of Phys. Rev. Materials 7, 063802 (DOI: 10.1103/PhysRevMaterials.7.063802)
-  subroutine addCamGradientsMatrixComp2_real(this, deltaRhoSqr, overlap, skOverCont,&
-      & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, st, gradients)
+  ! !> Adds CAM gradients due to CAM range-separated contributions, using a matrix-based formulation.
+  ! !! (non-periodic and Gamma-only version)
+  ! !!
+  ! !! Eq.(B5) of Phys. Rev. Materials 7, 063802 (DOI: 10.1103/PhysRevMaterials.7.063802)
+  ! subroutine addCamGradientsMatrixComp2_real(this, deltaRhoSqr, overlap, skOverCont,&
+  !     & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, st, gradients)
 
-    !> Class instance
-    class(THybridXcFunc), intent(inout), target :: this
+  !   !> Class instance
+  !   class(THybridXcFunc), intent(inout), target :: this
 
-    !> Square (unpacked) delta density matrix
-    real(dp), intent(in) :: deltaRhoSqr(:,:,:)
+  !   !> Square (unpacked) delta density matrix
+  !   real(dp), intent(in) :: deltaRhoSqr(:,:,:)
 
-    !> Square (unpacked) overlap matrix
-    real(dp), intent(in) :: overlap(:,:)
+  !   !> Square (unpacked) overlap matrix
+  !   real(dp), intent(in) :: overlap(:,:)
 
-    !> Sparse overlap container
-    type(TSlakoCont), intent(in) :: skOverCont
+  !   !> Sparse overlap container
+  !   type(TSlakoCont), intent(in) :: skOverCont
 
-    !> List of neighbours for each atom (symmetric version)
-    type(TSymNeighbourList), intent(in) :: symNeighbourList
+  !   !> List of neighbours for each atom (symmetric version)
+  !   type(TSymNeighbourList), intent(in) :: symNeighbourList
 
-    !> Nr. of neighbours for each atom.
-    integer, intent(in) :: nNeighbourCamSym(:)
+  !   !> Nr. of neighbours for each atom.
+  !   integer, intent(in) :: nNeighbourCamSym(:)
 
-    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
-    integer, intent(in) :: iSquare(:)
+  !   !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+  !   integer, intent(in) :: iSquare(:)
 
-    !> Orbital information.
-    type(TOrbitals), intent(in) :: orb
+  !   !> Orbital information.
+  !   type(TOrbitals), intent(in) :: orb
 
-    !> Differentiation object
-    class(TNonSccDiff), intent(in) :: derivator
+  !   !> Differentiation object
+  !   class(TNonSccDiff), intent(in) :: derivator
 
-    !> Cell volume
-    real(dp), intent(in) :: cellVol
+  !   !> Cell volume
+  !   real(dp), intent(in) :: cellVol
 
-    !> Stress tensor
-    real(dp), intent(out) :: st(:,:)
+  !   !> Stress tensor
+  !   real(dp), intent(out) :: st(:,:)
 
-    !> Energy gradients
-    real(dp), intent(out), allocatable :: gradients(:,:,:)
+  !   !> Energy gradients
+  !   real(dp), intent(out), allocatable :: gradients(:,:,:)
 
-    !! Dense matrix descriptor indices
-    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
+  !   !! Dense matrix descriptor indices
+  !   integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
 
-    !! Number of atoms in central cell
-    integer :: nAtom0
+  !   !! Number of atoms in central cell
+  !   integer :: nAtom0
 
-    !! Temporary storages
-    real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
+  !   !! Temporary storages
+  !   real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
 
-    !! Spin index and total number of spin channels
-    integer :: iSpin, nSpin
+  !   !! Spin index and total number of spin channels
+  !   integer :: iSpin, nSpin
 
-    !! Iterates over coordinates
-    integer :: iCoord
+  !   !! Iterates over coordinates
+  !   integer :: iCoord
 
-    integer :: iAtM, iAtN, iAtNfold, maxNeighbour, iNeigh, iSpM, iSpN, nGShifts, iG
-    integer :: iCoordAlpha, iCoordBeta
-    integer :: descAtM(descLen), descAtN(descLen)
-    real(dp) :: camdGammaAO(orb%mOrb, orb%mOrb)
-    real(dp) :: dGammas(3, size(this%rCellVecsG, dim=2)), distVect(3)
-    real(dp), allocatable :: dGammaEvalG(:,:)
+  !   integer :: iAtM, iAtN, iAtNfold, maxNeighbour, iNeigh, iSpM, iSpN, nGShifts, iG
+  !   integer :: iCoordAlpha, iCoordBeta
+  !   integer :: descAtM(descLen), descAtN(descLen)
+  !   real(dp) :: camdGammaAO(orb%mOrb, orb%mOrb)
+  !   real(dp) :: dGammas(3, size(this%rCellVecsG, dim=2)), distVect(3)
+  !   real(dp), allocatable :: dGammaEvalG(:,:)
 
-    nAtom0 = size(this%species0)
-    nSpin = size(deltaRhoSqr, dim=3)
-    nGShifts = size(this%cellVecsG, dim=2)
+  !   nAtom0 = size(this%species0)
+  !   nSpin = size(deltaRhoSqr, dim=3)
+  !   nGShifts = size(this%cellVecsG, dim=2)
 
-    allocate(gradients(3, nGShifts, nAtom0), source=0.0_dp)
-    allocate(dGammaEvalG(3, nGShifts))
+  !   allocate(gradients(3, nGShifts, nAtom0), source=0.0_dp)
+  !   allocate(dGammaEvalG(3, nGShifts))
 
-    call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
+  !   call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
-    do iAtM = 1, nAtom0
-      descAtM = getDescriptor(iAtM, iSquare)
-      iSpM = this%species0(iAtM)
-      do iAtN = 1, nAtom0
-        descAtN = getDescriptor(iAtN, iSquare)
-        iSpN = this%species0(iAtN)
-        dGammaEvalG(:,:) = getCamGammaPrimeGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCellVecsG)
-        do iG = 1, nGShifts
-          do iCoord = 1, 3
-            camdGammaAO(1:descAtN(iNOrb), 1:descAtM(iNOrb)) = dGammaEvalG(iCoord, iG)
-            do iSpin = 1, nSpin
-              gradients(iCoord, iG, iAtM) = gradients(iCoord, iG, iAtM)&
-                  & - sum(camdGammaAO(1:descAtN(iNOrb), 1:descAtM(iNOrb))&
-                  & * symSqrMat2(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd),&
-                  & iSpin))
-            end do
-          end do
-        end do
-      end do
-    end do
+  !   do iAtM = 1, nAtom0
+  !     descAtM = getDescriptor(iAtM, iSquare)
+  !     iSpM = this%species0(iAtM)
+  !     do iAtN = 1, nAtom0
+  !       descAtN = getDescriptor(iAtN, iSquare)
+  !       iSpN = this%species0(iAtN)
+  !       dGammaEvalG(:,:) = getCamGammaPrimeGResolved(this, iAtM, iAtN, iSpM, iSpN, this%rCellVecsG)
+  !       do iG = 1, nGShifts
+  !         do iCoord = 1, 3
+  !           camdGammaAO(1:descAtN(iNOrb), 1:descAtM(iNOrb)) = dGammaEvalG(iCoord, iG)
+  !           do iSpin = 1, nSpin
+  !             gradients(iCoord, iG, iAtM) = gradients(iCoord, iG, iAtM)&
+  !                 & - sum(camdGammaAO(1:descAtN(iNOrb), 1:descAtM(iNOrb))&
+  !                 & * symSqrMat2(descAtN(iStart):descAtN(iEnd), descAtM(iStart):descAtM(iEnd),&
+  !                 & iSpin))
+  !           end do
+  !         end do
+  !       end do
+  !     end do
+  !   end do
 
-    ! multiply with factor of 0.25 at the very end
-    gradients(:,:,:) = 0.25_dp * nSpin * gradients
+  !   ! multiply with factor of 0.25 at the very end
+  !   gradients(:,:,:) = 0.25_dp * nSpin * gradients
 
-    ! get stress
-    st(:,:) = 0.0_dp
+  !   ! get stress
+  !   st(:,:) = 0.0_dp
 
-    do iAtM = 1, nAtom0
-      do iAtN = 1, nAtom0
-        do iG = 1, nGShifts
-          distVect(:) = this%rCoords(:, iAtM) - (this%rCoords(:, iAtN) + this%rCellVecsG(:, iG))
-          do iCoordAlpha = 1, 3
-            do iCoordBeta = 1, 3
-              st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
-                  & + distVect(iCoordAlpha) * (-gradients(iCoordBeta, iG, iAtM))
-            end do
-          end do
-        end do
-      end do
-    end do
+  !   do iAtM = 1, nAtom0
+  !     do iAtN = 1, nAtom0
+  !       do iG = 1, nGShifts
+  !         distVect(:) = this%rCoords(:, iAtM) - (this%rCoords(:, iAtN) + this%rCellVecsG(:, iG))
+  !         do iCoordAlpha = 1, 3
+  !           do iCoordBeta = 1, 3
+  !             st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
+  !                 & + distVect(iCoordAlpha) * (-gradients(iCoordBeta, iG, iAtM))
+  !           end do
+  !         end do
+  !       end do
+  !     end do
+  !   end do
 
-    ! multiply with remaining factors at the very end
-    st(:,:) = -0.5_dp / cellVol * st
+  !   ! multiply with remaining factors at the very end
+  !   st(:,:) = -0.5_dp / cellVol * st
 
-  end subroutine addCamGradientsMatrixComp2_real
+  ! end subroutine addCamGradientsMatrixComp2_real
 
 
   !> Adds CAM stress due to CAM range-separated contributions, using a matrix-based formulation.
@@ -6402,10 +6404,10 @@ contains
 
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
-    ! symmetrize temporary storage
-    do iSpin = 1, nSpin
-      symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
-    end do
+    ! ! symmetrize temporary storage
+    ! do iSpin = 1, nSpin
+    !   symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
+    ! end do
 
     ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
