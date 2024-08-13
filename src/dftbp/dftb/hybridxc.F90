@@ -6095,7 +6095,7 @@ contains
     integer :: nAtom0
 
     !! Overlap derivative
-    real(dp), allocatable :: overSqrPrime(:,:,:,:,:), overSqrPrime2(:,:,:,:)
+    real(dp), allocatable :: overSqrPrime(:,:,:,:)
 
     !! Cartesian direction indices (central cell)
     integer :: iCoordAlpha, iCoordBeta
@@ -6115,7 +6115,7 @@ contains
     !! Number of orbitals in square matrices
     integer :: nOrb
 
-    integer :: nLatShift, iNeigh, iAt2, iAt2fold
+    integer :: iNeigh, iAt2, iAt2fold
     integer :: descAt1(descLen), descAt2(descLen)
     real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3), distVect
 
@@ -6130,18 +6130,7 @@ contains
     ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
 
-    ! cellVecs(1:3, iCellVec)
-
-    nLatShift = size(cellVecs, dim=2)
-    allocate(overSqrPrime(nOrb, nOrb, nLatShift, 3, 3), source=0.0_dp)
-
-    ! print *, ''
-    ! do iAtStress = 1, size(cellVecs, dim=2)
-    !   print *, iAtStress
-    !   print *, cellVecs(:, iAtStress)
-    ! end do
-
-    ! stop
+    allocate(overSqrPrime(nOrb, nOrb, 3, 3), source=0.0_dp)
 
     do iAtStress = 1, nAtom0
       descAt1 = getDescriptor(iAtStress, iSquare)
@@ -6150,70 +6139,28 @@ contains
         iAt2 = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAtStress)
         iAt2fold = symNeighbourList%img2CentCell(iAt2)
         descAt2 = getDescriptor(iAt2fold, iSquare)
-        ! print *, cellVecs(:, symNeighbourList%iCellVec(iAt2))
-        ! distVect = 1.0_dp
         call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords, symNeighbourList%species,&
             & iAtStress, iAt2, orb)
-        ! if (symNeighbourList%iCellVec(iAt2) == 59) then
-        !   print *, 'iAtStress', iAtStress
-        !   print *, 'overPrime'
-        !   print "(4F10.6)", overPrime(:,:, 1)
-        !   print *, ''
-        ! end if
         do iCoordAlpha = 1, 3
           distVect = this%rCoords(iCoordAlpha, iAtStress) - this%rCoords(iCoordAlpha, iAt2)
-          overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd),&
-              & symNeighbourList%iCellVec(iAt2), iCoordAlpha, :)&
-              & = overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd),&
-              & symNeighbourList%iCellVec(iAt2), iCoordAlpha, :)&
+          overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), iCoordAlpha, :)&
+              & = overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), iCoordAlpha, :)&
               & + distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), :)
         end do
       end do
     end do
 
-    overSqrPrime2 = sum(overSqrPrime, dim=3)
-
-    ! print *, ''
-    ! print "(8F10.6)", overSqrPrime2(:,:, 1, 1)
-    ! print *, ''
-    ! print "(8F10.6)", overSqrPrime2(:,:, 1, 2)
-    ! print *, ''
-    ! print "(8F10.6)", overSqrPrime2(:,:, 1, 3)
-    ! print *, ''
-    ! print "(8F10.6)", transpose(overSqrPrime(:,:, 60, 1)) + overSqrPrime(:,:, 59, 1)
-    ! print *, ''
-    ! print "(8F10.6)", transpose(overSqrPrime(:,:, 60, 2)) + overSqrPrime(:,:, 59, 2)
-    ! print *, ''
-    ! print "(8F10.6)", transpose(overSqrPrime(:,:, 60, 3)) + overSqrPrime(:,:, 59, 3)
-    ! print *, ''
-    ! print "(8F10.6)", overSqrPrime(:,:, 3, 1)
-    ! print *, ''
-    ! print "(8F10.6)", overSqrPrime(:,:, 3, 2)
-    ! print *, ''
-    ! print "(8F10.6)", overSqrPrime(:,:, 3, 3)
-
-    ! stop
-
     tmpSt(:,:) = 0.0_dp
 
-    loopStressAtom: do iAtStress = 1, nAtom0
-      do iCoordAlpha = 1, 3
-        ! return beta-resolved derivatives for distance vector component alpha
-        ! call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
-        !     & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
-        ! call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
-        do iSpin = 1, nSpin
-          do iCoordBeta = 1, 3
-            ! first term of Eq.(B5)
-            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-                & + sum(overSqrPrime2(:,:, iCoordAlpha, iCoordBeta) * symSqrMat1(:,:, iSpin))
-            ! ! second term of Eq.(B5)
-            ! tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-            !     & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
-          end do
+    do iCoordAlpha = 1, 3
+      do iSpin = 1, nSpin
+        do iCoordBeta = 1, 3
+          ! first term of Eq.(B5)
+          tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+              & + sum(overSqrPrime(:,:, iCoordAlpha, iCoordBeta) * symSqrMat1(:,:, iSpin))
         end do
       end do
-    end do loopStressAtom
+    end do
 
     ! we absorbed an additional factor of 0.5 from the gradients
     tmpSt(:,:) = -0.25_dp / cellVol * nSpin * tmpSt
