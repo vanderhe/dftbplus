@@ -3373,7 +3373,7 @@ contains
     real(dp), intent(out) :: overSqrPrime(:,:,:)
 
     !! Temporary overlap derivative storage
-    real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3), overPrime2(orb%mOrb, orb%mOrb, 3)
+    real(dp) :: overPrime(orb%mOrb, orb%mOrb, 3)
 
     !! Dense matrix descriptor indices
     integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
@@ -3403,28 +3403,7 @@ contains
       overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), :)&
           & = overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), :)&
           & + distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), :)
-      print *, '####'
-      print "(4F10.6)", overPrime(:,:, 1)
-      call derivator%getFirstDeriv(overPrime2, skOverCont, rCoords, symNeighbourList%species,&
-            & iAt2, iAtomPrime, orb)
-      ! overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), :)&
-      !     & = overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), :)&
-      !     & - distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), :)
-      print *, ''
-      print "(4F10.6)", overPrime2(:,:, 1)
-      print *, ''
-      print "(4F10.6)", overPrime(:,:, 1) + transpose(overPrime2(:,:, 1))
     end do
-
-    ! print *, shape(overSqrPrime)
-    ! print "(8F10.6)", overSqrPrime(:,:,1)
-    ! print *, ''
-    ! print "(8F10.6)", overSqrPrime(:,:,2)
-    ! print *, ''
-    ! print "(8F10.6)", overSqrPrime(:,:,3)
-    ! print *, ''
-    ! print *, ''
-    ! print *, ''
 
   end subroutine getUnpackedOverlapStress_real
 
