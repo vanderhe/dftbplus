@@ -4978,10 +4978,10 @@ contains
       ! st1(:,:) = 0.0_dp
       print *, 'stress total (before)'
       print *, st
-      ! call addCamStressMatrix1_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
-      !     & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
-      call addCamStressMatrix2_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
+      call addCamStressMatrix1_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
           & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
+      ! call addCamStressMatrix2_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
+      !     & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
       ! print *, 'HFX stress routine (total)'
       ! print *, st1
       ! st1(:,:) = 0.0_dp
@@ -6456,6 +6456,9 @@ contains
     !! Number of orbitals in square matrices
     integer :: nOrb
 
+    ! integer :: jj, kk
+    ! real(dp), allocatable :: overSqrTot(:,:,:)
+
     @:ASSERT(all(shape(st) == [3, 3]))
 
     nAtom0 = size(this%species0)
@@ -6475,15 +6478,15 @@ contains
         ! return beta-resolved derivatives for distance vector component alpha
         call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
             & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
-        call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
+        ! call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
         do iSpin = 1, nSpin
           do iCoordBeta = 1, 3
             ! first term of Eq.(B5)
             tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
                 & + sum(overSqrPrime(:,:, iCoordBeta) * symSqrMat1(:,:, iSpin))
-            ! second term of Eq.(B5)
-            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-                & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
+            ! ! second term of Eq.(B5)
+            ! tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+            !     & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
           end do
         end do
       end do
