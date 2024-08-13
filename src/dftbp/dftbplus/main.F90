@@ -1707,9 +1707,9 @@ contains
             & this%isExtField, this%isXlbomd, this%nonSccDeriv, this%rhoPrim, this%ERhoPrim,&
             & this%qOutput, this%q0, this%skHamCont, this%skOverCont, this%repulsive,&
             & this%neighbourList, this%symNeighbourList, this%nNeighbourSk, this%nNeighbourCamSym,&
-            & this%iCellVec, this%cellVec, this%rCellVec, this%invLatVec, this%species,&
-            & this%img2CentCell, this%iSparseStart, this%orb, this%potential, this%coord,&
-            & this%derivs, this%groundDerivs, this%tripletderivs, this%mixedderivs, this%iRhoPrim,&
+            & this%iCellVec, this%cellVec, this%invLatVec, this%species, this%img2CentCell,&
+            & this%iSparseStart, this%orb, this%potential, this%coord, this%derivs,&
+            & this%groundDerivs, this%tripletderivs, this%mixedderivs, this%iRhoPrim,&
             & this%thirdOrd, this%solvation, this%areSolventNeighboursSym, this%qDepExtPot,&
             & this%chrgForces, this%dispersion, this%hybridXc, this%SSqrReal, this%ints,&
             & this%denseDesc, this%halogenXCorrection, this%tHelical, this%coord0, this%deltaDftb,&
@@ -1745,7 +1745,7 @@ contains
               & this%skHamCont, this%skOverCont, this%repulsive, this%neighbourList,&
               & this%nNeighbourSk, this%species, this%img2CentCell, this%iSparseStart,&
               & this%orb, this%potential, this%coord, this%latVec, this%invLatVec,&
-              & this%cellVol, this%coord0, this%totalStress, this%totalLatDeriv,&
+              & this%cellVec, this%cellVol, this%coord0, this%totalStress, this%totalLatDeriv,&
               & this%intPressure, this%iRhoPrim, this%solvation, this%dispersion,&
               & this%halogenXCorrection, this%deltaDftb, this%hybridXc, this%densityMatrix,&
               & this%SSqrReal, this%ints, this%denseDesc, this%symNeighbourList,&
@@ -6383,7 +6383,7 @@ contains
   subroutine getGradients(env, parallelKS, boundaryConds, sccCalc, tblite, isExtField, isXlbomd,&
       & nonSccDeriv, rhoPrim, ERhoPrim, qOutput, q0, skHamCont, skOverCont, repulsive,&
       & neighbourList, symNeighbourList, nNeighbourSK, nNeighbourCamSym, iCellVec, cellVecs,&
-      & rCellVecs, recVecs2p, species, img2CentCell, iSparseStart, orb, potential, coord, derivs,&
+      & recVecs2p, species, img2CentCell, iSparseStart, orb, potential, coord, derivs,&
       & groundDerivs, tripletderivs, mixedderivs, iRhoPrim, thirdOrd, solvation,&
       & areSolventNeighboursSym, qDepExtPot, chrgForces, dispersion, hybridXc, SSqrReal, ints,&
       & denseDesc, halogenXCorrection, tHelical, coord0, deltaDftb, tPeriodic, tRealHS, kPoint,&
@@ -6451,9 +6451,6 @@ contains
 
     !> Vectors to unit cells in relative units
     real(dp), intent(in) :: cellVecs(:,:)
-
-    !> Vectors to unit cells in absolute units
-    real(dp), intent(in) :: rCellVecs(:,:)
 
     !> Reciprocal lattice vectors in units of 2 pi
     real(dp), intent(in) :: recVecs2p(:,:)
@@ -6786,7 +6783,7 @@ contains
   subroutine getStress(env, sccCalc, tblite, thirdOrd, isExtField, nonSccDeriv, rhoPrim,&
       & ERhoPrim, qOutput, q0, skHamCont, skOverCont, repulsive, neighbourList, nNeighbourSk,&
       & species, img2CentCell, iSparseStart, orb, potential, coord, latVec, invLatVec,&
-      & cellVol, coord0, totalStress, totalLatDeriv, intPressure, iRhoPrim, solvation,&
+      & cellVecs, cellVol, coord0, totalStress, totalLatDeriv, intPressure, iRhoPrim, solvation,&
       & dispersion, halogenXCorrection, deltaDftb, hybridXc, densityMatrix, SSqrReal, ints,&
       & denseDesc, symNeighbourList, nNeighbourCamSym, tRealHS, tPeriodic, errStatus,&
       & tripletStress, mixedStress)
@@ -6859,6 +6856,9 @@ contains
 
     !> Inverse of the lattice vectors
     real(dp), intent(in) :: invLatVec(:,:)
+
+    !> Vectors to unit cells in relative units
+    real(dp), intent(in) :: cellVecs(:,:)
 
     !> Unit cell volume
     real(dp), intent(in) :: cellVol
@@ -6974,8 +6974,8 @@ contains
             & denseDesc%iAtomStart, iSparseStart, img2CentCell)
         ! call env%globalTimer%startTimer(globalTimers%sparseToDense)
         call hybridXc%addCamStress_real(densityMatrix%deltaRhoOut, SSqrReal, skOverCont, orb,&
-            & denseDesc%iAtomStart, nonSccDeriv, symNeighbourList, nNeighbourCamSym, cellVol,&
-            & totalStress, errStatus)
+            & denseDesc%iAtomStart, nonSccDeriv, symNeighbourList, nNeighbourCamSym, cellVecs,&
+            & cellVol, totalStress, errStatus)
         @:PROPAGATE_ERROR(errStatus)
       #:endif
       end if
