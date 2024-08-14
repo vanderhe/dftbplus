@@ -292,7 +292,6 @@ module dftbp_dftb_hybridxc
     procedure :: addCamGradients_kpts
 
     procedure :: addCamStress_real
-    ! procedure :: addCamStress_kpts
 
     procedure :: getCentralCellSpecies
     procedure :: getCamGammaCluster
@@ -6095,7 +6094,7 @@ contains
     integer :: nAtom0
 
     !! Overlap derivative
-    real(dp), allocatable :: overSqrPrime(:,:,:,:)
+    real(dp), allocatable :: overSqrPrime(:,:,:)
 
     !! Cartesian direction indices (central cell)
     integer :: iCoordAlpha, iCoordBeta
@@ -6130,7 +6129,9 @@ contains
     ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
 
-    allocate(overSqrPrime(nOrb, nOrb, 3, 3), source=0.0_dp)
+    allocate(overSqrPrime(nOrb, nOrb, 3), source=0.0_dp)
+
+    print *, ''
 
     do iAtStress = 1, nAtom0
       descAt1 = getDescriptor(iAtStress, iSquare)
@@ -6141,35 +6142,53 @@ contains
         descAt2 = getDescriptor(iAt2fold, iSquare)
         call derivator%getFirstDeriv(overPrime, skOverCont, this%rCoords, symNeighbourList%species,&
             & iAtStress, iAt2, orb)
+        if (iAtStress == 1 .and. iAtStress == iAt2fold) then
+          print "(4F10.6)", transpose(overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), 3))
+          print *, this%rCoords(:, iAtStress) - this%rCoords(:, iAt2)
+          print *, ''
+        end if
         do iCoordAlpha = 1, 3
-          distVect = this%rCoords(iCoordAlpha, iAtStress) - this%rCoords(iCoordAlpha, iAt2)
-          overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), iCoordAlpha, :)&
-              & = overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), iCoordAlpha, :)&
-              & + distVect * overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), :)
+          ! distVect = this%rCoords(iCoordAlpha, iAtStress) - this%rCoords(iCoordAlpha, iAt2)
+          overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), :)&
+              & = overSqrPrime(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), :)&
+              & + overPrime(1:descAt2(iNOrb), 1:descAt1(iNOrb), :)
         end do
       end do
     end do
 
-    tmpSt(:,:) = 0.0_dp
+    ! do iAtStress = 1, 3
+    !   print *, 'Component', iAtStress
+    !   do iCoordAlpha = 1, size(overSqrPrime, dim=2)
+    !     do iCoordBeta = 1, size(overSqrPrime, dim=1)
+    !       print "(2I4,2F10.6)", iCoordBeta, iCoordAlpha,&
+    !           & overSqrPrime(iCoordBeta, iCoordAlpha, iAtStress),&
+    !           & overSqrPrime(iCoordAlpha, iCoordBeta, iAtStress)
+    !     end do
+    !   end do
+    ! end do
 
-    do iCoordAlpha = 1, 3
-      do iSpin = 1, nSpin
-        do iCoordBeta = 1, 3
-          ! first term of Eq.(B5)
-          tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-              & + sum(overSqrPrime(:,:, iCoordAlpha, iCoordBeta) * symSqrMat1(:,:, iSpin))
-        end do
-      end do
-    end do
+    stop
 
-    ! we absorbed an additional factor of 0.5 from the gradients
-    tmpSt(:,:) = -0.25_dp / cellVol * nSpin * tmpSt
+    ! tmpSt(:,:) = 0.0_dp
 
-    print *, 'HFX stress'
-    print *, tmpSt
+    ! do iCoordAlpha = 1, 3
+    !   do iSpin = 1, nSpin
+    !     do iCoordBeta = 1, 3
+    !       ! first term of Eq.(B5)
+    !       tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+    !           & + sum(overSqrPrime(:,:, iCoordAlpha, iCoordBeta) * symSqrMat1(:,:, iSpin))
+    !     end do
+    !   end do
+    ! end do
 
-    ! add hybrid stress contribution to the total stress
-    st(:,:) = st + tmpSt
+    ! ! we absorbed an additional factor of 0.5 from the gradients
+    ! tmpSt(:,:) = -0.25_dp / cellVol * nSpin * tmpSt
+
+    ! print *, 'HFX stress'
+    ! print *, tmpSt
+
+    ! ! add hybrid stress contribution to the total stress
+    ! st(:,:) = st + tmpSt
 
   end subroutine addCamStressMatrix_real
 
