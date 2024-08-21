@@ -6203,7 +6203,7 @@ contains
           do iCoordBeta = 1, 3
             ! first term of Eq.(B5)
             tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-                & - sum(overSqrPrime(:,:, iCoordBeta) * symSqrMat1(:,:, iSpin))
+                & + sum(overSqrPrime(:,:, iCoordBeta) * symSqrMat1(:,:, iSpin))
             ! ! second term of Eq.(B5)
             ! tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
             !     & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
@@ -6213,7 +6213,7 @@ contains
     end do loopStressAtom
 
     ! we absorbed an additional factor of 0.5 from the gradients
-    tmpSt(:,:) = -0.25_dp / cellVol * nSpin * tmpSt
+    tmpSt(:,:) = 0.25_dp / cellVol * nSpin * tmpSt
 
     ! add hybrid stress contribution to the total stress
     st(:,:) = st + tmpSt
