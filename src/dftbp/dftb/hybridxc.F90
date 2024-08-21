@@ -6167,8 +6167,8 @@ contains
     !! Atom index (central cell)
     integer :: iAtStress
 
-    ! !! CAM gamma derivative matrix, including periodic images
-    ! real(dp), allocatable :: camdGammaAO(:,:,:)
+    !! CAM gamma derivative matrix, including periodic images
+    real(dp), allocatable :: camdGammaAO(:,:,:)
 
     !! Temporary storages
     real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
@@ -6188,7 +6188,7 @@ contains
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
     ! allocate CAM \partial\tilde{gamma}
-    ! allocate(camdGammaAO(nOrb, nOrb, 3))
+    allocate(camdGammaAO(nOrb, nOrb, 3))
 
     allocate(overSqrPrime(nOrb, nOrb, 3))
     tmpSt(:,:) = 0.0_dp
@@ -6198,15 +6198,15 @@ contains
         ! return beta-resolved derivatives for distance vector component alpha
         call getUnpackedOverlapStress_real(iCoordAlpha, iAtStress, skOverCont, orb, derivator,&
             & symNeighbourList, nNeighbourCamSym, iSquare, this%rCoords, overSqrPrime)
-        ! call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
+        call getUnpackedCamGammaAOStress(this, iCoordAlpha, iAtStress, iSquare, camdGammaAO)
         do iSpin = 1, nSpin
           do iCoordBeta = 1, 3
             ! first term of Eq.(B5)
             tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
                 & + sum(overSqrPrime(:,:, iCoordBeta) * symSqrMat1(:,:, iSpin))
-            ! ! second term of Eq.(B5)
-            ! tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-            !     & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
+            ! second term of Eq.(B5)
+            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+                & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
           end do
         end do
       end do
