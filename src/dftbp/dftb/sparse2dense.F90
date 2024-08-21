@@ -47,6 +47,7 @@ module dftbp_dftb_sparse2dense
   !> Unpack sparse matrix (Hamiltonian, overlap, etc.) to square form
   interface unpackHS
     module procedure unpackHS_real
+    module procedure unpackHS_real_resolved
     module procedure unpackHS_cmplx_kpts
   end interface unpackHS
 
@@ -237,6 +238,69 @@ contains
     end do
 
   end subroutine unpackHS_real
+
+
+  !> Unpacks sparse matrix to square form (real version for Gamma point)
+  !!
+  !! Note: The non on-site blocks are only filled in the lower triangle part of the matrix.
+  subroutine unpackHS_real_resolved(square, orig, symNeighbourList, nNeighbourCamSym, iSquare,&
+      & iSparseStart)
+
+    !> Square form matrix on exit.
+    real(dp), intent(out) :: square(:,:,:)
+
+    !> Sparse matrix
+    real(dp), intent(in) :: orig(:)
+
+    !> List of neighbours for each atom (symmetric version)
+    type(TSymNeighbourList), intent(in) :: symNeighbourList
+
+    !> Nr. of neighbours for each atom
+    integer, intent(in) :: nNeighbourCamSym(:)
+
+    !> Position of each atom in the rows/columns of the square matrices. Shape: (nAtom)
+    integer, intent(in) :: iSquare(:)
+
+    !> indexing array for the sparse Hamiltonian
+    integer, intent(in) :: iSparseStart(0:,:)
+
+    !! Dense matrix descriptor indices
+    integer, parameter :: descLen = 3, iStart = 1, iEnd = 2, iNOrb = 3
+
+    !! Stores start/end index and number of orbitals of square matrices
+    integer :: descAt1(descLen), descAt2(descLen)
+
+    integer :: nAtom0
+    integer :: iOrig
+    integer :: iNeigh, iCell
+    integer :: iAt1, iAt2, iAt2fold
+
+    nAtom0 = size(symNeighbourList%neighbourList%iNeighbour, dim=2)
+
+    @:ASSERT(nAtom0 > 0)
+    @:ASSERT(size(square, dim=1) == size(square, dim=2))
+    @:ASSERT(size(square, dim=1) == iSquare(nAtom0 + 1) - 1)
+    @:ASSERT(all(shape(nNeighbourCamSym) == [nAtom0]))
+    @:ASSERT(size(iSquare) == nAtom0 + 1)
+
+    square(:,:,:) = 0.0_dp
+
+    do iAt1 = 1, nAtom0
+      descAt1 = getDescriptor(iAt1, iSquare)
+      do iNeigh = 0, nNeighbourCamSym(iAt1)
+        iOrig = iSparseStart(iNeigh, iAt1) + 1
+        iAt2 = symNeighbourList%neighbourList%iNeighbour(iNeigh, iAt1)
+        iAt2fold = symNeighbourList%img2CentCell(iAt2)
+        descAt2 = getDescriptor(iAt2fold, iSquare)
+        iCell = symNeighbourList%iCellVec(iAt2)
+        square(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), iCell)&
+            & = square(descAt2(iStart):descAt2(iEnd), descAt1(iStart):descAt1(iEnd), iCell)&
+            & + reshape(orig(iOrig:iOrig+descAt1(iNOrb)*descAt2(iNOrb)-1),&
+            & [descAt2(iNOrb), descAt1(iNOrb)])
+      end do
+    end do
+
+  end subroutine unpackHS_real_resolved
 
 
   !> Unpacks sparse matrix to square form (complex version) for helical geometries. Note the non
