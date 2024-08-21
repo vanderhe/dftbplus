@@ -3551,8 +3551,8 @@ contains
       @:RAISE_ERROR(errStatus, -1, "MPI-parallel hybrid-DFTB matrix-based force evaluation not&
           & implemented for rTD-DFTB.")
     #:else
-      call hybridXc%addCamGradients_real(real(deltaRho), real(sSqr(:,:,1)), skOverCont, orb,&
-          & iSquare, neighbourList%iNeighbour, nNeighbourSK, this%derivator, .false., derivs)
+      ! call hybridXc%addCamGradients_real(real(deltaRho), real(sSqr(:,:,1)), skOverCont, orb,&
+      !     & iSquare, neighbourList%iNeighbour, nNeighbourSK, this%derivator, .false., derivs)
       @:PROPAGATE_ERROR(errStatus)
     #:endif
     end if

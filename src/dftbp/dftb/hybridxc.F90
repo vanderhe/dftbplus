@@ -4849,7 +4849,7 @@ contains
   !> Interface routine to add gradients due to CAM range-separated contributions.
   !! (non-periodic and Gamma-only version)
   subroutine addCamGradients_real(this, deltaRhoSqr, SSqrReal, skOverCont, orb, iSquare,&
-      & iNeighbour, nNeighbourSK, derivator, tPeriodic, gradients, symNeighbourList,&
+      & iNeighbour, nNeighbourSK, derivator, cellVol, tPeriodic, gradients, symNeighbourList,&
       & nNeighbourCamSym)
 
     !> Class instance
@@ -4879,6 +4879,9 @@ contains
     !> Differentiation object
     class(TNonSccDiff), intent(in) :: derivator
 
+    !> Cell volume
+    real(dp), intent(in) :: cellVol
+
     !> True, if system is periodic (i.e. Gamma-only)
     logical, intent(in) :: tPeriodic
 
@@ -4890,10 +4893,6 @@ contains
 
     !> Nr. of neighbours for each atom
     integer, intent(in), optional :: nNeighbourCamSym(:)
-
-    real(dp), allocatable :: gradientsIn(:,:), gradientsRef(:,:)
-
-    gradientsIn = gradients
 
     if (tPeriodic) then
       call this%tabulateCamdGammaEval0_gamma()
@@ -4913,13 +4912,8 @@ contains
       end if
     case (hybridXcAlgo%matrixBased)
       @:ASSERT(present(symNeighbourList) .and. present(nNeighbourCamSym))
-      gradients(:,:) = 0.0_dp
       call addCamGradientsMatrix_real(this, deltaRhoSqr, SSqrReal, skOverCont,&
-          & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, gradients)
-      gradientsRef = gradients
-      gradients(:,:) = gradients + gradientsIn
-      print *, 'gradientsRef', shape(gradientsRef), sum(gradientsRef)
-      print *, gradientsRef
+          & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, gradients)
     end select
 
   end subroutine addCamGradients_real
@@ -4975,12 +4969,12 @@ contains
       @:RAISE_ERROR(errStatus, -1, "HybridXc Module: MPI parallelized force evaluation not&
           & supported, choose matrix-based algorithm instead.")
     case (hybridXcAlgo%matrixBased)
-      print *, 'stress total (before)'
-      print *, st
+      ! print *, 'stress total (before)'
+      ! print *, st
       call addCamStressMatrix_real(this, deltaRhoSqr, SSqrReal, skOverCont, symNeighbourList,&
           & nNeighbourCamSym, iSquare, orb, derivator, cellVol, st)
-      print *, 'stress total (after)'
-      print *, st
+      ! print *, 'stress total (after)'
+      ! print *, st
     end select
 
   end subroutine addCamStress_real
@@ -5992,7 +5986,7 @@ contains
   !!
   !! Eq.(B5) of Phys. Rev. Materials 7, 063802 (DOI: 10.1103/PhysRevMaterials.7.063802)
   subroutine addCamGradientsMatrix_real(this, deltaRhoSqr, overlap, skOverCont,&
-      & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, gradients)
+      & symNeighbourList, nNeighbourCamSym, iSquare, orb, derivator, cellVol, gradients)
 
     !> Class instance
     class(THybridXcFunc), intent(inout), target :: this
@@ -6020,6 +6014,9 @@ contains
 
     !> Differentiation object
     class(TNonSccDiff), intent(in) :: derivator
+
+    !> Cell volume
+    real(dp), intent(in) :: cellVol
 
     !> Energy gradients
     real(dp), intent(inout) :: gradients(:,:)
@@ -6054,16 +6051,14 @@ contains
     !! Iterates over coordinates
     integer :: iCoord
 
+    integer :: iAt1, iAt2, iCoordAlpha, iCoordBeta
+    real(dp) :: st(3, 3)
+
     nAtom0 = size(this%species0)
     nSpin = size(deltaRhoSqr, dim=3)
     nOrb = size(overlap, dim=1)
 
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
-
-    ! ! symmetrize temporary storage
-    ! do iSpin = 1, nSpin
-    !   symSqrMat1(:,:, iSpin) = 0.5_dp * (symSqrMat1(:,:, iSpin) + transpose(symSqrMat1(:,:, iSpin)))
-    ! end do
 
     ! allocate CAM \partial\tilde{gamma}
     allocate(camdGammaAO(nOrb, nOrb, 3))
@@ -6088,11 +6083,28 @@ contains
       end do
     end do loopForceAtom
 
-    if (this%tREKS) then
-      gradients(:,:) = gradients + tmpGradients
-    else
-      gradients(:,:) = gradients + 0.5_dp * nSpin * tmpGradients
-    end if
+    tmpGradients(:,:) = 0.5_dp * nSpin * tmpGradients
+
+    st(:,:) = 0.0_dp
+
+    do iAt1 = 1, nAtom0
+      do iAt2 = 1, nAtom0
+        do iCoordAlpha = 1, 3
+          do iCoordBeta = 1, 3
+            st(iCoordBeta, iCoordAlpha) = st(iCoordBeta, iCoordAlpha)&
+                & - 0.5_dp * (this%rCoords(iCoordAlpha, iAt1) - this%rCoords(iCoordAlpha, iAt2))&
+                & * (-tmpGradients(iCoordBeta, iAt1)) ! we need force, not gradients for virial
+          end do
+        end do
+      end do
+    end do
+
+    st(:,:) = st / cellVol
+
+    print *, 'Virial HFX stress'
+    print *, st
+
+    gradients(:,:) = gradients + tmpGradients
 
   end subroutine addCamGradientsMatrix_real
 
@@ -6155,8 +6167,8 @@ contains
     !! Atom index (central cell)
     integer :: iAtStress
 
-    !! CAM gamma derivative matrix, including periodic images
-    real(dp), allocatable :: camdGammaAO(:,:,:)
+    ! !! CAM gamma derivative matrix, including periodic images
+    ! real(dp), allocatable :: camdGammaAO(:,:,:)
 
     !! Temporary storages
     real(dp), allocatable :: symSqrMat1(:,:,:), symSqrMat2(:,:,:)
@@ -6176,7 +6188,7 @@ contains
     call getSymMats(this%camGammaEval0, deltaRhoSqr, overlap, iSquare, symSqrMat1, symSqrMat2)
 
     ! allocate CAM \partial\tilde{gamma}
-    allocate(camdGammaAO(nOrb, nOrb, 3))
+    ! allocate(camdGammaAO(nOrb, nOrb, 3))
 
     allocate(overSqrPrime(nOrb, nOrb, 3))
     tmpSt(:,:) = 0.0_dp
@@ -6191,10 +6203,10 @@ contains
           do iCoordBeta = 1, 3
             ! first term of Eq.(B5)
             tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-                & + sum(overSqrPrime(:,:, iCoordBeta) * symSqrMat1(:,:, iSpin))
+                & - sum(overSqrPrime(:,:, iCoordBeta) * symSqrMat1(:,:, iSpin))
             ! ! second term of Eq.(B5)
-            tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
-                & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
+            ! tmpSt(iCoordBeta, iCoordAlpha) = tmpSt(iCoordBeta, iCoordAlpha)&
+            !     & + 0.5_dp * sum(camdGammaAO(:,:, iCoordBeta) * symSqrMat2(:,:, iSpin))
           end do
         end do
       end do
