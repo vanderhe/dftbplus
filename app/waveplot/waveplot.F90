@@ -67,7 +67,7 @@ program waveplot
 
   !> Slice thickness
   real(dp) :: sliceThickness
-  real(dp) :: sliceChrg, sliceChrgSum
+  real(dp) :: sliceStates, sliceStatesTot
 
   !> Number of points per slice, for a given slice thickness
   ! integer :: nPointsPerSlice(3)
@@ -253,17 +253,12 @@ program waveplot
 
   ! Calculate the molecular orbitals and write them to the disk
 
-  ! slice interface into 1 Bohr tiles, along z
-  sliceThickness = 80.0_dp
+  ! slice interface into 10 Bohr tiles, along z
+  sliceThickness = 10.0_dp
   ! x = 1, y = 2 , z = 3
   iSliceDir = 3
-  ! nPointsPerSlice(:) = nint(sliceThickness / norm2(wp%loc%gridVec, dim=1))
-  ! nSlices = ceiling(real(wp%opt%nPoints(iSliceDir), dp) / real(nPointsPerSlice(iSliceDir), dp))
   nSlices = ceiling(norm2(wp%opt%boxVecs(:, iSliceDir)) / sliceThickness)
-  print *, 'nSlices', nSlices
-  ! allocate(sliceChrg(nSlices, size(wp%input%occupations, dim=1), size(wp%input%occupations, dim=2),&
-  !     & size(wp%input%occupations, dim=3)))
-  sliceChrgSum = 0.0_dp
+  sliceStatesTot = 0.0_dp
 
   iSpinOld = 1
   tFinished = .false.
@@ -307,17 +302,17 @@ program waveplot
     end if
 
     do iSlice = 1, nSlices
-      print *, 'iSlice', iSlice
       call getStartAndEndIndex(iSlice-1, nSlices, wp%opt%nPoints(iSliceDir), iStartSlice, iEndSlice)
-      print *, 'iStartSlice', iStartSlice, 'iEndSlice', iEndSlice
       call getSliceView(buffer, iStartSlice, iEndSlice, iSliceDir, pBuffer)
 
       ! divide by weight of k-point, as it is already included in the occupations
-      sliceChrg = wp%input%occupations(iLevel, iKPoint, iSpin) / wp%input%kWeight(iKPoint)&
-          & * wp%loc%gridVol * sum(pBuffer)
-      sliceChrgSum = sliceChrgSum + sliceChrg * wp%input%kWeight(iKPoint)
-      write(fd%unit, *) 'SLICE ', iSlice, ' LVL ', iLevel, ' KPT ', iKPoint, ' SPIN ', iSpin,&
-          & ' KWEIGHT ', wp%input%kWeight(iKPoint), ' NELEC ', sliceChrg
+      ! sliceChrg = wp%input%occupations(iLevel, iKPoint, iSpin) / wp%input%kWeight(iKPoint)&
+      !     & * wp%loc%gridVol * sum(pBuffer)
+      sliceStates = wp%loc%gridVol * sum(pBuffer)
+      sliceStatesTot = sliceStatesTot + sliceStates * wp%input%kWeight(iKPoint)
+      write(fd%unit, '(A,I0,A,I0,A,I0,A,I0,A,E16.8,A,E16.8)') 'SLICE ', iSlice, ' LVL ', iLevel,&
+          & ' KPT ', iKPoint, ' SPIN ', iSpin, ' KWEIGHT ', wp%input%kWeight(iKPoint),&
+          & ' NELEC ', sliceStates
     end do
 
     ! Build and dump desired properties of the current level
@@ -382,7 +377,7 @@ program waveplot
     write(stdout, "(A)") "File '" // trim(fileName) // "' written"
     if (wp%opt%tVerbose) then
       write(stdout, "(/,'Total charge:',F12.6)") sumTotChrg
-      write(stdout, "('Total charge (from slices):',F12.6,/)") sliceChrgSum
+      write(stdout, "('Total number of states (from slices):',F12.6,/)") sliceStatesTot
     end if
   end if
 
