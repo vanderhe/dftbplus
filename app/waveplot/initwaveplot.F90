@@ -59,6 +59,9 @@ module waveplot_initwaveplot
     !> Occupations
     real(dp), allocatable :: occupations(:,:,:)
 
+    !> Weights of the k-points
+    real(dp), allocatable :: kWeight(:)
+
   end type TInput
 
 
@@ -419,8 +422,10 @@ contains
 
     allocate(kPointsWeights(4, nKPoint))
     allocate(this%input%occupations(nState, nKPoint, nSpin))
+    allocate(this%input%kWeight(nKPoint))
 
     call getChildValue(detailed, "KPointsAndWeights", kPointsWeights)
+    this%input%kWeight(:) = kPointsWeights(4, :)
 
     if (tGroundState) then
       call getChild(detailed, "Occupations", occ)

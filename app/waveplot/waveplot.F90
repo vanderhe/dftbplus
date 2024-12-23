@@ -14,6 +14,7 @@ program waveplot
   use dftbp_common_globalenv, only : stdOut
   use dftbp_dftb_periodic, only : getCellTranslations
   use dftbp_io_charmanip, only : i2c
+  use dftbp_io_message, only : error
   use dftbp_math_simplealgebra, only : invert33
   use dftbp_type_linkedlist, only : TListInt, TListRealR1, len, init, append, asArray
   use dftbp_type_typegeometry, only : TGeometry
@@ -38,7 +39,10 @@ program waveplot
   complex(dp), pointer :: gridValCmpl(:,:,:)
 
   !> Arrays holding the volumetric data
-  real(dp), allocatable :: buffer(:,:,:), totChrg(:,:,:), atomicChrg(:,:,:,:), spinUp(:,:,:)
+  real(dp), allocatable, target :: buffer(:,:,:), totChrg(:,:,:), atomicChrg(:,:,:,:), spinUp(:,:,:)
+
+  !> Pointer holding a view onto the volumetric data
+  real(dp), pointer :: pBuffer(:,:,:)
 
   !> Occupation of orbitals
   real(dp), allocatable :: orbitalOcc(:,:)
@@ -60,6 +64,17 @@ program waveplot
 
   !> Onedimensional integer-valued list of atomic species indices
   type(TListInt) :: speciesList
+
+  !> Slice thickness
+  real(dp) :: sliceThickness
+  real(dp) :: sliceChrg, sliceChrgSum
+
+  !> Number of points per slice, for a given slice thickness
+  ! integer :: nPointsPerSlice(3)
+  integer :: iSlice, nSlices, iStartSlice, iEndSlice, iSliceDir
+
+  !> File descriptor
+  type(TFileDescr) :: fd
 
   !> Auxiliary variables
   integer :: i1, i2, i3
@@ -132,7 +147,7 @@ program waveplot
   end if
 
   write(stdout, "(A)") "Origin"
-  write(stdout, "(2X,3(F0.5,1X))") wp%opt%origin(:)
+  write(stdout, "(2X,3(F0.5,1X))") wp%opt%origin
   write(stdout, "(A)") "Box"
   do i1 = 1, 3
     write(stdout, "(2X,3(F0.5,1X))") wp%opt%boxVecs(:, i1)
@@ -237,8 +252,23 @@ program waveplot
   end if
 
   ! Calculate the molecular orbitals and write them to the disk
+
+  ! slice interface into 1 Bohr tiles, along z
+  sliceThickness = 80.0_dp
+  ! x = 1, y = 2 , z = 3
+  iSliceDir = 3
+  ! nPointsPerSlice(:) = nint(sliceThickness / norm2(wp%loc%gridVec, dim=1))
+  ! nSlices = ceiling(real(wp%opt%nPoints(iSliceDir), dp) / real(nPointsPerSlice(iSliceDir), dp))
+  nSlices = ceiling(norm2(wp%opt%boxVecs(:, iSliceDir)) / sliceThickness)
+  print *, 'nSlices', nSlices
+  ! allocate(sliceChrg(nSlices, size(wp%input%occupations, dim=1), size(wp%input%occupations, dim=2),&
+  !     & size(wp%input%occupations, dim=3)))
+  sliceChrgSum = 0.0_dp
+
   iSpinOld = 1
   tFinished = .false.
+  fileName = "wp-ldens.cube"
+  call openFile(fd, fileName, mode="w")
   lpStates: do while (.not. tFinished)
     ! Get the next grid and its parameters
     if (wp%input%tRealHam) then
@@ -267,8 +297,7 @@ program waveplot
         buffer = abs(gridValCmpl)**2
       end if
       if (wp%opt%tCalcTotChrg) then
-        totChrg(:,:,:) = totChrg(:,:,:) + wp%input%occupations(iLevel, iKPoint, iSpin)&
-            & * buffer(:,:,:)
+        totChrg(:,:,:) = totChrg + wp%input%occupations(iLevel, iKPoint, iSpin) * buffer
       end if
       sumChrg = sum(buffer) * wp%loc%gridVol
       if (wp%opt%tVerbose) then
@@ -276,6 +305,20 @@ program waveplot
             & wp%input%occupations(iLevel, iKPoint, iSpin)
       end if
     end if
+
+    do iSlice = 1, nSlices
+      print *, 'iSlice', iSlice
+      call getStartAndEndIndex(iSlice-1, nSlices, wp%opt%nPoints(iSliceDir), iStartSlice, iEndSlice)
+      print *, 'iStartSlice', iStartSlice, 'iEndSlice', iEndSlice
+      call getSliceView(buffer, iStartSlice, iEndSlice, iSliceDir, pBuffer)
+
+      ! divide by weight of k-point, as it is already included in the occupations
+      sliceChrg = wp%input%occupations(iLevel, iKPoint, iSpin) / wp%input%kWeight(iKPoint)&
+          & * wp%loc%gridVol * sum(pBuffer)
+      sliceChrgSum = sliceChrgSum + sliceChrg * wp%input%kWeight(iKPoint)
+      write(fd%unit, *) 'SLICE ', iSlice, ' LVL ', iLevel, ' KPT ', iKPoint, ' SPIN ', iSpin,&
+          & ' KWEIGHT ', wp%input%kWeight(iKPoint), ' NELEC ', sliceChrg
+    end do
 
     ! Build and dump desired properties of the current level
     if (tPlotLevel) then
@@ -324,6 +367,7 @@ program waveplot
       end if
     end if
   end do lpStates
+  call closeFile(fd)
 
   ! Dump total charge, if required
   if (wp%opt%tCalcTotChrg) then
@@ -337,7 +381,8 @@ program waveplot
         & totChrg, fileName, comments, wp%opt%repeatBox)
     write(stdout, "(A)") "File '" // trim(fileName) // "' written"
     if (wp%opt%tVerbose) then
-      write(stdout, "(/,'Total charge:',F12.6,/)") sumTotChrg
+      write(stdout, "(/,'Total charge:',F12.6)") sumTotChrg
+      write(stdout, "('Total charge (from slices):',F12.6,/)") sliceChrgSum
     end if
   end if
 
@@ -369,6 +414,88 @@ program waveplot
 
 
 contains
+
+  subroutine getSliceView(array, iStartSlice, iEndSlice, iDir, pArray)
+
+    !> Array to create a view format
+    real(dp), intent(in), target :: array(:,:,:)
+
+    !> Pointer view on exit
+    real(dp), intent(out), pointer :: pArray(:,:,:)
+
+    !> Start and end index of slice
+    integer, intent(in) :: iStartSlice, iEndSlice
+
+    !> Slice direction (x=1, y=2, z=3)
+    integer, intent(in) :: iDir
+
+    !! Auxiliary variables
+    integer :: lower(3), upper(3)
+
+    @:ASSERT(any(iDir == [1, 2, 3]))
+    @:ASSERT(iStartSlice >= 1 .and. iEndSlice >= 1)
+
+    lower(:) = lbound(array)
+    upper(:) = ubound(array)
+
+    select case(iDir)
+    case(1)
+      lower(1) = iStartSlice
+      upper(1) = iEndSlice
+    case(2)
+      lower(2) = iStartSlice
+      upper(2) = iEndSlice
+    case(3)
+      lower(3) = iStartSlice
+      upper(3) = iEndSlice
+    case default
+      call error("Invalid slicing direction.")
+    end select
+
+    pArray => array(lower(1):upper(1), lower(2):upper(2), lower(3):upper(3))
+
+  end subroutine getSliceView
+
+
+  !> Partitions n elements into tiles of a given size.
+  subroutine getStartAndEndIndex(iTile, nTiles, totSize, iStart, iEnd)
+
+    !> Index of the current tiles
+    integer, intent(in) :: iTile
+
+    !> Number of tiles
+    integer, intent(in) :: nTiles
+
+    !> Total number of elements to partition
+    integer, intent(in) :: totSize
+
+    !> Start and end index of current element range
+    integer, intent(out) :: iStart, iEnd
+
+    !! Size of split index regions
+    integer :: splitSize
+
+    !! Number of elements that exceed integer times nProcs
+    integer :: offset
+
+    @:ASSERT(totSize >= 0)
+    @:ASSERT(iTile < nTiles)
+
+    splitSize = totSize / nTiles
+
+    ! start and end indices assuming equal split sizes
+    iStart = iTile * splitSize + 1
+    iEnd = iStart + splitSize - 1
+
+    ! distribute possible remainder to the ranges at the end
+    offset = nTiles - mod(totSize, nTiles)
+    if (iTile + 1 > offset) then
+      iStart = iStart + iTile - offset
+      iEnd = iEnd + iTile - offset + 1
+    end if
+
+  end subroutine getStartAndEndIndex
+
 
   !> Writes a 3D function as cube file.
   subroutine writeCubeFile(geo, atomicNumbers, gridVecs, origin, gridVal, fileName, comments,&
